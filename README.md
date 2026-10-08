@@ -62,6 +62,26 @@ The repository includes a systemd service template at `deploy/gambino-bot.servic
    sudo systemctl enable --now gambino-bot
    ```
 
-Check the service with `sudo systemctl status gambino-bot` and view logs with `sudo journalctl -u gambino-bot -f`. After updating the code, run `git pull`, `npm install`, and `sudo systemctl restart gambino-bot`.
+## Automatic deployments from ChatGPT changes
+
+The workflow at `.github/workflows/deploy-oracle.yml` deploys every push to `main` and restarts the bot. Once this one-time setup is complete, changes pushed to GitHub from ChatGPT deploy automatically.
+
+1. Create a dedicated SSH key pair for deployments. Add its **public key** to the VM user's `~/.ssh/authorized_keys`; keep the **private key** for the GitHub secret. Do not reuse your personal SSH key.
+2. Allow that VM user to restart only this service without an interactive password. Open a sudoers file with `sudo visudo -f /etc/sudoers.d/gambino-bot` and add this line (replace `opc` with `ubuntu` on Ubuntu):
+
+   ```text
+   opc ALL=(root) NOPASSWD: /usr/bin/systemctl restart gambino-bot, /usr/bin/systemctl is-active gambino-bot
+   ```
+
+3. In the GitHub repository, open **Settings → Secrets and variables → Actions** and add these repository secrets:
+   - `ORACLE_HOST`: the VM's public IP address
+   - `ORACLE_USER`: `opc` or `ubuntu`
+   - `ORACLE_SSH_KEY`: the deployment private key
+   - `ORACLE_KNOWN_HOSTS`: the verified SSH host-key line for the VM
+4. Push a change to `main`. Check the **Actions** tab for the deployment result.
+
+The deployment key gives access to the VM account and permission to restart only the Gambino Bot service. Do not put the Discord token or SSH private key in the repository or in chat.
+
+Check the service with `sudo systemctl status gambino-bot` and view logs with `sudo journalctl -u gambino-bot -f`. If automatic deployment is not configured yet, manual updates are `git pull`, `npm install`, and `sudo systemctl restart gambino-bot`.
 
 Never commit your real `.env` file or share your bot token. If a token is exposed, reset it in the Developer Portal.
