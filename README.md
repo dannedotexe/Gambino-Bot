@@ -36,29 +36,16 @@ For quick command updates while developing, set `DISCORD_GUILD_ID` in `.env` to 
 
 The Oracle VM already runs the HugoSMP bot with PM2 under the `ubuntu` account. Gambino uses the same VM and PM2 pattern. There is no separate GitHub Actions or systemd deployment setup.
 
-After the one-time bot setup below, a requested change can be handled in ChatGPT: update and commit the code to GitHub, then pull the commit onto the VM and restart `gambino-bot` with PM2.
-
-1. The repository checkout on the VM is `/home/ubuntu/Gambino-Bot`. Install dependencies there with `npm install`.
-2. Create `/home/ubuntu/Gambino-Bot/.env` from `.env.example`; fill in `DISCORD_TOKEN` and `DISCORD_CLIENT_ID` directly on the VM. Do not add the real `.env` file to GitHub.
-3. Register commands and start the bot:
-
-   ```sh
-   cd /home/ubuntu/Gambino-Bot
-   npm run deploy-commands
-   pm2 start npm --name gambino-bot -- start
-   pm2 save
-   ```
-
-The VM already has Node.js 20 and PM2. PM2 keeps the process running and can restore saved processes when its startup service is enabled.
-
-For later code changes, the deployment steps are:
+The Gambino repository is checked out at `/home/ubuntu/Gambino-Bot`. The VM has Node.js 20 and PM2 installed. For first setup, add `DISCORD_TOKEN` and `DISCORD_CLIENT_ID` to `/home/ubuntu/Gambino-Bot/.env` on the VM, then run:
 
 ```sh
 cd /home/ubuntu/Gambino-Bot
-git pull --ff-only origin main
 npm install
-pm2 restart gambino-bot
+npm run deploy-commands
+pm2 start npm --name gambino-bot -- start
 pm2 save
 ```
+
+After first setup, code changes requested in ChatGPT are committed to GitHub and deployed to the VM by pulling the new commit, installing any updated packages, and restarting `gambino-bot` with PM2. You do not need to run those deployment commands yourself.
 
 The Discord token stays only in the VM's `.env` file. Never commit it or send it in chat. If a token is exposed, reset it in the Developer Portal.
