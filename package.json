@@ -1,0 +1,17 @@
+{
+  "name": "gambino-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A Discord bot built with discord.js",
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "scripts": {
+    "start": "node --env-file=.env index.js",
+    "deploy-commands": "node --env-file=.env deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4"
+  }
+}
