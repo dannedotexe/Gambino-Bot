@@ -1,0 +1,16 @@
+[Unit]
+Description=Gambino Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opc
+WorkingDirectory=/opt/gambino-bot
+EnvironmentFile=/opt/gambino-bot/.env
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
