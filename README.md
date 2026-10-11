@@ -60,6 +60,7 @@ Das Familienkonto steht für noch nicht ausgezahltes Geld aus Grand-RP-Events od
 | `ROLE_EVENT_TEAM` | Events und Anwesenheit |
 | `ROLE_REVIEWERS` | Anträge und Reviewer-Panel |
 | `ROLE_MEMBERS` | vorbereitet für Mitgliedsrollen; derzeit keine automatische Rollenvergabe |
+| `BOT_OWNER_IDS` | optionale Discord-Benutzer-IDs mit persönlichem Vollzugriff auf rollenbeschränkte Staff-Befehle |
 | `CHANNEL_TICKET_CATEGORY` | Kategorie, unter der private Ticket-Channels erstellt werden |
 | `CHANNEL_TICKET_LOG` | Ticket-Kurzmeldungen |
 | `CHANNEL_APPLICATION_REVIEW` | eingereichte Anträge und Reviewer-Buttons |

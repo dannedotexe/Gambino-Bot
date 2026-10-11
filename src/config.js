@@ -14,6 +14,7 @@ const schema = z.object({
   PAYOUT_MINIMUM_CENTS: z.coerce.number().int().nonnegative().optional(),
   ROLE_LEADERS: idList.optional(), ROLE_STAFF: idList.optional(), ROLE_EVENT_TEAM: idList.optional(),
   ROLE_FINANCE: idList.optional(), ROLE_REVIEWERS: idList.optional(), ROLE_MEMBERS: idList.optional(),
+  BOT_OWNER_IDS: idList.optional(),
   CHANNEL_TICKET_CATEGORY: snowflake, CHANNEL_TICKET_LOG: snowflake,
   CHANNEL_APPLICATION_REVIEW: snowflake, CHANNEL_EVENT_ANNOUNCEMENTS: snowflake,
   CHANNEL_AUDIT_LOG: snowflake, CHANNEL_STATS: snowflake, CHANNEL_AUTOMOD_LOG: snowflake,
@@ -50,6 +51,7 @@ export function hasRole(member, allowed = []) {
 
 export function requireRole(interaction, allowed, label = "autorisierte Staff-Rolle") {
   if (!interaction.inGuild()) return "Dieser Befehl funktioniert nur auf einem Server.";
+  if (interaction.user?.id && interaction.client?.gambinoOwnerIds?.includes(interaction.user.id)) return null;
   if (!allowed?.length) return `Die Rollen für diese Aktion sind noch nicht konfiguriert. Bitte ROLE_* in der .env setzen.`;
   if (!hasRole(interaction.member, allowed)) return `Dafür brauchst du eine ${label}.`;
   return null;
