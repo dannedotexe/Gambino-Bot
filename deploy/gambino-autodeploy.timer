@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub for Gambino Bot updates
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Persistent=true
+Unit=gambino-autodeploy.service
+
+[Install]
+WantedBy=timers.target
