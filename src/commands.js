@@ -11,6 +11,32 @@ const isoNow=()=>new Date().toISOString();
 const ts=()=>Math.floor(Date.now()/1000);
 const embed=(title,description)=>new EmbedBuilder().setColor(0x8e44ad).setTitle(title).setDescription(description).setTimestamp();
 const err=(e)=>e instanceof Error?e.message:"Die Aktion ist fehlgeschlagen.";
+const ticketPresentation={
+  support:{emoji:"🛠️",description:"Allgemeine Fragen und Hilfe"},
+  beschwerde:{emoji:"⚠️",description:"Ein Problem oder eine Beschwerde melden"},
+  bewerbung:{emoji:"📝",description:"Deine Bewerbung bei Gambinos"},
+  leitung:{emoji:"👑",description:"Ein wichtiges Anliegen an die Leitung"},
+};
+
+export function buildTicketPanelPayload(config) {
+  const options=config.TICKET_CATEGORIES_JSON.map(c=>{
+    const presentation=ticketPresentation[c.id]??{emoji:"🎫",description:`Ein Ticket für ${c.label}`};
+    return {label:c.label,value:c.id,description:presentation.description,emoji:{name:presentation.emoji}};
+  });
+  const panel=new EmbedBuilder().setColor(0xd4af37)
+    .setAuthor({name:"GAMBINOS  •  SUPPORT CENTER"})
+    .setTitle("🎫  Wie können wir dir helfen?")
+    .setDescription("Willkommen beim **Gambinos Support**. Wähle unten das passende Thema – der Bot erstellt einen privaten Ticket-Channel für dich und das zuständige Team.")
+    .addFields(
+      {name:"🧭  Anliegen auswählen",value:"Wähle im Menü eine Kategorie aus. Deine Anfrage wird direkt an das passende Team weitergeleitet.",inline:false},
+      {name:"🔒  Dein privater Bereich",value:"Nur du, das zuständige Team und die Serverleitung können dein Ticket sehen.",inline:true},
+      {name:"💬  So geht es weiter",value:"Beschreibe dein Anliegen im neuen Channel. Ein Teammitglied übernimmt es dort.",inline:true},
+    )
+    .setFooter({text:"GAMBINOS  •  Wir helfen dir weiter"})
+    .setTimestamp();
+  const select=new StringSelectMenuBuilder().setCustomId("ticket:create").setPlaceholder("🎟️  Wähle dein Anliegen aus …").addOptions(options);
+  return {embeds:[panel],components:[new ActionRowBuilder().addComponents(select)]};
+}
 
 export function buildCommands() {
   const money = new SlashCommandBuilder().setName("konto").setDescription("Gambinos-Familienkonto")
@@ -111,7 +137,11 @@ export function createHandler({db,finance,config,client}) {
         if(sub==="aufheben") {const denied=requireRole(i,guards.leaders,"Leitungsrolle");if(denied)return respond(i,denied);finance.voidSanction({guildId:g,sanctionId:i.options.getString("id"),actorId:u,reason:i.options.getString("grund")});return respond(i,"Sanktion wurde nachvollziehbar aufgehoben.");}
         if(sub==="rueckerstatten") {const denied=requireRole(i,guards.leaders,"Leitungsrolle");if(denied)return respond(i,denied);const tx=finance.refundSanction({guildId:g,sanctionId:i.options.getString("id"),actorId:u,reason:i.options.getString("grund"),key:`refund:${i.id}`});return respond(i,`Abzug von **${formatMoney(tx.amount_cents)}** erstattet. Transaktion: \`${tx.id}\``);}
       }
-      if(i.commandName==="ticket"&&sub==="panel") {const denied=requireRole(i,guards.staff,"Staff-Rolle");if(denied)return respond(i,denied);const select=new StringSelectMenuBuilder().setCustomId("ticket:create").setPlaceholder("Ticket-Kategorie wählen").addOptions(config.TICKET_CATEGORIES_JSON.map(c=>({label:c.label,value:c.id})));await i.channel.send({embeds:[embed("Gambinos Tickets","Wähle eine Kategorie. Tickets sind nur für dich und das zuständige Team sichtbar.")],components:[new ActionRowBuilder().addComponents(select)]});return respond(i,"Ticket-Panel gesendet.");}
+      if(i.commandName==="ticket"&&sub==="panel") {
+        const denied=requireRole(i,guards.staff,"Staff-Rolle");if(denied)return respond(i,denied);
+        await i.channel.send(buildTicketPanelPayload(config));
+        return respond(i,"Das Support-Panel wurde veröffentlicht.");
+      }
       if(i.commandName==="ticket"&&sub==="uebernehmen"){const denied=requireRole(i,guards.staff,"Staff-Rolle");if(denied)return respond(i,denied);const row=db.prepare("UPDATE tickets SET claimed_by=?,updated_at=? WHERE channel_id=? AND status='open' AND claimed_by IS NULL RETURNING id,user_id").get(u,isoNow(),i.channelId);if(!row)return respond(i,"Ticket nicht gefunden oder bereits übernommen.");audit(db,g,u,"ticket.claimed",row.user_id,{ticketId:row.id});return respond(i,`Ticket übernommen · \`${row.id}\``);}
       if(i.commandName==="ticket"&&sub==="wiedereroeffnen"){const denied=requireRole(i,guards.staff,"Staff-Rolle");if(denied)return respond(i,denied);const row=db.prepare("UPDATE tickets SET status='open',closed_at=NULL,updated_at=? WHERE channel_id=? AND status='closed' RETURNING id,user_id").get(isoNow(),i.channelId);if(!row)return respond(i,"Geschlossenes Ticket nicht gefunden.");await i.channel.permissionOverwrites.edit(row.user_id,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true});audit(db,g,u,"ticket.reopened",row.user_id,{ticketId:row.id});await i.channel.send(`Ticket wieder geöffnet · <@${row.user_id}>`);return respond(i,"Ticket wieder geöffnet.");}
       if(i.commandName==="ticket"&&sub==="schliessen") {const row=db.prepare("SELECT * FROM tickets WHERE channel_id=? AND status='open'").get(i.channelId);if(!row)return respond(i,"Dies ist kein offenes Ticket.");if(row.user_id!==u&&!hasRoleOrOwner(i,guards.staff))return respond(i,"Nur Ersteller oder Staff können dieses Ticket schließen.");await i.reply({content:"Ticket wirklich schließen?",components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`ticket:close:${row.id}`).setLabel("Schließen").setStyle(ButtonStyle.Danger),new ButtonBuilder().setCustomId("cancel:ticket").setLabel("Abbrechen").setStyle(ButtonStyle.Secondary))],ephemeral:true});return;}
