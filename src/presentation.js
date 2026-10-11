@@ -4,8 +4,8 @@ export const BRAND_COLOR = 0xd4af37;
 const COLORS = { success: 0x2ecc71, error: 0xe74c3c, warning: 0xf39c12, info: BRAND_COLOR };
 
 function responseTone(text) {
-  if (/^(Dafür brauchst du|Du hast bereits|Bitte |Nur |Dieser |Diese |Das Event ist bereits|Offener .* nicht|Keine |Nicht |Ungültig|Unbekannter|Ticket konnte|Der Bot ist|Aktion fehlgeschlagen|Diese Aktion)/i.test(text)) return "error";
-  if (/(wurde(n)? (erstellt|gespeichert|verbucht|aktualisiert|angenommen|abgelehnt|abgeschlossen|gestartet|beendet|abgesagt|zurückgezogen)|Du bist (angemeldet|abgemeldet)|Du nimmst am Giveaway teil|Pong!)/i.test(text)) return "success";
+  if (/^(Dafür brauchst du|Du hast bereits|Bitte |Nur |Dieser |Diese |Das Event ist bereits|Offener .* nicht|Keine |Nicht |Ungültig|Unbekannter|Ticket konnte|Ticket wurde bereits|Der Bot ist|Aktion fehlgeschlagen|Diese Aktion|Kontostand oder Sanktionen|Es ist ein Fehler|Für diese Sanktion|Von dieser Sanktion|Das Guthaben liegt)/i.test(text)) return "error";
+  if (/(wurde(n)? (erstellt|gespeichert|verbucht|aktualisiert|angenommen|abgelehnt|abgeschlossen|gestartet|beendet|abgesagt|zurückgezogen|erstattet|aufgehoben|wieder geöffnet)|\b(erstellt|aktualisiert|abgebrochen|erfolgreich)\b|Du bist (angemeldet|abgemeldet)|Du nimmst am Giveaway teil|Pong!|Ticket wird von)/i.test(text)) return "success";
   return "info";
 }
 
@@ -17,7 +17,8 @@ export function brandedTextEmbed(text, title = null) {
     .setAuthor({ name: "GAMBINOS  •  BOT" })
     .setTitle(title ?? names[tone])
     .setDescription(String(text).slice(0, 4096))
-    .setFooter({ text: "GAMBINOS  •  Familienverwaltung" });
+    .setFooter({ text: "GAMBINOS  •  Familienverwaltung" })
+    .setTimestamp();
 }
 
 export function presentInteractionPayload(options) {
@@ -58,6 +59,7 @@ const ACTIONS = {
   "application.claimed": "Antrag zur Bearbeitung übernommen",
   "application.accepted": "Antrag angenommen",
   "application.rejected": "Antrag abgelehnt",
+  "application.withdrawn": "Antrag zurückgezogen",
   "ticket.created": "Ticket eröffnet",
   "ticket.claimed": "Ticket übernommen",
   "ticket.closed": "Ticket geschlossen",
@@ -93,6 +95,8 @@ function formatDetail(key, value) {
   if (key === "channelId") return `<#${value}>`;
   if (key === "kind") return value === "rang" ? "Rang-Antrag" : value === "bewerbung" ? "Familienbewerbung" : String(value).slice(0, 1000);
   if (key === "category") return ({ support: "Support", beschwerde: "Beschwerde", leitung: "Leitung" })[value] ?? String(value).slice(0, 1000);
+  if (key === "rule") return ({ message_spam: "Nachrichten-Spam", blocked_term: "Gesperrter Begriff", unapproved_link: "Nicht erlaubter Link", join_raid: "Möglicher Join-Raid" })[value] ?? String(value).slice(0, 1000);
+  if (key === "status") return ({ present: "Anwesend", absent: "Abwesend", signed_up: "Angemeldet", left: "Abgemeldet" })[value] ?? value;
   if (key === "startsAt") { const time = Math.floor(new Date(value).getTime() / 1000); return Number.isFinite(time) ? `<t:${time}:F>` : String(value); }
   if (["transactionId", "sanctionId", "payoutId", "eventId", "ticketId"].includes(key)) return `\`${String(value).slice(0, 12)}\``;
   if (Array.isArray(value)) return value.length ? value.map(String).join(", ").slice(0, 1000) : "Keine";
@@ -107,7 +111,7 @@ export function auditLogPayload(item) {
   const color = action.startsWith("automod.") || action.includes("rejected") || action.includes("void") ? COLORS.error
     : action.startsWith("finance.") || action.includes("accepted") || action.includes("refunded") ? COLORS.success
       : action.startsWith("sanction.") ? COLORS.warning : BRAND_COLOR;
-  const targetIsPerson = ["application.submitted", "application.claimed", "application.accepted", "application.rejected"].includes(action)
+  const targetIsPerson = ["application.submitted", "application.claimed", "application.accepted", "application.rejected", "application.withdrawn"].includes(action)
     ? false
     : !["ticket.created", "giveaway.ended"].includes(action) && Boolean(item.target_id);
   const target = !item.target_id ? "—"

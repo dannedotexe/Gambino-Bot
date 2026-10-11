@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applicationQuestions, applicationReviewChannelKey, buildApplicationPanelPayload, buildApplicationReviewPayload, buildTicketPanelPayload } from "../src/commands.js";
+import { applicationQuestions, applicationReviewChannelKey, buildApplicationPanelPayload, buildApplicationReviewPayload, buildTicketPanelPayload, ticketActions, ticketCard, ticketClosedCard } from "../src/commands.js";
 
 test("Bewerbung und Rang-Antrag zeigen unterschiedliche gezielte Fragen",()=>{
   const application=applicationQuestions("bewerbung").map(question=>question.id);
@@ -44,4 +44,18 @@ test("Ticket-Panel bleibt kurz und enthält keine Bewerbungsoption",()=>{
   const payload=buildTicketPanelPayload({TICKET_CATEGORIES_JSON:[{id:"support",label:"Support"},{id:"beschwerde",label:"Beschwerde"},{id:"leitung",label:"Leitung"}]});
   assert.equal(payload.embeds[0].data.fields,undefined);
   assert.deepEqual(payload.components[0].toJSON().components[0].options.map(option=>option.value),["support","beschwerde","leitung"]);
+});
+
+test("Ticket-Übernahme zeigt den Bearbeiter und entfernt den Übernehmen-Button",()=>{
+  const card=ticketCard("Support","12345678901234567","98765432109876543").toJSON();
+  assert.match(card.description,/In Bearbeitung/);
+  assert.match(card.description,/<@98765432109876543>/);
+  const buttons=ticketActions("ticket-123",true)[0].toJSON().components;
+  assert.deepEqual(buttons.map(button=>button.label),["Schließen"]);
+});
+
+test("Geschlossene Tickets zeigen den Abschlussstatus ohne aktive Schaltflächen",()=>{
+  const card=ticketClosedCard("Support","12345678901234567").toJSON();
+  assert.match(card.title,/geschlossen/i);
+  assert.match(card.description,/Status:\*\* Geschlossen/);
 });

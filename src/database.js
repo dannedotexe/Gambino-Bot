@@ -25,7 +25,7 @@ export function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS sanctions_open ON sanctions(guild_id,user_id,status);
     CREATE TABLE IF NOT EXISTS payout_allocations (id TEXT PRIMARY KEY, payout_id TEXT NOT NULL REFERENCES transactions(id), sanction_id TEXT NOT NULL REFERENCES sanctions(id), amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), created_at TEXT NOT NULL, UNIQUE(payout_id,sanction_id));
     CREATE TABLE IF NOT EXISTS sanction_refunds (id TEXT PRIMARY KEY, sanction_id TEXT NOT NULL REFERENCES sanctions(id), transaction_id TEXT NOT NULL UNIQUE REFERENCES transactions(id), amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), reason TEXT NOT NULL, created_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, channel_id TEXT UNIQUE, user_id TEXT NOT NULL, category TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','closed')), claimed_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT);
+    CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, channel_id TEXT UNIQUE, user_id TEXT NOT NULL, category TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','closed')), claimed_by TEXT, message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT);
     CREATE TABLE IF NOT EXISTS ticket_transcripts (ticket_id TEXT PRIMARY KEY REFERENCES tickets(id), messages TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS audit_log_deliveries (audit_id TEXT PRIMARY KEY REFERENCES audit_logs(id), attempted_at TEXT NOT NULL, result TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS tickets_user_open ON tickets(guild_id,user_id,status);
@@ -41,6 +41,8 @@ export function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS audit_time ON audit_logs(guild_id,created_at DESC);
     CREATE TABLE IF NOT EXISTS automod_actions (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, rule TEXT NOT NULL, action TEXT NOT NULL, created_at TEXT NOT NULL);
   `);
+  const ticketColumns = db.prepare("PRAGMA table_info(tickets)").all();
+  if (!ticketColumns.some(column => column.name === "message_id")) db.exec("ALTER TABLE tickets ADD COLUMN message_id TEXT");
   db.prepare("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,?)").run(new Date().toISOString());
 }
 
