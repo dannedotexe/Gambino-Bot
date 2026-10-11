@@ -129,16 +129,16 @@ const ACTION_EMOJI = {
 };
 
 const DETAIL_NAMES = {
-  category: "Kategorie", kind: "Antragstyp", applicantId: "Antragsteller", reason: "Grund", note: "Kommentar", caseRef: "Fallbezug",
+  category: "Kategorie", kind: "Antragstyp", applicantId: "Antragsteller", reviewerId: "Prüfer", reason: "Grund", note: "Kommentar", caseRef: "Fallbezug",
   rule: "Regel", action: "Maßnahme", entries: "Teilnahmen", transcriptMessages: "Nachrichten im Transkript",
-  cents: "Betrag", grossCents: "Brutto", deductionCents: "Sanktionsabzug", netCents: "Netto ausgezahlt",
-  remainingCents: "Offener Rest", startsAt: "Beginn", name: "Name", status: "Status", channelId: "Channel",
-  transactionId: "Buchungs-ID", sanctionId: "Sanktions-ID", payoutId: "Auszahlungs-ID", eventId: "Event-ID", ticketId: "Ticket-ID",
+  cents: "Betrag", amountCents: "Betrag", grossCents: "Brutto", deductionCents: "Abzug", netCents: "Netto", remainingCents: "Offener Rest",
+  startsAt: "Eventbeginn", name: "Name", status: "Status", channelId: "Channel", messageId: "Nachricht",
+  transactionId: "Buchungsreferenz", sanctionId: "Sanktionsreferenz", applicationId: "Antragsreferenz", payoutId: "Auszahlungsreferenz", eventId: "Eventreferenz", ticketId: "Ticketreferenz",
 };
 
 function formatDetail(key, value) {
   if (value == null || value === "") return "—";
-  if (["cents", "grossCents", "deductionCents", "netCents", "remainingCents"].includes(key) && Number.isFinite(Number(value))) {
+  if (["cents", "amountCents", "grossCents", "deductionCents", "netCents", "remainingCents"].includes(key) && Number.isFinite(Number(value))) {
     return `${(Number(value) / 100).toLocaleString("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
   }
   if (key === "channelId") return `<#${value}>`;
@@ -150,7 +150,7 @@ function formatDetail(key, value) {
   if (key === "startsAt") { const time = Math.floor(new Date(value).getTime() / 1000); return Number.isFinite(time) ? `<t:${time}:F>` : String(value); }
   if (["transactionId", "sanctionId", "payoutId", "eventId", "ticketId"].includes(key)) return `\`${String(value).slice(0, 12)}\``;
   if (Array.isArray(value)) return value.length ? value.map(String).join(", ").slice(0, 1000) : "Keine";
-  if (typeof value === "object") return JSON.stringify(value).slice(0, 1000);
+  if (typeof value === "object") return Object.entries(value).map(([name, item]) => `${DETAIL_NAMES[name] ?? name}: ${formatDetail(name, item)}`).join("\n").slice(0, 1000);
   if (key === "action" && value === "message_deleted") return "Nachricht gelöscht";
   return String(value).slice(0, 1000);
 }

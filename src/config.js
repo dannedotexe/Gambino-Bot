@@ -28,11 +28,27 @@ const schema = z.object({
   AUTOMOD_SPAM_WINDOW_SECONDS: z.coerce.number().int().positive().default(8),
   RAID_JOIN_COUNT: z.coerce.number().int().min(3).default(10),
   RAID_WINDOW_SECONDS: z.coerce.number().int().positive().default(20),
+  DASHBOARD_ENABLED: z.string().default("false").transform(v=>v.toLowerCase()==="true"),
+  DASHBOARD_BIND: z.string().default("127.0.0.1"),
+  DASHBOARD_PORT: z.coerce.number().int().min(1024).max(65535).default(3080),
+  DASHBOARD_PUBLIC_URL: z.string().url().optional().or(z.literal("")),
+  DISCORD_CLIENT_SECRET: z.string().optional(),
+  DASHBOARD_SESSION_SECRET: z.string().optional(),
 }).superRefine((cfg, ctx) => {
   try { new Intl.DateTimeFormat("de-AT", { timeZone: cfg.TIMEZONE }); }
   catch { ctx.addIssue({ code: "custom", path: ["TIMEZONE"], message: "Unbekannte IANA-Zeitzone" }); }
   for (const [name, ids] of Object.entries({ leaders: cfg.ROLE_LEADERS, staff: cfg.ROLE_STAFF, events: cfg.ROLE_EVENT_TEAM, finance: cfg.ROLE_FINANCE, reviewers: cfg.ROLE_REVIEWERS })) {
     if (ids?.length && new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", path: [`ROLE_${name.toUpperCase()}`], message: "Doppelte Rollen-ID" });
+  }
+  if(cfg.DASHBOARD_ENABLED){
+    if(!cfg.DISCORD_GUILD_ID)ctx.addIssue({code:"custom",path:["DISCORD_GUILD_ID"],message:"Für das Dashboard erforderlich"});
+    let dashboardUrl;
+    try { dashboardUrl = new URL(cfg.DASHBOARD_PUBLIC_URL); } catch { dashboardUrl = null; }
+    if(!dashboardUrl||dashboardUrl.protocol!=="https:"||dashboardUrl.pathname!=="/"||dashboardUrl.search||dashboardUrl.hash)ctx.addIssue({code:"custom",path:["DASHBOARD_PUBLIC_URL"],message:"Eine reine HTTPS-Domain ohne zusätzlichen Pfad ist erforderlich"});
+    if(!["127.0.0.1","::1","localhost"].includes(cfg.DASHBOARD_BIND))ctx.addIssue({code:"custom",path:["DASHBOARD_BIND"],message:"Aus Sicherheitsgründen muss das Dashboard an localhost gebunden sein"});
+    if(!cfg.DISCORD_CLIENT_SECRET)ctx.addIssue({code:"custom",path:["DISCORD_CLIENT_SECRET"],message:"Für Discord-OAuth erforderlich"});
+    if(!cfg.DASHBOARD_SESSION_SECRET||cfg.DASHBOARD_SESSION_SECRET.length<32)ctx.addIssue({code:"custom",path:["DASHBOARD_SESSION_SECRET"],message:"Mindestens 32 Zeichen erforderlich"});
+    if(![...(cfg.ROLE_LEADERS??[]),...(cfg.ROLE_STAFF??[]),...(cfg.ROLE_FINANCE??[]),...(cfg.ROLE_EVENT_TEAM??[]),...(cfg.ROLE_REVIEWERS??[])].length)ctx.addIssue({code:"custom",path:["ROLE_*"] ,message:"Mindestens eine Staff-Rolle muss für den Dashboard-Zugriff gesetzt sein"});
   }
 });
 

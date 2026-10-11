@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111114"><title>Gambinos · Staff</title>
+  <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar"><a class="brand" href="/"><span class="brand-mark">G</span><span><b>GAMBINOS</b><small>FAMILIENVERWALTUNG</small></span></a><div class="profile"><span id="staff-name">Staff-Dashboard</span><button id="logout" class="quiet hidden">Abmelden</button></div></header>
+    <section id="login" class="login-card"><div class="eyebrow">STAFF PORTAL</div><h1>Alles im Blick.</h1><p>Melde dich mit Discord an. Zugriff erhalten nur konfigurierte Gambinos-Staffrollen.</p><a class="primary" href="/login">Mit Discord anmelden <span>↗</span></a><p id="message" class="message"></p></section>
+    <section id="dashboard" class="hidden">
+      <div class="welcome"><div><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1>Übersicht</h1><p>Dein aktueller Serverstand auf einen Blick.</p></div><div class="live"><i></i> Live-Daten</div></div>
+      <div id="stats" class="stats"></div>
+      <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">ALS NÄCHSTES</div><h2>Anstehende Events</h2></div><span class="icon">◷</span></div><div id="events" class="rows"></div></section>
+        <section class="panel"><div class="panel-head"><div><div class="eyebrow">REVIEW</div><h2>Offene Anträge</h2></div><span class="icon">✳</span></div><div id="applications" class="rows"></div></section></div>
+      <div class="columns lower"><section class="panel"><div class="panel-head"><div><div class="eyebrow">AKTIVITÄT</div><h2>Letzte Aktionen</h2></div><span class="icon">↗</span></div><div id="activity" class="rows"></div></section>
+        <section id="finance-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">LEITUNG & FINANZEN</div><h2>Familienkonto</h2></div><span class="icon gold">$</span></div><div id="finance" class="finance"></div><p class="subtle">Persönliche Guthaben und Sanktionsdetails bleiben in Discord rollenbeschränkt.</p></section></div>
+      <footer>GAMBINOS <span>·</span> Nur für autorisierte Staffmitglieder</footer>
+    </section>
+  </main>
+</body>
+</html>

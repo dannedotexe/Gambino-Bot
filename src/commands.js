@@ -102,34 +102,34 @@ export function buildCommands() {
     .addSubcommand(s=>s.setName("ansehen").setDescription("Kontostand eines Mitglieds (Finanzrolle)").addUserOption(o=>o.setName("mitglied").setDescription("Mitglied").setRequired(true)))
     .addSubcommand(s=>s.setName("gutschrift").setDescription("Geld gutschreiben (Finanzrolle)").addUserOption(o=>o.setName("mitglied").setDescription("Empfänger").setRequired(true)).addStringOption(o=>o.setName("betrag").setDescription("Betrag in Dollar").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Buchungsgrund").setRequired(true)))
     .addSubcommand(s=>s.setName("auszahlen").setDescription("Guthaben auszahlen und Sanktionen verrechnen").addUserOption(o=>o.setName("mitglied").setDescription("Empfänger").setRequired(true)))
-    .addSubcommand(s=>s.setName("liste").setDescription("Auszahlungsliste (Finanzrolle)"))
+    .addSubcommand(s=>s.setName("liste").setDescription("Auszahlungsliste (Finanzrolle)").addIntegerOption(o=>o.setName("seite").setDescription("Seite der Liste").setMinValue(1)))
     .addSubcommand(s=>s.setName("historie").setDescription("Transaktionshistorie").addUserOption(o=>o.setName("mitglied").setDescription("Mitglied (Finanzrolle)")));
   const sanction = new SlashCommandBuilder().setName("sanktion").setDescription("Sanktionsverwaltung")
     .addSubcommand(s=>s.setName("erstellen").setDescription("Auszahlungsabzug vormerken").addUserOption(o=>o.setName("mitglied").setDescription("Betroffenes Mitglied").setRequired(true)).addStringOption(o=>o.setName("betrag").setDescription("Betrag in Dollar").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Grund").setRequired(true)).addStringOption(o=>o.setName("fall").setDescription("Optionale Fall- oder Event-ID")))
     .addSubcommand(s=>s.setName("offen").setDescription("Offene Sanktionen anzeigen").addUserOption(o=>o.setName("mitglied").setDescription("Mitglied (optional)")))
-    .addSubcommand(s=>s.setName("aufheben").setDescription("Offene Sanktion aufheben").addStringOption(o=>o.setName("id").setDescription("Sanktions-ID").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Aufhebungsgrund").setRequired(true)))
-    .addSubcommand(s=>s.setName("rueckerstatten").setDescription("Bereits abgezogene Sanktion erstatten und aufheben").addStringOption(o=>o.setName("id").setDescription("Sanktions-ID").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Erstattungsgrund").setRequired(true)));
+    .addSubcommand(s=>s.setName("aufheben").setDescription("Offene Sanktion aufheben").addStringOption(o=>o.setName("id").setDescription("Sanktion auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("grund").setDescription("Aufhebungsgrund").setRequired(true)))
+    .addSubcommand(s=>s.setName("rueckerstatten").setDescription("Bereits abgezogene Sanktion erstatten und aufheben").addStringOption(o=>o.setName("id").setDescription("Sanktion auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("grund").setDescription("Erstattungsgrund").setRequired(true)));
   const ticket = new SlashCommandBuilder().setName("ticket").setDescription("Ticketsystem")
     .addSubcommand(s=>s.setName("panel").setDescription("Ticket-Panel senden (Staff)"))
     .addSubcommand(s=>s.setName("uebernehmen").setDescription("Dieses Ticket übernehmen (Staff)"))
     .addSubcommand(s=>s.setName("wiedereroeffnen").setDescription("Geschlossenes Ticket wieder öffnen (Staff)"))
     .addSubcommand(s=>s.setName("schliessen").setDescription("Dieses Ticket schließen"));
   const event = new SlashCommandBuilder().setName("event").setDescription("Familien-Events")
-    .addSubcommand(s=>s.setName("erstellen").setDescription("Event anlegen").addStringOption(o=>o.setName("name").setDescription("Name").setRequired(true)).addStringOption(o=>o.setName("start").setDescription("ISO-Datum, z. B. 2026-12-31T19:00:00+01:00").setRequired(true)).addStringOption(o=>o.setName("treffpunkt").setDescription("Treffpunkt").setRequired(true)).addStringOption(o=>o.setName("beschreibung").setDescription("Beschreibung").setRequired(true)).addIntegerOption(o=>o.setName("maximum").setDescription("Teilnehmerlimit").setMinValue(1)).addStringOption(o=>o.setName("ausruestung").setDescription("Benötigte Ausrüstung")).addStringOption(o=>o.setName("hinweise").setDescription("Teilnahmehinweise")))
+    .addSubcommand(s=>s.setName("erstellen").setDescription("Event anlegen").addStringOption(o=>o.setName("name").setDescription("Name").setRequired(true)).addStringOption(o=>o.setName("start").setDescription("Datum und Uhrzeit, z. B. 31.12.2026 19:00 (Server-Zeitzone)").setRequired(true)).addStringOption(o=>o.setName("treffpunkt").setDescription("Treffpunkt").setRequired(true)).addStringOption(o=>o.setName("beschreibung").setDescription("Beschreibung").setRequired(true)).addIntegerOption(o=>o.setName("maximum").setDescription("Teilnehmerlimit").setMinValue(1)).addStringOption(o=>o.setName("ausruestung").setDescription("Benötigte Ausrüstung")).addStringOption(o=>o.setName("hinweise").setDescription("Teilnahmehinweise")))
     .addSubcommand(s=>s.setName("liste").setDescription("Anstehende Events"))
     .addSubcommand(s=>s.setName("historie").setDescription("Vergangene Events"))
-    .addSubcommand(s=>s.setName("bearbeiten").setDescription("Geplantes Event ändern").addStringOption(o=>o.setName("id").setDescription("Event-ID").setRequired(true)).addStringOption(o=>o.setName("name").setDescription("Neuer Name")).addStringOption(o=>o.setName("start").setDescription("Neues ISO-Datum mit Zeitzone")).addStringOption(o=>o.setName("treffpunkt").setDescription("Neuer Treffpunkt")).addStringOption(o=>o.setName("beschreibung").setDescription("Neue Beschreibung")).addIntegerOption(o=>o.setName("maximum").setDescription("Neues Teilnehmerlimit").setMinValue(1)))
-    .addSubcommand(s=>s.setName("anwesenheit").setDescription("Teilnahme dokumentieren (Event-Team)").addStringOption(o=>o.setName("id").setDescription("Event-ID").setRequired(true)).addUserOption(o=>o.setName("mitglied").setDescription("Teilnehmer").setRequired(true)).addStringOption(o=>o.setName("status").setDescription("Teilnahme").setRequired(true).addChoices({name:"Anwesend",value:"present"},{name:"Abwesend",value:"absent"})))
-    .addSubcommand(s=>s.setName("beenden").setDescription("Event abschließen").addStringOption(o=>o.setName("id").setDescription("Event-ID").setRequired(true)))
-    .addSubcommand(s=>s.setName("absagen").setDescription("Event absagen").addStringOption(o=>o.setName("id").setDescription("Event-ID").setRequired(true)));
+    .addSubcommand(s=>s.setName("bearbeiten").setDescription("Geplantes Event ändern").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("name").setDescription("Neuer Name")).addStringOption(o=>o.setName("start").setDescription("Datum und Uhrzeit, z. B. 31.12.2026 19:00 (Server-Zeitzone)")).addStringOption(o=>o.setName("treffpunkt").setDescription("Neuer Treffpunkt")).addStringOption(o=>o.setName("beschreibung").setDescription("Neue Beschreibung")).addIntegerOption(o=>o.setName("maximum").setDescription("Neues Teilnehmerlimit").setMinValue(1)))
+    .addSubcommand(s=>s.setName("anwesenheit").setDescription("Teilnahme dokumentieren (Event-Team)").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addUserOption(o=>o.setName("mitglied").setDescription("Teilnehmer").setRequired(true)).addStringOption(o=>o.setName("status").setDescription("Teilnahme").setRequired(true).addChoices({name:"Anwesend",value:"present"},{name:"Abwesend",value:"absent"})))
+    .addSubcommand(s=>s.setName("beenden").setDescription("Event abschließen").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)))
+    .addSubcommand(s=>s.setName("absagen").setDescription("Event absagen").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)));
   const apps = new SlashCommandBuilder().setName("antrag").setDescription("Bewerbung und Rang-Anträge")
     .addSubcommand(s=>s.setName("bewerben").setDescription("Bewerbung einreichen").addStringOption(o=>o.setName("typ").setDescription("Bewerbungstyp").setRequired(true).addChoices({name:"Familienbeitritt",value:"bewerbung"},{name:"Rang-Antrag",value:"rang"})))
     .addSubcommand(s=>s.setName("liste").setDescription("Offene Anträge (Reviewer)"))
-    .addSubcommand(s=>s.setName("entscheiden").setDescription("Antrag mit optionalem Kommentar entscheiden (Reviewer)").addStringOption(o=>o.setName("id").setDescription("Antrags-ID").setRequired(true)).addStringOption(o=>o.setName("entscheidung").setDescription("Ergebnis").setRequired(true).addChoices({name:"Annehmen",value:"accepted"},{name:"Ablehnen",value:"rejected"})).addStringOption(o=>o.setName("kommentar").setDescription("Begründung für Antragsteller")))
-    .addSubcommand(s=>s.setName("status").setDescription("Eigenen Antrag zurückziehen").addStringOption(o=>o.setName("id").setDescription("Antrags-ID").setRequired(true)));
+    .addSubcommand(s=>s.setName("entscheiden").setDescription("Antrag mit optionalem Kommentar entscheiden (Reviewer)").addStringOption(o=>o.setName("id").setDescription("Antrag auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("entscheidung").setDescription("Ergebnis").setRequired(true).addChoices({name:"Annehmen",value:"accepted"},{name:"Ablehnen",value:"rejected"})).addStringOption(o=>o.setName("kommentar").setDescription("Begründung für Antragsteller")))
+    .addSubcommand(s=>s.setName("status").setDescription("Eigenen Antrag zurückziehen").addStringOption(o=>o.setName("id").setDescription("Eigenen offenen Antrag auswählen").setRequired(true).setAutocomplete(true)));
   const giveaway = new SlashCommandBuilder().setName("giveaway").setDescription("Giveaways")
     .addSubcommand(s=>s.setName("erstellen").setDescription("Giveaway starten").addStringOption(o=>o.setName("preis").setDescription("Preis").setRequired(true)).addIntegerOption(o=>o.setName("minuten").setDescription("Dauer in Minuten").setRequired(true).setMinValue(1).setMaxValue(10080)).addIntegerOption(o=>o.setName("gewinner").setDescription("Gewinnerzahl").setRequired(true).setMinValue(1).setMaxValue(20)).addStringOption(o=>o.setName("bedingungen").setDescription("Teilnahmebedingungen")))
-    .addSubcommand(s=>s.setName("abbrechen").setDescription("Giveaway abbrechen").addStringOption(o=>o.setName("id").setDescription("Giveaway-ID").setRequired(true)));
+    .addSubcommand(s=>s.setName("abbrechen").setDescription("Giveaway abbrechen").addStringOption(o=>o.setName("id").setDescription("Giveaway auswählen").setRequired(true).setAutocomplete(true)));
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
     new SlashCommandBuilder().setName("help").setDescription("Befehlsübersicht"),
@@ -150,6 +150,31 @@ export function createHandler({db,finance,config,client}) {
   const updateMessage=(i,options)=>i.update(presentInteractionPayload(options));
   const replyError=async(i,e)=>{ const msg=err(e); if(i.deferred||i.replied) return followUp(i,{content:msg,ephemeral:true}).catch(()=>{}); return answer(i,{content:msg,ephemeral:true}).catch(()=>{}); };
   const respond=async(i,content,ephemeral=true)=>answer(i,{content,ephemeral});
+  async function autocomplete(i){
+    try{
+      if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.respond([]);
+      const g=i.guildId,sub=i.options.getSubcommand(false),focused=i.options.getFocused(true),query=String(focused.value??"").toLocaleLowerCase("de-AT");
+      let rows=[],choices=[];
+      if(i.commandName==="event"&&hasRoleOrOwner(i,guards.events)){
+        rows=sub==="anwesenheit"
+          ?db.prepare("SELECT id,name,starts_at FROM events WHERE guild_id=? AND status IN ('scheduled','ended') ORDER BY starts_at DESC LIMIT 100").all(g)
+          :db.prepare("SELECT id,name,starts_at FROM events WHERE guild_id=? AND status='scheduled' ORDER BY starts_at LIMIT 100").all(g);
+        choices=rows.map(r=>({name:`${r.name} · ${new Date(r.starts_at).toLocaleString("de-AT",{timeZone:config.TIMEZONE,dateStyle:"short",timeStyle:"short"})}`,value:r.id}));
+      }else if(i.commandName==="antrag"){
+        if(sub==="status")rows=db.prepare("SELECT id,kind,status,created_at FROM applications WHERE guild_id=? AND user_id=? AND status IN ('open','review') ORDER BY created_at DESC LIMIT 25").all(g,i.user.id);
+        else if(sub==="entscheiden"&&hasRoleOrOwner(i,guards.reviewers))rows=db.prepare("SELECT id,user_id,kind,status,created_at FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at LIMIT 100").all(g);
+        choices=rows.map(r=>({name:`${r.kind==="rang"?"🏅 Rang-Antrag":"🤝 Bewerbung"} · ${r.status==="review"?"in Bearbeitung":"offen"} · …${r.user_id?.slice(-5)??""}`,value:r.id}));
+      }else if(i.commandName==="sanktion"&&hasRoleOrOwner(i,guards.leaders)){
+        if(sub==="aufheben")rows=db.prepare("SELECT s.id,s.user_id,s.remaining_cents,s.reason FROM sanctions s WHERE s.guild_id=? AND s.status IN ('open','partial') AND NOT EXISTS(SELECT 1 FROM payout_allocations p WHERE p.sanction_id=s.id) ORDER BY s.created_at DESC LIMIT 100").all(g);
+        else if(sub==="rueckerstatten")rows=db.prepare("SELECT s.id,s.user_id,s.reason,COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)-COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) AS refundable FROM sanctions s WHERE s.guild_id=? AND COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)>COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) ORDER BY s.created_at DESC LIMIT 100").all(g);
+        choices=rows.map(r=>({name:`${r.reason.slice(0,55)} · Mitglied …${r.user_id.slice(-5)}${r.remaining_cents!=null?` · ${formatMoney(r.remaining_cents)}`:` · ${formatMoney(r.refundable)}`}`,value:r.id}));
+      }else if(i.commandName==="giveaway"&&sub==="abbrechen"&&hasRoleOrOwner(i,guards.staff)){
+        rows=db.prepare("SELECT id,prize,ends_at FROM giveaways WHERE guild_id=? AND status='active' ORDER BY ends_at LIMIT 100").all(g);
+        choices=rows.map(r=>({name:`🎉 ${r.prize.slice(0,65)} · endet ${new Date(r.ends_at).toLocaleDateString("de-AT")}`,value:r.id}));
+      }
+      return i.respond(choices.filter(choice=>!query||choice.name.toLocaleLowerCase("de-AT").includes(query)||choice.value.toLowerCase().startsWith(query)).slice(0,25));
+    }catch(error){console.warn("Autocomplete konnte nicht geladen werden:",error.message);return i.respond([]).catch(()=>{});}
+  }
   async function command(i) {
     if (!i.inGuild()) return respond(i,"Dieser Bot-Befehl funktioniert nur in einem Server.");
     if(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID)return respond(i,"Der Bot ist für diesen Server nicht freigeschaltet.");
@@ -197,17 +222,7 @@ export function createHandler({db,finance,config,client}) {
         }
         if (sub==="liste") {
           const denied=requireRole(i,guards.finance,"Finanzrolle"); if(denied)return respond(i,denied);
-          const rows=db.prepare("SELECT user_id,balance_cents FROM accounts WHERE guild_id=? ORDER BY balance_cents DESC LIMIT 30").all(g);
-          const min=config.PAYOUT_MINIMUM_CENTS;
-          const total=db.prepare("SELECT COUNT(*) n FROM accounts WHERE guild_id=?").get(g).n;
-          const listFields=[];
-          for(let offset=0;offset<rows.length;offset+=10){
-            const page=rows.slice(offset,offset+10);
-            listFields.push({name:`Platz ${offset+1}–${offset+page.length}`,value:page.map((r,index)=>`**${offset+index+1}.** <@${r.user_id}> · **${formatMoney(r.balance_cents)}**${min==null?"":" · "+(r.balance_cents>=min?"✅ auszahlbar":"⏳ Mindestbetrag fehlt")}`).join("\n"),inline:false});
-          }
-          const summary=total>rows.length?`Die Liste zeigt die 30 höchsten Guthaben von ${total} Konten; ${total-rows.length} weitere Konten sind hier nicht aufgeführt.`:`${total} ${total===1?"Familienkonto":"Familienkonten"} nach Guthaben sortiert.`;
-          const description=total?`${summary}${min==null?"":"\nAuszahlungsgrenze: "+formatMoney(min)}`:"Es sind noch keine Familienkonten vorhanden.";
-          return answer(i,fieldsEmbed("📋 Familien-Auszahlungsliste",listFields,description));
+          return answer(i,payoutListPayload(db,g,config.PAYOUT_MINIMUM_CENTS,i.options.getInteger("seite")??1));
         }
         if (sub==="historie") {
           const target=i.options.getUser("mitglied")?.id??u;
@@ -266,12 +281,12 @@ export function createHandler({db,finance,config,client}) {
   }
 
   async function eventCommand(i,sub,{db,config,guards,g,u}) {
-    if(sub==="erstellen") {const denied=requireRole(i,guards.events,"Event-Team");if(denied)return respond(i,denied);const start=parseOffsetDate(i.options.getString("start"));if(!start||start.getTime()<Date.now()+60_000)return respond(i,"Bitte ein gültiges zukünftiges Datum mit Zeitzone angeben (ISO-Format mit Z oder Offset).");const id=randomUUID(),ch=await targetChannel(i.guild,config.CHANNEL_EVENT_ANNOUNCEMENTS)??i.channel;const item={id,guild_id:g,name:i.options.getString("name"),description:i.options.getString("beschreibung"),starts_at:start.toISOString(),location:i.options.getString("treffpunkt"),host_id:u,equipment:i.options.getString("ausruestung")??"",notes:i.options.getString("hinweise")??"",max_participants:i.options.getInteger("maximum")};db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'scheduled',?)").run(id,g,item.name,item.description,item.starts_at,item.location,u,item.equipment,item.notes,item.max_participants,isoNow());const sent=await ch.send({embeds:[eventEmbed(item,0)],components:[eventButtons(id)]});db.prepare("UPDATE events SET channel_id=?,message_id=? WHERE id=?").run(ch.id,sent.id,id);return answer(i,{...fieldsEmbed("📅 Event veröffentlicht",[
+    if(sub==="erstellen") {const denied=requireRole(i,guards.events,"Event-Team");if(denied)return respond(i,denied);const start=parseEventDate(i.options.getString("start"),config.TIMEZONE);if(!start||start.getTime()<Date.now()+60_000)return respond(i,`Bitte ein gültiges zukünftiges Datum eingeben, z. B. 31.12.2026 19:00 (${config.TIMEZONE}).`);const id=randomUUID(),ch=await targetChannel(i.guild,config.CHANNEL_EVENT_ANNOUNCEMENTS)??i.channel;const item={id,guild_id:g,name:i.options.getString("name"),description:i.options.getString("beschreibung"),starts_at:start.toISOString(),location:i.options.getString("treffpunkt"),host_id:u,equipment:i.options.getString("ausruestung")??"",notes:i.options.getString("hinweise")??"",max_participants:i.options.getInteger("maximum")};db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'scheduled',?)").run(id,g,item.name,item.description,item.starts_at,item.location,u,item.equipment,item.notes,item.max_participants,isoNow());const sent=await ch.send({embeds:[eventEmbed(item,0)],components:[eventButtons(id)]});db.prepare("UPDATE events SET channel_id=?,message_id=? WHERE id=?").run(ch.id,sent.id,id);return answer(i,{...fieldsEmbed("📅 Event veröffentlicht",[
       {name:"Event",value:`**${item.name}**`,inline:true},{name:"Beginn",value:`<t:${Math.floor(start.getTime()/1000)}:F>`,inline:true},
       {name:"Ankündigung",value:`${ch}`,inline:true},{name:"Teilnahme",value:"Mitglieder können sich direkt über die Schaltfläche unter der Ankündigung anmelden."},
     ],"Das Event ist jetzt für die Familie sichtbar."),ephemeral:true});}
     if(sub==="liste"||sub==="historie") {const status=sub==="liste"?"scheduled":"ended";const rows=db.prepare("SELECT * FROM events WHERE guild_id=? AND status=? ORDER BY starts_at LIMIT 10").all(g,status);const items=rows.map(e=>({name:`${e.name} · <t:${Math.floor(new Date(e.starts_at).getTime()/1000)}:${sub==="liste"?"F":"d"}>`,value:`**Treffpunkt:** ${e.location}\n**Teilnehmer:** ${db.prepare("SELECT COUNT(*) n FROM event_participants WHERE event_id=? AND status IN ('signed_up','present')").get(e.id).n}${e.max_participants?` / ${e.max_participants}`:""}\n**Event-ID:** \`${e.id}\``,inline:false}));return answer(i,fieldsEmbed(sub==="liste"?"📅 Anstehende Familien-Events":"🏁 Event-Historie",items,rows.length?`${rows.length} ${sub==="liste"?"kommende":"vergangene"} Events, maximal 10 angezeigt.`:"Keine passenden Events vorhanden."));}
-    if(sub==="bearbeiten"){const denied=requireRole(i,guards.events,"Event-Team");if(denied)return respond(i,denied);const id=i.options.getString("id"),old=db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled'").get(id,g);if(!old)return respond(i,"Geplantes Event nicht gefunden.");const startText=i.options.getString("start"),start=startText?parseOffsetDate(startText):new Date(old.starts_at);if(!start||start.getTime()<Date.now()+60_000)return respond(i,"Bitte ein gültiges zukünftiges Datum mit Zeitzone angeben.");db.prepare("UPDATE events SET name=?,starts_at=?,location=?,description=?,max_participants=COALESCE(?,max_participants) WHERE id=?").run(i.options.getString("name")??old.name,start.toISOString(),i.options.getString("treffpunkt")??old.location,i.options.getString("beschreibung")??old.description,i.options.getInteger("maximum"),id);const updated=db.prepare("SELECT * FROM events WHERE id=?").get(id);audit(db,g,u,"event.updated",id,{name:updated.name,startsAt:updated.starts_at});const channel=await targetChannel(i.guild,old.channel_id);const message=channel&&old.message_id?await channel.messages.fetch(old.message_id).catch(()=>null):null;if(message)await message.edit({embeds:[eventEmbed(updated,db.prepare("SELECT COUNT(*) n FROM event_participants WHERE event_id=? AND status IN ('signed_up','present')").get(id).n,db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present')").all(id))]}).catch(()=>{});return answer(i,fieldsEmbed("✏️ Event aktualisiert",[
+    if(sub==="bearbeiten"){const denied=requireRole(i,guards.events,"Event-Team");if(denied)return respond(i,denied);const id=i.options.getString("id"),old=db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled'").get(id,g);if(!old)return respond(i,"Geplantes Event nicht gefunden.");const startText=i.options.getString("start"),start=startText?parseEventDate(startText,config.TIMEZONE):new Date(old.starts_at);if(!start||start.getTime()<Date.now()+60_000)return respond(i,`Bitte ein gültiges zukünftiges Datum eingeben, z. B. 31.12.2026 19:00 (${config.TIMEZONE}).`);db.prepare("UPDATE events SET name=?,starts_at=?,location=?,description=?,max_participants=COALESCE(?,max_participants) WHERE id=?").run(i.options.getString("name")??old.name,start.toISOString(),i.options.getString("treffpunkt")??old.location,i.options.getString("beschreibung")??old.description,i.options.getInteger("maximum"),id);const updated=db.prepare("SELECT * FROM events WHERE id=?").get(id);audit(db,g,u,"event.updated",id,{name:updated.name,startsAt:updated.starts_at});const channel=await targetChannel(i.guild,old.channel_id);const message=channel&&old.message_id?await channel.messages.fetch(old.message_id).catch(()=>null):null;if(message)await message.edit({embeds:[eventEmbed(updated,db.prepare("SELECT COUNT(*) n FROM event_participants WHERE event_id=? AND status IN ('signed_up','present')").get(id).n,db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present')").all(id))]}).catch(()=>{});return answer(i,fieldsEmbed("✏️ Event aktualisiert",[
       {name:"Event",value:`**${updated.name}**`,inline:true},{name:"Neuer Beginn",value:`<t:${Math.floor(new Date(updated.starts_at).getTime()/1000)}:F>`,inline:true},
       {name:"Aktualisierte Ankündigung",value:message?"Die veröffentlichte Event-Karte wurde aktualisiert.":"Eventdaten gespeichert; die ursprüngliche Ankündigung war nicht mehr verfügbar."},
     ]));}
@@ -311,6 +326,11 @@ export function createHandler({db,finance,config,client}) {
       const [kind,action,id,extra,expectedDeduction]=i.customId.split(":");const g=i.guildId,u=i.user.id;
       if(kind==="setup")return answer(i,{content:"Dieser Channel-Einrichtungsbefehl wurde entfernt.",ephemeral:true});
       if(kind==="cancel")return updateMessage(i,{content:"Aktion abgebrochen.",embeds:[],components:[]});
+      if(kind==="konto"&&action==="liste"){
+        const denied=requireRole(i,guards.finance,"Finanzrolle");if(denied)return answer(i,{content:denied,ephemeral:true});
+        const {ephemeral,...payload}=payoutListPayload(db,g,config.PAYOUT_MINIMUM_CENTS,Number(id));
+        return updateMessage(i,payload);
+      }
       if(kind==="payout") {if(action!==i.message.interaction?.id&&action!==i.message.interactionMetadata?.id)return answer(i,{content:"Diese Auszahlungsvorschau ist abgelaufen.",ephemeral:true});const denied=requireRole(i,guards.finance,"Finanzrolle");if(denied)return answer(i,{content:denied,ephemeral:true});const currentGross=finance.balance(g,id),currentOpen=db.prepare("SELECT COALESCE(SUM(remaining_cents),0) amount FROM sanctions WHERE guild_id=? AND user_id=? AND status IN ('open','partial')").get(g,id).amount,currentDeduction=Math.min(currentGross,currentOpen);if(currentGross!==Number(extra)||currentDeduction!==Number(expectedDeduction))return updateMessage(i,{...fieldsEmbed("⚠️ Vorschau nicht mehr aktuell",[
         {name:"Was ist passiert?",value:"Kontostand oder offene Sanktionen haben sich seit der Vorschau geändert."},
         {name:"Nächster Schritt",value:"Starte `/konto auszahlen` erneut und prüfe die aktuellen Beträge, bevor du bestätigst."},
@@ -462,10 +482,47 @@ export function createHandler({db,finance,config,client}) {
 
   async function eventButton(i){const [,action]=i.customId.split(":");if(action==="join"||action==="leave")return button(i);return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
 
-  return {command,button,select,modal,reviewButton,eventButton};
+  return {command,autocomplete,button,select,modal,reviewButton,eventButton};
 }
 
-function parseOffsetDate(value){if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value??""))return null;const date=new Date(value);return Number.isFinite(date.getTime())?date:null;}
+export function payoutListPayload(db,guildId,minimumCents,page=1){
+  const total=db.prepare("SELECT COUNT(*) n FROM accounts WHERE guild_id=?").get(guildId).n;
+  const pageSize=10,pageCount=Math.max(1,Math.ceil(total/pageSize)),current=Math.min(pageCount,Math.max(1,Number.isInteger(page)?page:1)),offset=(current-1)*pageSize;
+  const rows=db.prepare("SELECT user_id,balance_cents FROM accounts WHERE guild_id=? ORDER BY balance_cents DESC,user_id LIMIT ? OFFSET ?").all(guildId,pageSize,offset);
+  const fields=rows.length?[{name:`Mitglieder ${offset+1}–${offset+rows.length}`,value:rows.map((row,index)=>{
+    const eligibility=minimumCents==null?"":row.balance_cents>=minimumCents?" · ✅ auszahlbar":" · ⏳ Mindestbetrag fehlt";
+    return `**${offset+index+1}.** <@${row.user_id}> · **${formatMoney(row.balance_cents)}**${eligibility}`;
+  }).join("\n"),inline:false}]:[];
+  const description=total===0?"Es sind noch keine Familienkonten vorhanden.":`${total} Familienkonten · Seite ${current} von ${pageCount}${minimumCents==null?"":"\nAuszahlungsgrenze: "+formatMoney(minimumCents)}`;
+  const payload=fieldsEmbed("📋 Familien-Auszahlungsliste",fields,description);
+  if(pageCount>1)payload.components=[new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`konto:list:${current-1}`).setLabel("← Zurück").setStyle(ButtonStyle.Secondary).setDisabled(current<=1),
+    new ButtonBuilder().setCustomId(`konto:list:${current+1}`).setLabel("Weiter →").setStyle(ButtonStyle.Secondary).setDisabled(current>=pageCount),
+  )];
+  payload.ephemeral=true;
+  return payload;
+}
+
+export function parseEventDate(value,timezone="Europe/Vienna"){
+  const text=String(value??"").trim();
+  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(text)){
+    const date=new Date(text);return Number.isFinite(date.getTime())?date:null;
+  }
+  const match=/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})$/.exec(text);
+  if(!match)return null;
+  const [,dayText,monthText,yearText,hourText,minuteText]=match;
+  const desired={year:Number(yearText),month:Number(monthText),day:Number(dayText),hour:Number(hourText),minute:Number(minuteText)};
+  const naive=Date.UTC(desired.year,desired.month-1,desired.day,desired.hour,desired.minute);
+  const check=new Date(naive);
+  if(check.getUTCFullYear()!==desired.year||check.getUTCMonth()+1!==desired.month||check.getUTCDate()!==desired.day||desired.hour>23||desired.minute>59)return null;
+  let formatter;
+  try{formatter=new Intl.DateTimeFormat("en-GB",{timeZone:timezone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"});}catch{return null;}
+  const partsAt=epoch=>Object.fromEntries(formatter.formatToParts(new Date(epoch)).filter(part=>part.type!=="literal").map(part=>[part.type,Number(part.value)]));
+  const wanted=[desired.year,desired.month,desired.day,desired.hour,desired.minute].join(":");
+  const offsets=[naive-36*60*60_000,naive,naive+36*60*60_000].map(epoch=>{const p=partsAt(epoch);return Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute)-epoch;});
+  const candidates=[...new Set(offsets)].map(offset=>naive-offset).filter(epoch=>{const p=partsAt(epoch);return [p.year,p.month,p.day,p.hour,p.minute].join(":")===wanted;}).sort((a,b)=>a-b);
+  return candidates.length?new Date(candidates[0]):null;
+}
 function eventButtons(id){return new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`event:join:${id}`).setLabel("Teilnehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`event:leave:${id}`).setLabel("Abmelden").setStyle(ButtonStyle.Secondary));}
 function eventEmbed(e,count,participants=[]){
   const list=participants.length?participants.slice(0,30).map(x=>`<@${x.user_id}>`).join(", ")+(participants.length>30?`, +${participants.length-30} weitere`:""):"Noch keine Anmeldungen";

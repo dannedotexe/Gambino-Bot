@@ -39,12 +39,16 @@ sudo systemctl enable --now gambino-autodeploy.timer
 ```
 
 - `/ticket panel`, `/ticket übernehmen`, `/ticket schliessen`, `/ticket wiedereroeffnen`: private Tickets, zuständige Rollen, Cooldown, Begrenzung offener Tickets und DB-Transkript der letzten 100 Channel-Nachrichten. Geschlossene Channels bleiben zur Prüfung erhalten.
-- `/event erstellen`, `/event bearbeiten`, `/event liste`, `/event historie`, `/event anwesenheit`, `/event absagen`, `/event beenden`: persistente Events und An-/Abmeldung per Button. ISO-Zeit mit Offset angeben (z. B. `2026-12-31T19:00:00+01:00`); gespeichert wird UTC, Discord zeigt die Zeit lokal. Reminder bei ungefähr 60 und 15 Minuten.
+- `/event erstellen`, `/event bearbeiten`, `/event liste`, `/event historie`, `/event anwesenheit`, `/event absagen`, `/event beenden`: persistente Events und An-/Abmeldung per Button. Datum einfach als `31.12.2026 19:00` in der konfigurierten Server-Zeitzone oder ISO-Zeit mit Offset angeben; gespeicherte Zeit ist UTC. Events für Staff-Aktionen lassen sich über die Namensvorschläge auswählen. Reminder bei ungefähr 60 und 15 Minuten.
 - `/bewerbung-panel`, `/antrag bewerben`, `/antrag liste`, `/antrag entscheiden`, `/antrag status`: Bewerbungs- und Rang-Formulare mit Status, Reviewer und optionalem Entscheidungskommentar. Rollen werden nie automatisch vergeben.
 - `/konto stand`, `/konto ansehen`, `/konto gutschrift`, `/konto auszahlen`, `/konto liste`, `/konto historie`: persönliches Familienguthaben und Leitungsbuchungen. Geld wird als Integer-Cent geführt; Textwerte sind Dollarbeträge, etwa `2500000` oder `12,50`.
 - `/sanktion erstellen`, `/sanktion offen`, `/sanktion aufheben`, `/sanktion rueckerstatten`: offene Auszahlungsabzüge. Aufhebung und Rückerstattung verlangen Gründe und bleiben auditierbar.
 - `/giveaway erstellen`, `/giveaway abbrechen`: Teilnehmerlisten und Endzeitpunkte werden gespeichert; fällige Giveaways werden beim nächsten Scheduler-Lauf genau einmal beendet.
-- `/dashboard`, `/statistik`, `/ping`, `/help`: kompakte Übersichten und Status.
+- `/dashboard`, `/statistik`, `/ping`, `/help`: Discord-Übersichten und Status. Die Auszahlungsliste ist seitenweise navigierbar, und Events, Anträge, Sanktionen sowie Giveaways schlagen passende Einträge direkt im Command vor.
+
+### Staff-Webdashboard (optional)
+
+Das zusätzliche Gambinos-Dashboard ist eine responsive, schreibgeschützte Staff-Website für offene Tickets und Anträge, kommende Events, letzte Bot-Aktivitäten sowie geschützte Finanz-Kennzahlen. Interaktionen mit Mitgliederdaten bleiben im Discord-Bot und unterliegen dort weiterhin der Rollenprüfung. Das Dashboard ist standardmäßig ausgeschaltet. Zum Aktivieren auf der VM müssen `DASHBOARD_ENABLED=true`, `DASHBOARD_PUBLIC_URL` (HTTPS), `DISCORD_CLIENT_SECRET` und `DASHBOARD_SESSION_SECRET` gesetzt werden; letztere beiden nur direkt in der VM-`.env`, nie im Repository oder Chat. `DISCORD_GUILD_ID` und mindestens eine Staff-Rolle sind erforderlich. In der Discord OAuth-Anwendung die Redirect-URL `https://DEINE-DOMAIN/oauth/callback` registrieren. Den Session-Schlüssel direkt auf der VM beispielsweise mit `openssl rand -hex 32` erzeugen. Der Dienst bindet absichtlich nur auf `127.0.0.1:3080`; für externen Zugriff ist ein korrekt konfigurierter HTTPS-Reverse-Proxy nötig. Session-Cookies sind signiert, HttpOnly, Secure und laufen nach acht Stunden ab. Ohne Domain, Proxy und OAuth-Client-Secret lässt sich die Website nicht sicher öffentlich einschalten.
 
 ### Konten und Sanktionsverrechnung
 
@@ -114,4 +118,4 @@ Vor dem ersten Neustart `.env`-Konfiguration und ein Backup prüfen. Die VM läu
 - AutoMod ist opt-in und löscht bei Aktivierung Links außerhalb der Allowlist, konfigurierte Begriffe und Spam-Nachrichten; Timeout-Aktionen oder automatische Raid-Lockdowns sind absichtlich nicht aktiv.
 - Tickets können gelöschte Channels als geschlossen protokollieren; Transkripte sind auf die letzten 100 Discord-Nachrichten begrenzt.
 - Bewerbungsfragen und Event-Reminder-Intervalle sind derzeit Code-Defaults; Rollenzuordnungen und Review-/Announcement-Channels sind konfigurierbar.
-- Das Staff-Dashboard ist eine kompakte Textübersicht, kein interaktives mehrseitiges Panel.
+- Das Discord-Staff-Dashboard bleibt zusätzlich verfügbar. Das optionale Webdashboard ist zunächst schreibgeschützt und benötigt HTTPS/OAuth-Konfiguration, bevor es öffentlich erreichbar ist.
