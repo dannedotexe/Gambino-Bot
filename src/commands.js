@@ -6,7 +6,6 @@ import {
 import { audit } from "./database.js";
 import { formatMoney, parseMoney } from "./services/finance.js";
 import { requireRole } from "./config.js";
-import { CHANNEL_LAYOUT, bindCreatedChannels, createMissingChannels, displayCategoryName, displayChannelName } from "./channel-setup.js";
 
 const isoNow=()=>new Date().toISOString();
 const ts=()=>Math.floor(Date.now()/1000);
@@ -47,8 +46,6 @@ export function buildCommands() {
   const giveaway = new SlashCommandBuilder().setName("giveaway").setDescription("Giveaways")
     .addSubcommand(s=>s.setName("erstellen").setDescription("Giveaway starten").addStringOption(o=>o.setName("preis").setDescription("Preis").setRequired(true)).addIntegerOption(o=>o.setName("minuten").setDescription("Dauer in Minuten").setRequired(true).setMinValue(1).setMaxValue(10080)).addIntegerOption(o=>o.setName("gewinner").setDescription("Gewinnerzahl").setRequired(true).setMinValue(1).setMaxValue(20)).addStringOption(o=>o.setName("bedingungen").setDescription("Teilnahmebedingungen")))
     .addSubcommand(s=>s.setName("abbrechen").setDescription("Giveaway abbrechen").addStringOption(o=>o.setName("id").setDescription("Giveaway-ID").setRequired(true)));
-  const setup = new SlashCommandBuilder().setName("setup").setDescription("Server-Kanäle einrichten")
-    .addSubcommand(s=>s.setName("channels").setDescription("PDF-Channelstruktur anzeigen und anlegen"));
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
     new SlashCommandBuilder().setName("help").setDescription("Befehlsübersicht"),
@@ -56,7 +53,7 @@ export function buildCommands() {
     new SlashCommandBuilder().setName("dashboard").setDescription("Staff-Übersicht (berechtigte Rollen)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen"),
   ];
-  return [money,sanction,ticket,event,apps,giveaway,setup,...misc].map(c=>c.toJSON());
+  return [money,sanction,ticket,event,apps,giveaway,...misc].map(c=>c.toJSON());
 }
 
 export function createHandler({db,finance,config,client}) {
@@ -69,11 +66,6 @@ export function createHandler({db,finance,config,client}) {
     const g=i.guildId,u=i.user.id,sub=i.options.getSubcommand(false);
     try {
       if (i.commandName==="ping") return respond(i,`Pong! ${client.ws.ping} ms`);
-      if (i.commandName==="setup"&&sub==="channels") {
-        if (!i.memberPermissions?.has(PermissionFlagsBits.Administrator) && !guards.leaders?.some(r=>i.member.roles.cache.has(r))) return respond(i,"Dafür brauchst du die Leitungsrolle oder die Discord-Berechtigung Administrator.");
-        const layout=CHANNEL_LAYOUT.map(group=>`**${displayCategoryName(group)}** · ${group.channels.map(ch=>`#${displayChannelName(ch)}`).join(" · ")}`).join("\n");
-        return i.reply({content:`Ich lege fehlende Channels an und versehe die passenden bestehenden Namen mit den Emojis aus der Vorlage. Es wird nichts gelöscht oder verschoben.\n\n${layout}\n\n${guards.staff.length?"Der STAFF-Bereich wird bei Neuanlage auf die konfigurierten Staff-Rollen und den Bot beschränkt.":"Der STAFF-Bereich wird privat angelegt; ohne eingetragene Staff-Rollen können nur Administratoren und der Bot ihn sehen."}\n\n**${CHANNEL_LAYOUT.length} Kategorien und ${CHANNEL_LAYOUT.reduce((n,c)=>n+c.channels.length,0)} Text-Channels**`,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`setup:confirm:${u}:${i.id}`).setLabel("Emoji-Channelstruktur anwenden").setStyle(ButtonStyle.Danger),new ButtonBuilder().setCustomId(`setup:cancel:${u}:${i.id}`).setLabel("Abbrechen").setStyle(ButtonStyle.Secondary))],ephemeral:true});
-      }
       if (i.commandName==="help") return respond(i,"**Gambino Bot**\n`/konto` Familienkonto und Auszahlungen · `/sanktion` Sanktionsverwaltung · `/ticket` Supporttickets · `/event` Familien-Events · `/antrag` Bewerbungen und Rang-Anträge · `/giveaway` Giveaways · `/dashboard` Staff-Übersicht · `/statistik` Kennzahlen");
       if (i.commandName==="konto") {
         if (sub==="stand"||sub==="ansehen") {
@@ -153,19 +145,7 @@ export function createHandler({db,finance,config,client}) {
     try {
       if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});
       const [kind,action,id,extra,expectedDeduction]=i.customId.split(":");const g=i.guildId,u=i.user.id;
-      if(kind==="setup") {
-        if(id!==u)return i.reply({content:"Nur die Person, die die Vorschau gestartet hat, kann sie bestätigen.",ephemeral:true});
-        if(action==="cancel")return i.update({content:"Einrichtung abgebrochen.",components:[]});
-        if(action!=="confirm")return;
-        if(!i.memberPermissions?.has(PermissionFlagsBits.Administrator) && !guards.leaders?.some(r=>i.member.roles.cache.has(r)))return i.reply({content:"Dafür brauchst du die Leitungsrolle oder die Discord-Berechtigung Administrator.",ephemeral:true});
-        await i.deferUpdate();
-        const result=await createMissingChannels(i.guild,config,client.user.id);
-        const bindings=bindCreatedChannels(db,g,config,result.categories,result.channels);
-        audit(db,g,u,"server.channels_setup",null,{created:result.created.length,createdChannels:result.created,bindings});
-        const note=result.staffRolesConfigured?"": "\nHinweis: Es ist keine Staff-Rolle konfiguriert; der privat neu angelegte STAFF-Bereich ist nur für Administratoren und den Bot sichtbar.";
-        const failures=result.failed.length?`\n\n**Nicht angelegt (${result.failed.length}):**\n${result.failed.slice(0,10).map(x=>`• ${x}`).join("\n")}${result.failed.length>10?"\n… weitere siehe Bot-Logs":""}`:"";
-        return i.editReply({content:`Einrichtung abgeschlossen: **${result.created.length}** Kategorien/Channels angelegt oder formatiert; vorhandene übrige Channels beibehalten. Channel-IDs des Bots wurden gespeichert.${note}${failures}`,components:[]});
-      }
+      if(kind==="setup")return i.reply({content:"Dieser Channel-Einrichtungsbefehl wurde entfernt.",ephemeral:true});
       if(kind==="cancel")return i.update({content:"Aktion abgebrochen.",embeds:[],components:[]});
       if(kind==="payout") {if(action!==i.message.interaction?.id&&action!==i.message.interactionMetadata?.id)return i.reply({content:"Diese Auszahlungsvorschau ist abgelaufen.",ephemeral:true});const denied=requireRole(i,guards.finance,"Finanzrolle");if(denied)return i.reply({content:denied,ephemeral:true});const currentGross=finance.balance(g,id),currentOpen=db.prepare("SELECT COALESCE(SUM(remaining_cents),0) amount FROM sanctions WHERE guild_id=? AND user_id=? AND status IN ('open','partial')").get(g,id).amount,currentDeduction=Math.min(currentGross,currentOpen);if(currentGross!==Number(extra)||currentDeduction!==Number(expectedDeduction))return i.update({content:"Kontostand oder Sanktionen haben sich seit der Vorschau geändert. Bitte starte `/konto auszahlen` erneut und prüfe die neue Vorschau.",embeds:[],components:[]});const tx=finance.payout({guildId:g,userId:id,actorId:u,key:`payout:${action}`,minimumCents:config.PAYOUT_MINIMUM_CENTS});return i.update({content:`Auszahlung verbucht. Brutto ${formatMoney(tx.gross_cents)}, Sanktionen ${formatMoney(tx.deduction_cents)}, tatsächlich ausgezahlt ${formatMoney(tx.net_cents)}. Buchungs-ID: \`${tx.id}\``,embeds:[],components:[]});}
       if(kind==="ticket"&&action==="closeconfirm")return i.reply({content:"Ticket schließen? Der Channel bleibt für Staff einsehbar.",components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`ticket:close:${id}`).setLabel("Schließen bestätigen").setStyle(ButtonStyle.Danger),new ButtonBuilder().setCustomId("cancel:ticket").setLabel("Abbrechen").setStyle(ButtonStyle.Secondary))],ephemeral:true});
