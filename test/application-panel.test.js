@@ -28,6 +28,13 @@ test("Eine abgelehnte Bewerbung zeigt den Status und den gespeicherten Grund",()
   assert.equal(payload.embeds[0].data.color,0xe74c3c);
 });
 
+test("Übernommene Anträge zeigen den Bearbeiter und den Prüfstatus",()=>{
+  const payload=buildApplicationReviewPayload("rang","12345678901234567",{name:"Danne",aktueller_rang:"Member",ziel_rang:"Leader",begruendung:"Aktiv"},"review","","98765432109876543");
+  assert.match(payload.embeds[0].data.description,/In Prüfung/);
+  assert.match(payload.embeds[0].data.description,/<@98765432109876543>/);
+  assert.match(payload.embeds[0].data.footer.text,/Bearbeitung übernommen/);
+});
+
 test("Familienbewerbung und Rang-Antrag werden an getrennte Staff-Channels geroutet",()=>{
   assert.equal(applicationReviewChannelKey("bewerbung"),"CHANNEL_APPLICATION_REVIEW");
   assert.equal(applicationReviewChannelKey("rang"),"CHANNEL_RANK_REVIEW");
