@@ -14,9 +14,50 @@ const err=(e)=>e instanceof Error?e.message:"Die Aktion ist fehlgeschlagen.";
 const ticketPresentation={
   support:{emoji:"🛠️",description:"Allgemeine Fragen und Hilfe"},
   beschwerde:{emoji:"⚠️",description:"Ein Problem oder eine Beschwerde melden"},
-  bewerbung:{emoji:"📝",description:"Deine Bewerbung bei Gambinos"},
   leitung:{emoji:"👑",description:"Ein wichtiges Anliegen an die Leitung"},
 };
+
+export function applicationQuestions(kind) {
+  if(kind==="rang")return [
+    {id:"name",label:"Dein Ingame-Name",style:TextInputStyle.Short,maxLength:60},
+    {id:"aktueller_rang",label:"Dein aktueller Familienrang",style:TextInputStyle.Short,maxLength:60},
+    {id:"ziel_rang",label:"Welchen Rang beantragst du?",style:TextInputStyle.Short,maxLength:60},
+    {id:"begruendung",label:"Warum sollst du den Rang erhalten?",style:TextInputStyle.Paragraph,maxLength:1000},
+  ];
+  return [
+    {id:"name",label:"Dein Ingame-Name",style:TextInputStyle.Short,maxLength:60},
+    {id:"alter",label:"Wie alt bist du?",style:TextInputStyle.Short,maxLength:30},
+    {id:"erfahrung",label:"Deine Grand-RP-Erfahrung",style:TextInputStyle.Paragraph,maxLength:1000},
+    {id:"motivation",label:"Warum möchtest du zu Gambinos?",style:TextInputStyle.Paragraph,maxLength:1000},
+    {id:"aktivitaet",label:"Wann bist du normalerweise aktiv?",style:TextInputStyle.Paragraph,maxLength:500},
+  ];
+}
+
+function applicationModal(kind) {
+  const isRank=kind==="rang";
+  const modal=new ModalBuilder().setCustomId(`application:submit:${kind}`).setTitle(isRank?"Rang-Antrag":"Gambinos Bewerbung");
+  for(const question of applicationQuestions(kind))modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(question.id).setLabel(question.label).setStyle(question.style).setRequired(true).setMaxLength(question.maxLength)));
+  return modal;
+}
+
+export function buildApplicationPanelPayload() {
+  const panel=new EmbedBuilder().setColor(0xd4af37)
+    .setAuthor({name:"GAMBINOS  •  FAMILIENBÜRO"})
+    .setTitle("📋  Bewerbungen & Rang-Anträge")
+    .setDescription("Wähle den passenden Antrag aus. Beide Formulare fragen gezielt die Informationen ab, die das Leitungsteam für die Entscheidung braucht.")
+    .addFields(
+      {name:"🤝  Familienbeitritt",value:"Erzähl uns etwas über dich, deine Grand-RP-Erfahrung und warum du zu Gambinos möchtest.",inline:true},
+      {name:"🏅  Rang-Antrag",value:"Nenne deinen aktuellen Rang, den gewünschten Rang und deine Begründung.",inline:true},
+      {name:"🔒  Vertrauliche Prüfung",value:"Deine Angaben werden an das zuständige Team zur Prüfung weitergeleitet.",inline:false},
+    )
+    .setFooter({text:"GAMBINOS  •  Danke für dein Interesse"})
+    .setTimestamp();
+  const buttons=new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("application:open:bewerbung").setLabel("🤝  Bei Gambinos bewerben").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("application:open:rang").setLabel("🏅  Rang beantragen").setStyle(ButtonStyle.Secondary),
+  );
+  return {embeds:[panel],components:[buttons]};
+}
 
 export function buildTicketPanelPayload(config) {
   const options=config.TICKET_CATEGORIES_JSON.map(c=>{
@@ -147,7 +188,7 @@ export function createHandler({db,finance,config,client}) {
       if(i.commandName==="ticket"&&sub==="schliessen") {const row=db.prepare("SELECT * FROM tickets WHERE channel_id=? AND status='open'").get(i.channelId);if(!row)return respond(i,"Dies ist kein offenes Ticket.");if(row.user_id!==u&&!hasRoleOrOwner(i,guards.staff))return respond(i,"Nur Ersteller oder Staff können dieses Ticket schließen.");await i.reply({content:"Ticket wirklich schließen?",components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`ticket:close:${row.id}`).setLabel("Schließen").setStyle(ButtonStyle.Danger),new ButtonBuilder().setCustomId("cancel:ticket").setLabel("Abbrechen").setStyle(ButtonStyle.Secondary))],ephemeral:true});return;}
       if(i.commandName==="event") return await eventCommand(i,sub,{db,config,guards,g,u});
       if(i.commandName==="antrag") return await applicationCommand(i,sub,{db,config,guards,g,u});
-      if(i.commandName==="bewerbung-panel") {const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);await i.channel.send({embeds:[embed("Bewerbungen & Rang-Anträge","Klicke auf eine Schaltfläche, um das Formular zu öffnen.")],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("application:open:bewerbung").setLabel("Bewerben").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId("application:open:rang").setLabel("Rang-Antrag").setStyle(ButtonStyle.Secondary))]});return respond(i,"Antrags-Panel gesendet.");}
+      if(i.commandName==="bewerbung-panel") {const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);await i.channel.send(buildApplicationPanelPayload());return respond(i,"Bewerbungs-Panel veröffentlicht.");}
       if(i.commandName==="giveaway") return await giveawayCommand(i,sub,{db,guards,g,u});
       if(i.commandName==="dashboard"||i.commandName==="statistik") {const denied=requireRole(i,guards.staff,"Staff-Rolle");if(denied)return respond(i,denied);return respond(i,stats(db,g,i.commandName==="dashboard"));}
       return respond(i,"Unbekannter Befehl.");
@@ -163,7 +204,7 @@ export function createHandler({db,finance,config,client}) {
   }
 
   async function applicationCommand(i,sub,{db,config,guards,g,u}) {
-    if(sub==="bewerben"){const kind=i.options.getString("typ");const modal=new ModalBuilder().setCustomId(`application:submit:${kind}`).setTitle(kind==="rang"?"Rang-Antrag":"Familienbewerbung");for(const [id,label,style] of [["name","Ingame-Name",TextInputStyle.Short],["erfahrung","Grand-RP-Erfahrung",TextInputStyle.Paragraph],["motivation","Motivation / Begründung",TextInputStyle.Paragraph]])modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(style).setRequired(true).setMaxLength(1000)));await i.showModal(modal);return;}
+    if(sub==="bewerben"){const kind=i.options.getString("typ");await i.showModal(applicationModal(kind));return;}
     if(sub==="liste"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const rows=db.prepare("SELECT id,user_id,kind,status,created_at FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at LIMIT 20").all(g);return respond(i,rows.length?rows.map(r=>`\`${r.id}\` · <@${r.user_id}> · ${r.kind} · ${r.status} · <t:${Math.floor(new Date(r.created_at).getTime()/1000)}:R>`).join("\n"):"Keine offenen Anträge.");}
     if(sub==="entscheiden"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const id=i.options.getString("id"),status=i.options.getString("entscheidung"),note=i.options.getString("kommentar")??"";const row=db.prepare("UPDATE applications SET status=?,reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,message_id").get(status,u,note,isoNow(),id,g);if(!row)return respond(i,"Offener Antrag nicht gefunden.");audit(db,g,u,`application.${status}`,id,{note});const channel=await targetChannel(i.guild,config.CHANNEL_APPLICATION_REVIEW);if(channel&&row.message_id){const msg=await channel.messages.fetch(row.message_id).catch(()=>null);if(msg)await msg.edit({components:[]}).catch(()=>{});}const applicant=await client.users.fetch(row.user_id).catch(()=>null);await applicant?.send(`Dein Antrag **${id}** wurde ${status==="accepted"?"angenommen":"abgelehnt"}.${note?` Kommentar: ${note}`:""}`).catch(()=>{});return respond(i,`Entscheidung zum Antrag gespeichert: ${status}.`);}
     if(sub==="status"){const id=i.options.getString("id"),row=db.prepare("UPDATE applications SET status='withdrawn',updated_at=? WHERE id=? AND guild_id=? AND user_id=? AND status IN ('open','review') RETURNING id").get(isoNow(),id,g,u);return respond(i,row?"Antrag zurückgezogen.":"Offener eigener Antrag nicht gefunden.");}
@@ -207,9 +248,9 @@ export function createHandler({db,finance,config,client}) {
       return i.reply({content:`Dein Ticket wurde erstellt: ${channel}`,ephemeral:true});
     }catch(e){console.error("Ticket create failed:",e);return i.reply({content:"Ticket konnte nicht angelegt werden. Prüfe die Bot-Berechtigungen und Ticket-Konfiguration.",ephemeral:true}).catch(()=>{});}
   }
-  async function modal(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});if(!i.customId.startsWith("application:submit:"))return;const kind=i.customId.split(":")[2],answers=Object.fromEntries(["name","erfahrung","motivation"].map(key=>[key,i.fields.getTextInputValue(key)]));const open=db.prepare("SELECT id FROM applications WHERE guild_id=? AND user_id=? AND kind=? AND status IN ('open','review')").get(i.guildId,i.user.id,kind);if(open)return i.reply({content:`Du hast bereits einen offenen Antrag: \`${open.id}\``,ephemeral:true});const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind});const channel=await targetChannel(i.guild,config.CHANNEL_APPLICATION_REVIEW);if(channel){const reviewButtons=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:review:${id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));const msg=await channel.send({embeds:[embed(`${kind==="rang"?"Rang-Antrag":"Bewerbung"} ${id}`,`Antragsteller: <@${i.user.id}>\nIngame-Name: ${answers.name}\nErfahrung: ${answers.erfahrung}\nMotivation: ${answers.motivation}`)],components:[reviewButtons]});db.prepare("UPDATE applications SET message_id=? WHERE id=?").run(msg.id,id);}return i.reply({content:`Dein Antrag wurde gespeichert. Referenz: \`${id}\``,ephemeral:true});}
+  async function modal(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});if(!i.customId.startsWith("application:submit:"))return;const kind=i.customId.split(":")[2];if(!["bewerbung","rang"].includes(kind))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});const answers=Object.fromEntries(applicationQuestions(kind).map(question=>[question.id,i.fields.getTextInputValue(question.id)]));const open=db.prepare("SELECT id FROM applications WHERE guild_id=? AND user_id=? AND kind=? AND status IN ('open','review')").get(i.guildId,i.user.id,kind);if(open)return i.reply({content:`Du hast bereits einen offenen Antrag: \`${open.id}\``,ephemeral:true});const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind});const channel=await targetChannel(i.guild,config.CHANNEL_APPLICATION_REVIEW);if(channel){const reviewButtons=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:review:${id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));const details=Object.entries(answers).map(([key,value])=>`**${key.replaceAll("_"," ")}:** ${value}`).join("\n");const msg=await channel.send({embeds:[embed(`${kind==="rang"?"🏅 Rang-Antrag":"🤝 Bewerbung"} ${id}`,`Antragsteller: <@${i.user.id}>\n\n${details}`)],components:[reviewButtons]});db.prepare("UPDATE applications SET message_id=? WHERE id=?").run(msg.id,id);}return i.reply({content:`Dein Antrag wurde gespeichert. Referenz: \`${id}\``,ephemeral:true});}
 
-  async function reviewButton(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});const [,action,id]=i.customId.split(":");if(action==="open"){const kind=id;const modal=new ModalBuilder().setCustomId(`application:submit:${kind}`).setTitle(kind==="rang"?"Rang-Antrag":"Familienbewerbung");for(const [field,label,style] of [["name","Ingame-Name",TextInputStyle.Short],["erfahrung","Grand-RP-Erfahrung",TextInputStyle.Paragraph],["motivation","Motivation / Begründung",TextInputStyle.Paragraph]])modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(field).setLabel(label).setStyle(style).setRequired(true).setMaxLength(1000)));return i.showModal(modal);}const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return i.reply({content:denied,ephemeral:true});const row=db.prepare("SELECT * FROM applications WHERE id=? AND guild_id=? AND status IN ('open','review')").get(id,i.guildId);if(!row)return i.reply({content:"Dieser Antrag wurde bereits abgeschlossen.",ephemeral:true});if(action==="review"){db.prepare("UPDATE applications SET status='review',reviewer_id=?,updated_at=? WHERE id=?").run(i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,"application.claimed",id);return i.reply({content:"Antrag übernommen.",ephemeral:true});}const status=action==="accept"?"accepted":"rejected";db.prepare("UPDATE applications SET status=?,reviewer_id=?,updated_at=? WHERE id=?").run(status,i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,`application.${status}`,id);await i.update({components:[]});const user=await client.users.fetch(row.user_id).catch(()=>null);await user?.send(`Dein Antrag **${id}** wurde ${status==="accepted"?"angenommen":"abgelehnt"}.`).catch(()=>{});return;}
+  async function reviewButton(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});const [,action,id]=i.customId.split(":");if(action==="open"){if(!["bewerbung","rang"].includes(id))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});return i.showModal(applicationModal(id));}const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return i.reply({content:denied,ephemeral:true});const row=db.prepare("SELECT * FROM applications WHERE id=? AND guild_id=? AND status IN ('open','review')").get(id,i.guildId);if(!row)return i.reply({content:"Dieser Antrag wurde bereits abgeschlossen.",ephemeral:true});if(action==="review"){db.prepare("UPDATE applications SET status='review',reviewer_id=?,updated_at=? WHERE id=?").run(i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,"application.claimed",id);return i.reply({content:"Antrag übernommen.",ephemeral:true});}const status=action==="accept"?"accepted":"rejected";db.prepare("UPDATE applications SET status=?,reviewer_id=?,updated_at=? WHERE id=?").run(status,i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,`application.${status}`,id);await i.update({components:[]});const user=await client.users.fetch(row.user_id).catch(()=>null);await user?.send(`Dein Antrag **${id}** wurde ${status==="accepted"?"angenommen":"abgelehnt"}.`).catch(()=>{});return;}
 
   async function eventButton(i){const [,action]=i.customId.split(":");if(action==="join"||action==="leave")return button(i);return i.reply({content:"Unbekannte Event-Aktion.",ephemeral:true});}
 

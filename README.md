@@ -12,7 +12,7 @@ Modularer Discord-Bot für Gambinos / Grand-RP mit discord.js 14 und SQLite. Das
 ## Einrichtung
 
 1. `.env.example` nach `.env` kopieren und `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` sowie die tatsächlichen Rollen-, Channel- und Kategorie-IDs des Servers eintragen. Keine Beispiel-ID übernehmen. Das Discord-Token ausschließlich direkt in der VM-Datei hinterlegen und niemals hier senden.
-2. Alle Rollenlisten sind kommaseparierte IDs. Leere Staff-Listen verweigern die zugehörige Aktion sicher. `TICKET_CATEGORIES_JSON` konfiguriert Ticket-Kategorien und optionale zuständige Rollen pro Kategorie, z. B. `[ {"id":"support","label":"Support","roleIds":[]} ]`.
+2. Alle Rollenlisten sind kommaseparierte IDs. Leere Staff-Listen verweigern die zugehörige Aktion sicher. `TICKET_CATEGORIES_JSON` konfiguriert Ticket-Kategorien und optionale zuständige Rollen pro Kategorie, z. B. `[ {"id":"support","label":"Support","roleIds":[]} ]`. Bewerbungen sind dem separaten Bewerbungs-Panel vorbehalten und werden automatisch aus den Ticket-Kategorien entfernt.
 3. `DATABASE_PATH` muss auf einen dauerhaften Datenträger zeigen, z. B. `/home/ubuntu/Gambino-Bot/data/gambino.sqlite`. SQLite WAL benötigt Schreibzugriff auf Verzeichnis und Datenbankdatei.
 4. Im Discord Developer Portal für den Bot **Server Members Intent** einschalten (Join-Raid-Beobachtung). **Message Content Intent** ist nur für AutoMod erforderlich; die Funktion ist standardmäßig deaktiviert. Bot-Berechtigungen: Slash Commands, Channels verwalten/Channels ansehen, Nachrichten senden und lesen, Nachrichtenverlauf lesen, Nachrichten verwalten (wenn AutoMod aktiv ist), Rollen erwähnen. Keine Administrator-Berechtigung vergeben.
 5. Abhängigkeiten installieren, Commands registrieren und starten:

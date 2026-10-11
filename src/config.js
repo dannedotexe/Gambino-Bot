@@ -20,7 +20,7 @@ const schema = z.object({
   CHANNEL_AUDIT_LOG: snowflake, CHANNEL_STATS: snowflake, CHANNEL_AUTOMOD_LOG: snowflake,
   TICKET_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
   TICKET_MAX_OPEN_PER_USER: z.coerce.number().int().positive().default(2),
-  TICKET_CATEGORIES_JSON: z.string().default('[{"id":"support","label":"Support","roleIds":[]},{"id":"beschwerde","label":"Beschwerde","roleIds":[]},{"id":"bewerbung","label":"Bewerbung","roleIds":[]},{"id":"leitung","label":"Leitung","roleIds":[]}]').transform((raw,ctx)=>{try{return JSON.parse(raw);}catch{ctx.addIssue({code:"custom",message:"Muss gültiges JSON sein"});return [];}}).pipe(z.array(z.object({id:z.string().regex(/^[a-z0-9_-]{1,25}$/),label:z.string().min(1).max(100),roleIds:z.array(z.string().regex(/^\d{17,20}$/)).default([])})).min(1).max(25)),
+  TICKET_CATEGORIES_JSON: z.string().default('[{"id":"support","label":"Support","roleIds":[]},{"id":"beschwerde","label":"Beschwerde","roleIds":[]},{"id":"leitung","label":"Leitung","roleIds":[]}]').transform((raw,ctx)=>{try{return JSON.parse(raw);}catch{ctx.addIssue({code:"custom",message:"Muss gültiges JSON sein"});return [];}}).pipe(z.array(z.object({id:z.string().regex(/^[a-z0-9_-]{1,25}$/),label:z.string().min(1).max(100),roleIds:z.array(z.string().regex(/^\d{17,20}$/)).default([])})).min(1).max(25)).transform(categories=>categories.filter(category=>category.id!=="bewerbung")),
   AUTOMOD_ENABLED: z.string().default("false").transform((v) => v.toLowerCase() === "true"),
   AUTOMOD_BLOCKED_TERMS: z.string().default("").transform(csv),
   AUTOMOD_ALLOWED_DOMAINS: z.string().default("discord.com,discord.gg").transform(csv),
