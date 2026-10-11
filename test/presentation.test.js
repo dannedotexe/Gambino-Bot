@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { MessageFlags } from "discord.js";
 import { applicationDecisionDm, applicationInReviewDm, applicationSubmittedDm, auditLogPayload, presentInteractionPayload } from "../src/presentation.js";
 
 test("private Antragsentscheidung nennt Typ, Referenz und Ablehnungsgrund", () => {
@@ -46,10 +47,17 @@ test("Audit-Einträge sind als deutsche, strukturierte Einbettung formatiert", (
 
 test("einfache Befehlsantworten werden gebrandet und behalten Ephemeral-Optionen", () => {
   const payload = presentInteractionPayload({ content: "Sanktion wurde gespeichert.", ephemeral: true });
-  assert.equal(payload.ephemeral, true);
+  assert.equal(payload.flags, MessageFlags.Ephemeral);
+  assert.equal(payload.ephemeral, undefined);
   assert.equal(payload.embeds[0].data.author.name, "GAMBINOS  •  FAMILIENVERWALTUNG");
   assert.match(payload.embeds[0].data.title, /Sanktion/);
   assert.equal(payload.embeds[0].data.description, "Sanktion wurde gespeichert.");
+});
+
+test("auch bereits gestaltete private Antworten verwenden die aktuelle Discord-Flag", () => {
+  const payload = presentInteractionPayload({ embeds: [{ title: "Test" }], ephemeral: true });
+  assert.equal(payload.flags, MessageFlags.Ephemeral);
+  assert.equal(payload.ephemeral, undefined);
 });
 
 test("bekannte Aktionen bekommen verständliche deutsche Protokolltitel", () => {

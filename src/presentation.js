@@ -1,4 +1,4 @@
-import { EmbedBuilder } from "discord.js";
+import { EmbedBuilder, MessageFlags } from "discord.js";
 
 export const BRAND_COLOR = 0xd4af37;
 const COLORS = { success: 0x2ecc71, error: 0xe74c3c, warning: 0xf39c12, info: BRAND_COLOR };
@@ -44,9 +44,16 @@ export function brandedTextEmbed(text, title = null) {
 }
 
 export function presentInteractionPayload(options) {
-  if (typeof options.content !== "string" || options.embeds?.length) return options;
-  const { content, ...rest } = options;
-  return { ...rest, embeds: [brandedTextEmbed(content)] };
+  let payload = options;
+  if (typeof options.content === "string" && !options.embeds?.length) {
+    const { content, ...rest } = options;
+    payload = { ...rest, embeds: [brandedTextEmbed(content)] };
+  }
+  if (payload.ephemeral) {
+    const { ephemeral, ...rest } = payload;
+    payload = { ...rest, flags: (Number(rest.flags) || 0) | MessageFlags.Ephemeral };
+  }
+  return payload;
 }
 
 export function applicationDecisionDm({ kind, status, applicationId, reason = "" }) {
