@@ -67,16 +67,24 @@ export function buildTicketPanelPayload(config) {
   const panel=new EmbedBuilder().setColor(0xd4af37)
     .setAuthor({name:"GAMBINOS  •  SUPPORT CENTER"})
     .setTitle("🎫  Wie können wir dir helfen?")
-    .setDescription("Willkommen beim **Gambinos Support**. Wähle unten das passende Thema – der Bot erstellt einen privaten Ticket-Channel für dich und das zuständige Team.")
-    .addFields(
-      {name:"🧭  Anliegen auswählen",value:"Wähle im Menü eine Kategorie aus. Deine Anfrage wird direkt an das passende Team weitergeleitet.",inline:false},
-      {name:"🔒  Dein privater Bereich",value:"Nur du, das zuständige Team und die Serverleitung können dein Ticket sehen.",inline:true},
-      {name:"💬  So geht es weiter",value:"Beschreibe dein Anliegen im neuen Channel. Ein Teammitglied übernimmt es dort.",inline:true},
-    )
+    .setDescription("Wähle unten dein Anliegen. Der Bot öffnet einen privaten Channel für dich und das zuständige Team.\n\n🔒 Nur Beteiligte sehen dein Ticket.\n💬 Beschreibe dein Anliegen direkt im neuen Channel.")
     .setFooter({text:"GAMBINOS  •  Wir helfen dir weiter"})
     .setTimestamp();
   const select=new StringSelectMenuBuilder().setCustomId("ticket:create").setPlaceholder("🎟️  Wähle dein Anliegen aus …").addOptions(options);
   return {embeds:[panel],components:[new ActionRowBuilder().addComponents(select)]};
+}
+
+export function buildApplicationReviewPayload(kind,userId,answers) {
+  const questions=applicationQuestions(kind);
+  const labels=new Map(questions.map(question=>[question.id,question.label]));
+  const panel=new EmbedBuilder().setColor(0xd4af37)
+    .setAuthor({name:"GAMBINOS  •  FAMILIENBÜRO"})
+    .setTitle(`${kind==="rang"?"🏅 Rang-Antrag":"🤝 Bewerbung"}`)
+    .setDescription(`**Antragsteller:** <@${userId}>\n**Eingereichte Angaben:**`)
+    .addFields(Object.entries(answers).map(([key,value])=>({name:labels.get(key)??key,value:String(value).slice(0,1024),inline:false})))
+    .setFooter({text:"GAMBINOS  •  Interne Prüfung"})
+    .setTimestamp();
+  return {embeds:[panel]};
 }
 
 export function buildCommands() {
@@ -248,7 +256,7 @@ export function createHandler({db,finance,config,client}) {
       return i.reply({content:`Dein Ticket wurde erstellt: ${channel}`,ephemeral:true});
     }catch(e){console.error("Ticket create failed:",e);return i.reply({content:"Ticket konnte nicht angelegt werden. Prüfe die Bot-Berechtigungen und Ticket-Konfiguration.",ephemeral:true}).catch(()=>{});}
   }
-  async function modal(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});if(!i.customId.startsWith("application:submit:"))return;const kind=i.customId.split(":")[2];if(!["bewerbung","rang"].includes(kind))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});const answers=Object.fromEntries(applicationQuestions(kind).map(question=>[question.id,i.fields.getTextInputValue(question.id)]));const open=db.prepare("SELECT id FROM applications WHERE guild_id=? AND user_id=? AND kind=? AND status IN ('open','review')").get(i.guildId,i.user.id,kind);if(open)return i.reply({content:`Du hast bereits einen offenen Antrag: \`${open.id}\``,ephemeral:true});const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind});const channel=await targetChannel(i.guild,config.CHANNEL_APPLICATION_REVIEW);if(channel){const reviewButtons=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:review:${id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));const details=Object.entries(answers).map(([key,value])=>`**${key.replaceAll("_"," ")}:** ${value}`).join("\n");const msg=await channel.send({embeds:[embed(`${kind==="rang"?"🏅 Rang-Antrag":"🤝 Bewerbung"} ${id}`,`Antragsteller: <@${i.user.id}>\n\n${details}`)],components:[reviewButtons]});db.prepare("UPDATE applications SET message_id=? WHERE id=?").run(msg.id,id);}return i.reply({content:`Dein Antrag wurde gespeichert. Referenz: \`${id}\``,ephemeral:true});}
+  async function modal(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});if(!i.customId.startsWith("application:submit:"))return;const kind=i.customId.split(":")[2];if(!["bewerbung","rang"].includes(kind))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});const answers=Object.fromEntries(applicationQuestions(kind).map(question=>[question.id,i.fields.getTextInputValue(question.id)]));const open=db.prepare("SELECT id FROM applications WHERE guild_id=? AND user_id=? AND kind=? AND status IN ('open','review')").get(i.guildId,i.user.id,kind);if(open)return i.reply({content:`Du hast bereits einen offenen Antrag: \`${open.id}\``,ephemeral:true});const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind});const channel=await targetChannel(i.guild,config.CHANNEL_APPLICATION_REVIEW);if(channel){const reviewButtons=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:review:${id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));const msg=await channel.send({...buildApplicationReviewPayload(kind,i.user.id,answers),components:[reviewButtons]});db.prepare("UPDATE applications SET message_id=? WHERE id=?").run(msg.id,id);}return i.reply({content:`Dein Antrag wurde gespeichert. Referenz: \`${id}\``,ephemeral:true});}
 
   async function reviewButton(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});const [,action,id]=i.customId.split(":");if(action==="open"){if(!["bewerbung","rang"].includes(id))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});return i.showModal(applicationModal(id));}const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return i.reply({content:denied,ephemeral:true});const row=db.prepare("SELECT * FROM applications WHERE id=? AND guild_id=? AND status IN ('open','review')").get(id,i.guildId);if(!row)return i.reply({content:"Dieser Antrag wurde bereits abgeschlossen.",ephemeral:true});if(action==="review"){db.prepare("UPDATE applications SET status='review',reviewer_id=?,updated_at=? WHERE id=?").run(i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,"application.claimed",id);return i.reply({content:"Antrag übernommen.",ephemeral:true});}const status=action==="accept"?"accepted":"rejected";db.prepare("UPDATE applications SET status=?,reviewer_id=?,updated_at=? WHERE id=?").run(status,i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,`application.${status}`,id);await i.update({components:[]});const user=await client.users.fetch(row.user_id).catch(()=>null);await user?.send(`Dein Antrag **${id}** wurde ${status==="accepted"?"angenommen":"abgelehnt"}.`).catch(()=>{});return;}
 

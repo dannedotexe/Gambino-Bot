@@ -6,7 +6,7 @@ export const CHANNEL_LAYOUT = [
   { name: "INFORMATION", emoji: "📌", channels: [{name:"willkommen",emoji:"👋"},{name:"regeln",emoji:"📜"},{name:"sanktionsliste",emoji:"⚖️"},{name:"ankündigungen",emoji:"📢"},{name:"neue-spieler",emoji:"🆕"}] },
   { name: "EVENTS", emoji: "🔮", channels: [{name:"event-infos",emoji:"📅"},{name:"event-ankündigungen",emoji:"📢"},{name:"event-anmeldung",emoji:"🎟️"},{name:"event-ergebnisse",emoji:"🏆"},{name:"event-logs",emoji:"📊"}] },
   { name: "COMMUNITY", emoji: "☁️", channels: [{name:"chat",emoji:"💬"},{name:"abstimmungen",emoji:"🗳️"},{name:"giveaway",emoji:"🎁"},{name:"marktplatz",emoji:"🛒"},{name:"kleidung",emoji:"👕"}] },
-  { name: "SUPPORT", emoji: "🆘", channels: [{name:"ticket",emoji:"🎫"},{name:"bewerbungen",emoji:"📄"},{name:"rang-anträge",emoji:"📝"},{name:"abmeldungen",emoji:"🚫"}] },
+  { name: "SUPPORT", emoji: "🆘", channels: [{name:"ticket",emoji:"🎫",topic:"Gambinos Support · Wähle das Ticket-Panel unten aus, um ein privates Anliegen beim zuständigen Team zu eröffnen."},{name:"bewerbungen",emoji:"📄"},{name:"rang-anträge",emoji:"📝"},{name:"abmeldungen",emoji:"🚫"}] },
   { name: "STAFF", emoji: "👔", channels: [{name:"staff-dashboard",emoji:"📋"},{name:"bewerbungen",emoji:"📄"},{name:"sanktions-logs",emoji:"⚠️"},{name:"ticket-logs",emoji:"🗂️"},{name:"auszahlungen",emoji:"💰"},{name:"server-statistik",emoji:"📊"}] },
 ];
 
@@ -106,6 +106,14 @@ export async function createMissingChannels(guild, config, clientUserId) {
           created.push(`${group.name} / #${name} mit Emoji versehen`);
         } catch (error) {
           failed.push(`${group.name} / #${name} konnte nicht formatiert werden: ${error.message}`);
+        }
+      }
+      if (channelSpec.topic && channel.topic !== channelSpec.topic) {
+        try {
+          await channel.setTopic(channelSpec.topic);
+          created.push(`${group.name} / #${name} mit Beschreibung versehen`);
+        } catch (error) {
+          failed.push(`${group.name} / #${name} Beschreibung konnte nicht aktualisiert werden: ${error.message}`);
         }
       }
       channels.set(key, channel);

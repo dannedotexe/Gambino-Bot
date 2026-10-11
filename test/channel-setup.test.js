@@ -8,6 +8,7 @@ test("PDF structure contains the five categories and 25 text channels",()=>{
   assert.equal(CHANNEL_LAYOUT.reduce((n,x)=>n+x.channels.length,0),25);
   assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="SUPPORT").channels.some(x=>x.name==="bewerbungen"),true);
   assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="STAFF").channels.some(x=>x.name==="bewerbungen"),true);
+  assert.match(CHANNEL_LAYOUT.find(x=>x.name==="SUPPORT").channels.find(x=>x.name==="ticket").topic,/privates Anliegen/);
   assert.equal(displayCategoryName(CHANNEL_LAYOUT[0]),"📌・INFORMATION");
   assert.equal(displayChannelName(CHANNEL_LAYOUT[0].channels[0]),"👋・willkommen");
 });
