@@ -27,7 +27,7 @@ Modularer Discord-Bot für Gambinos / Grand-RP mit discord.js 14 und SQLite. Das
 
 ## Module und Befehle
 
-- `/setup channels`: zeigt die in `Gambinos Bot Idee.pdf` definierte Struktur (5 Kategorien, 25 Text-Channels) als Vorschau und legt nach Bestätigung nur Fehlendes an. Nur Server-Administratoren oder die konfigurierte Leitungsrolle dürfen starten und bestätigen. Vorhandene Channels werden weder verschoben noch umbenannt oder gelöscht. Der neue STAFF-Bereich ist privat und erhält die konfigurierten Leitungs-, Staff-, Finanz-, Reviewer- und Event-Team-Rollen; ohne Staff-Rollen bleibt er für Administratoren und den Bot sichtbar. Die erkannten Funktions-Channel-IDs werden in SQLite gespeichert und beim Neustart geladen. Für neue Slash-Commands danach einmal `npm run deploy-commands` ausführen.
+- `/setup channels`: zeigt die in `Gambinos Bot Idee.pdf` definierte Emoji-Struktur (5 Kategorien, 25 Text-Channels) als Vorschau und legt nach Bestätigung Fehlendes an. Bereits vorhandene passende Channels und Kategorien werden in das Emoji-Namensformat umbenannt, aber weder verschoben noch gelöscht. Nur Server-Administratoren oder die konfigurierte Leitungsrolle dürfen starten und bestätigen. Der STAFF-Bereich ist privat und erhält die konfigurierten Leitungs-, Staff-, Finanz-, Reviewer- und Event-Team-Rollen; ohne Staff-Rollen bleibt er für Administratoren und den Bot sichtbar. Die erkannten Funktions-Channel-IDs werden in SQLite gespeichert und beim Neustart geladen.
 
 ### Automatische Aktualisierung auf Oracle
 

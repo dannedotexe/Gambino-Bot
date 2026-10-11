@@ -1,13 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { testDb } from "./helpers.js";
-import { CHANNEL_LAYOUT, bindCreatedChannels, loadChannelBindings } from "../src/channel-setup.js";
+import { CHANNEL_LAYOUT, bindCreatedChannels, displayCategoryName, displayChannelName, loadChannelBindings } from "../src/channel-setup.js";
 
 test("PDF structure contains the five categories and 25 text channels",()=>{
   assert.deepEqual(CHANNEL_LAYOUT.map(x=>x.name),["INFORMATION","EVENTS","COMMUNITY","SUPPORT","STAFF"]);
   assert.equal(CHANNEL_LAYOUT.reduce((n,x)=>n+x.channels.length,0),25);
-  assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="SUPPORT").channels.includes("bewerbungen"),true);
-  assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="STAFF").channels.includes("bewerbungen"),true);
+  assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="SUPPORT").channels.some(x=>x.name==="bewerbungen"),true);
+  assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="STAFF").channels.some(x=>x.name==="bewerbungen"),true);
+  assert.equal(displayCategoryName(CHANNEL_LAYOUT[0]),"📌・INFORMATION");
+  assert.equal(displayChannelName(CHANNEL_LAYOUT[0].channels[0]),"👋・willkommen");
 });
 
 test("channel binding persistence loads stored functional channels at startup",()=>{

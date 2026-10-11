@@ -3,12 +3,15 @@ import { ChannelType, PermissionFlagsBits } from "discord.js";
 // Layout from page 2 of Gambinos Bot Idee.pdf. The duplicate "bewerbungen"
 // channels intentionally live in different categories.
 export const CHANNEL_LAYOUT = [
-  { name: "INFORMATION", channels: ["willkommen", "regeln", "sanktionsliste", "ankündigungen", "neue-spieler"] },
-  { name: "EVENTS", channels: ["event-infos", "event-ankündigungen", "event-anmeldung", "event-ergebnisse", "event-logs"] },
-  { name: "COMMUNITY", channels: ["chat", "abstimmungen", "giveaway", "marktplatz", "kleidung"] },
-  { name: "SUPPORT", channels: ["ticket", "bewerbungen", "rang-anträge", "abmeldungen"] },
-  { name: "STAFF", channels: ["staff-dashboard", "bewerbungen", "sanktions-logs", "ticket-logs", "auszahlungen", "server-statistik"] },
+  { name: "INFORMATION", emoji: "📌", channels: [{name:"willkommen",emoji:"👋"},{name:"regeln",emoji:"📜"},{name:"sanktionsliste",emoji:"⚖️"},{name:"ankündigungen",emoji:"📢"},{name:"neue-spieler",emoji:"🆕"}] },
+  { name: "EVENTS", emoji: "🔮", channels: [{name:"event-infos",emoji:"📅"},{name:"event-ankündigungen",emoji:"📢"},{name:"event-anmeldung",emoji:"🎟️"},{name:"event-ergebnisse",emoji:"🏆"},{name:"event-logs",emoji:"📊"}] },
+  { name: "COMMUNITY", emoji: "☁️", channels: [{name:"chat",emoji:"💬"},{name:"abstimmungen",emoji:"🗳️"},{name:"giveaway",emoji:"🎁"},{name:"marktplatz",emoji:"🛒"},{name:"kleidung",emoji:"👕"}] },
+  { name: "SUPPORT", emoji: "🆘", channels: [{name:"ticket",emoji:"🎫"},{name:"bewerbungen",emoji:"📄"},{name:"rang-anträge",emoji:"📝"},{name:"abmeldungen",emoji:"🚫"}] },
+  { name: "STAFF", emoji: "👔", channels: [{name:"staff-dashboard",emoji:"📋"},{name:"bewerbungen",emoji:"📄"},{name:"sanktions-logs",emoji:"⚠️"},{name:"ticket-logs",emoji:"🗂️"},{name:"auszahlungen",emoji:"💰"},{name:"server-statistik",emoji:"📊"}] },
 ];
+
+export const displayCategoryName = group => `${group.emoji}・${group.name}`;
+export const displayChannelName = channel => `${channel.emoji}・${channel.name}`;
 
 export const CHANNEL_BINDINGS = {
   CHANNEL_TICKET_CATEGORY: ["SUPPORT", null],
@@ -51,7 +54,8 @@ export async function createMissingChannels(guild, config, clientUserId) {
   const existing = await guild.channels.fetch();
   const staffRoles = [...new Set([...(config.ROLE_LEADERS ?? []), ...(config.ROLE_STAFF ?? []), ...(config.ROLE_FINANCE ?? []), ...(config.ROLE_REVIEWERS ?? []), ...(config.ROLE_EVENT_TEAM ?? [])])];
   for (const group of CHANNEL_LAYOUT) {
-    let category = existing.find(c => c.type === ChannelType.GuildCategory && c.name === group.name);
+    const categoryName = displayCategoryName(group);
+    let category = existing.find(c => c.type === ChannelType.GuildCategory && [group.name,categoryName].includes(c.name));
     if (!category) {
       const permissionOverwrites = group.name === "STAFF" ? [
         { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -59,11 +63,19 @@ export async function createMissingChannels(guild, config, clientUserId) {
         ...staffRoles.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
       ] : undefined;
       try {
-        category = await guild.channels.create({ name: group.name, type: ChannelType.GuildCategory, permissionOverwrites });
+        category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory, permissionOverwrites });
         created.push(`Kategorie ${group.name}`);
       } catch (error) {
         failed.push(`Kategorie ${group.name}: ${error.message}`);
         continue;
+      }
+    }
+    if (category.name !== categoryName) {
+      try {
+        await category.setName(categoryName);
+        created.push(`Kategorie ${group.name} mit Emoji versehen`);
+      } catch (error) {
+        failed.push(`Kategorie ${group.name} konnte nicht formatiert werden: ${error.message}`);
       }
     }
     if (group.name === "STAFF") {
@@ -75,16 +87,25 @@ export async function createMissingChannels(guild, config, clientUserId) {
       }
     }
     categories.set(group.name, category);
-    for (const name of group.channels) {
+    for (const channelSpec of group.channels) {
+      const {name} = channelSpec;
+      const channelName = displayChannelName(channelSpec);
       const key = `${group.name}/${name}`;
-      let channel = existing.find(c => c.type === ChannelType.GuildText && c.parentId === category.id && c.name === name);
+      let channel = existing.find(c => c.type === ChannelType.GuildText && c.parentId === category.id && [name,channelName].includes(c.name));
       if (!channel) {
         try {
-          channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id });
+          channel = await guild.channels.create({ name:channelName, type: ChannelType.GuildText, parent: category.id });
           created.push(`${group.name} / #${name}`);
         } catch (error) {
           failed.push(`${group.name} / #${name}: ${error.message}`);
           continue;
+        }
+      } else if (channel.name !== channelName) {
+        try {
+          await channel.setName(channelName);
+          created.push(`${group.name} / #${name} mit Emoji versehen`);
+        } catch (error) {
+          failed.push(`${group.name} / #${name} konnte nicht formatiert werden: ${error.message}`);
         }
       }
       channels.set(key, channel);
