@@ -17,6 +17,7 @@ export const CHANNEL_BINDINGS = {
   CHANNEL_TICKET_CATEGORY: ["SUPPORT", null],
   CHANNEL_TICKET_LOG: ["STAFF", "ticket-logs"],
   CHANNEL_APPLICATION_REVIEW: ["STAFF", "bewerbungen"],
+  CHANNEL_RANK_REVIEW: ["STAFF", "rang-anträge"],
   CHANNEL_EVENT_ANNOUNCEMENTS: ["EVENTS", "event-ankündigungen"],
   CHANNEL_AUDIT_LOG: ["STAFF", "sanktions-logs"],
   CHANNEL_AUTOMOD_LOG: ["STAFF", "sanktions-logs"],

@@ -16,7 +16,7 @@ const schema = z.object({
   ROLE_FINANCE: idList.optional(), ROLE_REVIEWERS: idList.optional(), ROLE_MEMBERS: idList.optional(),
   BOT_OWNER_IDS: idList.optional(),
   CHANNEL_TICKET_CATEGORY: snowflake, CHANNEL_TICKET_LOG: snowflake,
-  CHANNEL_APPLICATION_REVIEW: snowflake, CHANNEL_EVENT_ANNOUNCEMENTS: snowflake,
+  CHANNEL_APPLICATION_REVIEW: snowflake, CHANNEL_RANK_REVIEW: snowflake, CHANNEL_EVENT_ANNOUNCEMENTS: snowflake,
   CHANNEL_AUDIT_LOG: snowflake, CHANNEL_STATS: snowflake, CHANNEL_AUTOMOD_LOG: snowflake,
   TICKET_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
   TICKET_MAX_OPEN_PER_USER: z.coerce.number().int().positive().default(2),

@@ -63,7 +63,8 @@ Das Familienkonto steht für noch nicht ausgezahltes Geld aus Grand-RP-Events od
 | `BOT_OWNER_IDS` | optionale Discord-Benutzer-IDs mit persönlichem Vollzugriff auf rollenbeschränkte Staff-Befehle |
 | `CHANNEL_TICKET_CATEGORY` | Kategorie, unter der private Ticket-Channels erstellt werden |
 | `CHANNEL_TICKET_LOG` | Ticket-Kurzmeldungen |
-| `CHANNEL_APPLICATION_REVIEW` | eingereichte Anträge und Reviewer-Buttons |
+| `CHANNEL_APPLICATION_REVIEW` | Familienbewerbungen in `STAFF・bewerbungen` und Reviewer-Buttons |
+| `CHANNEL_RANK_REVIEW` | Rang-Anträge in `STAFF・rang-anträge` und Reviewer-Buttons |
 | `CHANNEL_EVENT_ANNOUNCEMENTS` | Event-Ankündigungen; leer nutzt den Command-Channel |
 | `CHANNEL_AUDIT_LOG` | zentrale Weiterleitung von Datenbank-Audit-Logs |
 | `CHANNEL_AUTOMOD_LOG` | AutoMod- und Raid-Meldungen |

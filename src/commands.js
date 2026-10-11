@@ -74,15 +74,16 @@ export function buildTicketPanelPayload(config) {
   return {embeds:[panel],components:[new ActionRowBuilder().addComponents(select)]};
 }
 
-export function buildApplicationReviewPayload(kind,userId,answers) {
+export function buildApplicationReviewPayload(kind,userId,answers,decision=null,reason="") {
   const questions=applicationQuestions(kind);
   const labels=new Map(questions.map(question=>[question.id,question.label]));
   const panel=new EmbedBuilder().setColor(0xd4af37)
     .setAuthor({name:"GAMBINOS  •  FAMILIENBÜRO"})
     .setTitle(`${kind==="rang"?"🏅 Rang-Antrag":"🤝 Bewerbung"}`)
-    .setDescription(`**Antragsteller:** <@${userId}>\n**Eingereichte Angaben:**`)
+    .setDescription(`**Antragsteller:** <@${userId}>\n**Eingereichte Angaben:**${decision?`\n\n**Status:** ${decision==="accepted"?"✅ Angenommen":"❌ Abgelehnt"}`:""}`)
     .addFields(Object.entries(answers).map(([key,value])=>({name:labels.get(key)??key,value:String(value).slice(0,1024),inline:false})))
-    .setFooter({text:"GAMBINOS  •  Interne Prüfung"})
+    .setColor(decision==="accepted"?0x2ecc71:decision==="rejected"?0xe74c3c:0xd4af37)
+    .setFooter({text:decision==="rejected"?`Ablehnungsgrund: ${reason}`.slice(0,2048):"GAMBINOS  •  Interne Prüfung"})
     .setTimestamp();
   return {embeds:[panel]};
 }
@@ -214,7 +215,7 @@ export function createHandler({db,finance,config,client}) {
   async function applicationCommand(i,sub,{db,config,guards,g,u}) {
     if(sub==="bewerben"){const kind=i.options.getString("typ");await i.showModal(applicationModal(kind));return;}
     if(sub==="liste"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const rows=db.prepare("SELECT id,user_id,kind,status,created_at FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at LIMIT 20").all(g);return respond(i,rows.length?rows.map(r=>`\`${r.id}\` · <@${r.user_id}> · ${r.kind} · ${r.status} · <t:${Math.floor(new Date(r.created_at).getTime()/1000)}:R>`).join("\n"):"Keine offenen Anträge.");}
-    if(sub==="entscheiden"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const id=i.options.getString("id"),status=i.options.getString("entscheidung"),note=i.options.getString("kommentar")??"";const row=db.prepare("UPDATE applications SET status=?,reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,message_id").get(status,u,note,isoNow(),id,g);if(!row)return respond(i,"Offener Antrag nicht gefunden.");audit(db,g,u,`application.${status}`,id,{note});const channel=await targetChannel(i.guild,config.CHANNEL_APPLICATION_REVIEW);if(channel&&row.message_id){const msg=await channel.messages.fetch(row.message_id).catch(()=>null);if(msg)await msg.edit({components:[]}).catch(()=>{});}const applicant=await client.users.fetch(row.user_id).catch(()=>null);await applicant?.send(`Dein Antrag **${id}** wurde ${status==="accepted"?"angenommen":"abgelehnt"}.${note?` Kommentar: ${note}`:""}`).catch(()=>{});return respond(i,`Entscheidung zum Antrag gespeichert: ${status}.`);}
+    if(sub==="entscheiden"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const id=i.options.getString("id"),status=i.options.getString("entscheidung"),note=i.options.getString("kommentar")?.trim()??"";if(status==="rejected"&&!note)return respond(i,"Bitte gib bei einer Ablehnung einen Grund an.");const row=db.prepare("UPDATE applications SET status=?,reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,message_id,kind,answers").get(status,u,note,isoNow(),id,g);if(!row)return respond(i,"Offener Antrag nicht gefunden.");audit(db,g,u,`application.${status}`,id,{note});const channel=await applicationReviewChannel(i.guild,config,row.kind);if(channel&&row.message_id){const msg=await channel.messages.fetch(row.message_id).catch(()=>null);if(msg)await msg.edit({...buildApplicationReviewPayload(row.kind,row.user_id,JSON.parse(row.answers),status,note),components:[]}).catch(()=>{});}const applicant=await client.users.fetch(row.user_id).catch(()=>null);await applicant?.send(`Dein Antrag **${id}** wurde ${status==="accepted"?"angenommen":"abgelehnt"}.${note?` Grund: ${note}`:""}`).catch(()=>{});return respond(i,`Entscheidung zum Antrag gespeichert: ${status}.`);}
     if(sub==="status"){const id=i.options.getString("id"),row=db.prepare("UPDATE applications SET status='withdrawn',updated_at=? WHERE id=? AND guild_id=? AND user_id=? AND status IN ('open','review') RETURNING id").get(isoNow(),id,g,u);return respond(i,row?"Antrag zurückgezogen.":"Offener eigener Antrag nicht gefunden.");}
   }
 
@@ -256,9 +257,50 @@ export function createHandler({db,finance,config,client}) {
       return i.reply({content:`Dein Ticket wurde erstellt: ${channel}`,ephemeral:true});
     }catch(e){console.error("Ticket create failed:",e);return i.reply({content:"Ticket konnte nicht angelegt werden. Prüfe die Bot-Berechtigungen und Ticket-Konfiguration.",ephemeral:true}).catch(()=>{});}
   }
-  async function modal(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});if(!i.customId.startsWith("application:submit:"))return;const kind=i.customId.split(":")[2];if(!["bewerbung","rang"].includes(kind))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});const answers=Object.fromEntries(applicationQuestions(kind).map(question=>[question.id,i.fields.getTextInputValue(question.id)]));const open=db.prepare("SELECT id FROM applications WHERE guild_id=? AND user_id=? AND kind=? AND status IN ('open','review')").get(i.guildId,i.user.id,kind);if(open)return i.reply({content:`Du hast bereits einen offenen Antrag: \`${open.id}\``,ephemeral:true});const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind});const channel=await targetChannel(i.guild,config.CHANNEL_APPLICATION_REVIEW);if(channel){const reviewButtons=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:review:${id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));const msg=await channel.send({...buildApplicationReviewPayload(kind,i.user.id,answers),components:[reviewButtons]});db.prepare("UPDATE applications SET message_id=? WHERE id=?").run(msg.id,id);}return i.reply({content:`Dein Antrag wurde gespeichert. Referenz: \`${id}\``,ephemeral:true});}
+  async function modal(i){
+    if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});
+    if(i.customId.startsWith("application:reject-reason:")){
+      const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return i.reply({content:denied,ephemeral:true});
+      const id=i.customId.split(":")[2],reason=i.fields.getTextInputValue("reason").trim();
+      if(reason.length<3)return i.reply({content:"Bitte beschreibe den Ablehnungsgrund etwas genauer.",ephemeral:true});
+      const row=db.prepare("UPDATE applications SET status='rejected',reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,message_id,kind,answers").get(i.user.id,reason,isoNow(),id,i.guildId);
+      if(!row)return i.reply({content:"Dieser Antrag wurde bereits entschieden oder nicht gefunden.",ephemeral:true});
+      audit(db,i.guildId,i.user.id,"application.rejected",id,{reason});
+      const channel=await applicationReviewChannel(i.guild,config,row.kind);
+      if(channel&&row.message_id){const message=await channel.messages.fetch(row.message_id).catch(()=>null);if(message)await message.edit({...buildApplicationReviewPayload(row.kind,row.user_id,JSON.parse(row.answers),"rejected",reason),components:[]}).catch(()=>{});}
+      const applicant=await client.users.fetch(row.user_id).catch(()=>null);
+      await applicant?.send(`Dein Antrag wurde abgelehnt. **Grund:** ${reason}`).catch(()=>{});
+      return i.reply({content:"Antrag abgelehnt. Der Grund wurde gespeichert und dem Antragsteller gesendet.",ephemeral:true});
+    }
+    if(!i.customId.startsWith("application:submit:"))return;
+    const kind=i.customId.split(":")[2];if(!["bewerbung","rang"].includes(kind))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});
+    const answers=Object.fromEntries(applicationQuestions(kind).map(question=>[question.id,i.fields.getTextInputValue(question.id)]));
+    const open=db.prepare("SELECT id FROM applications WHERE guild_id=? AND user_id=? AND kind=? AND status IN ('open','review')").get(i.guildId,i.user.id,kind);if(open)return i.reply({content:`Du hast bereits einen offenen Antrag: \`${open.id}\``,ephemeral:true});
+    const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind});
+    const channel=await applicationReviewChannel(i.guild,config,kind);
+    if(channel){const reviewButtons=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:review:${id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));const msg=await channel.send({...buildApplicationReviewPayload(kind,i.user.id,answers),components:[reviewButtons]});db.prepare("UPDATE applications SET message_id=? WHERE id=?").run(msg.id,id);}else{return i.reply({content:`Dein Antrag wurde gespeichert, aber der Staff-Channel für ${kind==="rang"?"Rang-Anträge":"Bewerbungen"} wurde nicht gefunden. Bitte melde es der Leitung. Referenz: \`${id}\``,ephemeral:true});}
+    return i.reply({content:`Dein Antrag wurde gespeichert. Referenz: \`${id}\``,ephemeral:true});
+  }
 
-  async function reviewButton(i){if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});const [,action,id]=i.customId.split(":");if(action==="open"){if(!["bewerbung","rang"].includes(id))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});return i.showModal(applicationModal(id));}const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return i.reply({content:denied,ephemeral:true});const row=db.prepare("SELECT * FROM applications WHERE id=? AND guild_id=? AND status IN ('open','review')").get(id,i.guildId);if(!row)return i.reply({content:"Dieser Antrag wurde bereits abgeschlossen.",ephemeral:true});if(action==="review"){db.prepare("UPDATE applications SET status='review',reviewer_id=?,updated_at=? WHERE id=?").run(i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,"application.claimed",id);return i.reply({content:"Antrag übernommen.",ephemeral:true});}const status=action==="accept"?"accepted":"rejected";db.prepare("UPDATE applications SET status=?,reviewer_id=?,updated_at=? WHERE id=?").run(status,i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,`application.${status}`,id);await i.update({components:[]});const user=await client.users.fetch(row.user_id).catch(()=>null);await user?.send(`Dein Antrag **${id}** wurde ${status==="accepted"?"angenommen":"abgelehnt"}.`).catch(()=>{});return;}
+  async function reviewButton(i){
+    if(!i.inGuild()||(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID))return i.reply({content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});
+    const [,action,id]=i.customId.split(":");
+    if(action==="open"){if(!["bewerbung","rang"].includes(id))return i.reply({content:"Dieser Antragstyp ist ungültig.",ephemeral:true});return i.showModal(applicationModal(id));}
+    const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return i.reply({content:denied,ephemeral:true});
+    const row=db.prepare("SELECT * FROM applications WHERE id=? AND guild_id=? AND status IN ('open','review')").get(id,i.guildId);if(!row)return i.reply({content:"Dieser Antrag wurde bereits abgeschlossen.",ephemeral:true});
+    if(action==="review"){db.prepare("UPDATE applications SET status='review',reviewer_id=?,updated_at=? WHERE id=?").run(i.user.id,isoNow(),id);audit(db,i.guildId,i.user.id,"application.claimed",id);return i.reply({content:"Antrag übernommen.",ephemeral:true});}
+    if(action==="reject"){
+      const modal=new ModalBuilder().setCustomId(`application:reject-reason:${id}`).setTitle("Antrag mit Grund ablehnen");
+      modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("reason").setLabel("Ablehnungsgrund für den Antragsteller").setStyle(TextInputStyle.Paragraph).setRequired(true).setMinLength(3).setMaxLength(1000)));
+      return i.showModal(modal);
+    }
+    if(action!=="accept")return i.reply({content:"Unbekannte Antragsaktion.",ephemeral:true});
+    const accepted=db.prepare("UPDATE applications SET status='accepted',reviewer_id=?,review_note='',updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,kind,answers").get(i.user.id,isoNow(),id,i.guildId);if(!accepted)return i.reply({content:"Dieser Antrag wurde gerade bereits entschieden.",ephemeral:true});
+    audit(db,i.guildId,i.user.id,"application.accepted",id);
+    await i.update({...buildApplicationReviewPayload(accepted.kind,accepted.user_id,JSON.parse(accepted.answers),"accepted"),components:[]});
+    const applicant=await client.users.fetch(accepted.user_id).catch(()=>null);await applicant?.send("Dein Antrag wurde angenommen.").catch(()=>{});
+    return;
+  }
 
   async function eventButton(i){const [,action]=i.customId.split(":");if(action==="join"||action==="leave")return button(i);return i.reply({content:"Unbekannte Event-Aktion.",ephemeral:true});}
 
@@ -270,6 +312,14 @@ function eventButtons(id){return new ActionRowBuilder().addComponents(new Button
 function eventEmbed(e,count,participants=[]){const list=participants.length?participants.slice(0,30).map(x=>`<@${x.user_id}>`).join(", ")+(participants.length>30?`, +${participants.length-30} weitere`:""):"Noch keine Anmeldungen";return embed(`📅 ${e.name}`,`${e.description}\n\n**Wann:** <t:${Math.floor(new Date(e.starts_at).getTime()/1000)}:F>\n**Treffpunkt:** ${e.location}\n**Veranstalter:** <@${e.host_id}>\n**Ausrüstung:** ${e.equipment||"Keine Angabe"}\n**Hinweise:** ${e.notes||"Keine"}\n**Teilnehmer (${count}${e.max_participants?`/${e.max_participants}`:""}):** ${list}`);}
 async function refreshEvent(message,db,event){const participants=db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(event.id);await message.edit({embeds:[eventEmbed(event,participants.length,participants)]}).catch(()=>{});}
 async function targetChannel(guild,id){return id?guild.channels.fetch(id).catch(()=>null):null;}
+export function applicationReviewChannelKey(kind){return kind==="rang"?"CHANNEL_RANK_REVIEW":"CHANNEL_APPLICATION_REVIEW";}
+async function applicationReviewChannel(guild,config,kind){
+  const channelName=kind==="rang"?"rang-anträge":"bewerbungen";
+  const configured=await targetChannel(guild,config[applicationReviewChannelKey(kind)]);
+  if(configured)return configured;
+  const channels=await guild.channels.fetch();
+  return channels.find(channel=>channel?.isTextBased()&&channel.name.includes(channelName)&&channel.parent?.name.toLowerCase().includes("staff"))??null;
+}
 function stats(db,guildId,dashboard=false){const count=(q,...a)=>db.prepare(q).get(...a)?.n??0;const financeRoles="Finanzkennzahlen sind nur der Finanzrolle zugänglich.";const base=[`Mitglieder: **${count("SELECT COUNT(*) n FROM accounts WHERE guild_id=?",guildId)}** Familienkonten`,`Offene Tickets: **${count("SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND status='open'",guildId)}**`,`Offene Anträge: **${count("SELECT COUNT(*) n FROM applications WHERE guild_id=? AND status IN ('open','review')",guildId)}**`,`Anstehende Events: **${count("SELECT COUNT(*) n FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>?",guildId,isoNow())}**`,`Aktive Giveaways: **${count("SELECT COUNT(*) n FROM giveaways WHERE guild_id=? AND status='active'",guildId)}**`];if(dashboard)base.push(`Offene Sanktionen: **${count("SELECT COUNT(*) n FROM sanctions WHERE guild_id=? AND status IN ('open','partial')",guildId)}**`,financeRoles);return base.join("\n");}
 
 export async function handleComponent(i,handlers){if(i.isButton()){if(i.customId.startsWith("application:"))return handlers.reviewButton(i);if(i.customId.startsWith("event:"))return handlers.eventButton(i);return handlers.button(i);}if(i.isStringSelectMenu())return handlers.select(i);if(i.isModalSubmit())return handlers.modal(i);}
