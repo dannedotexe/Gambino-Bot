@@ -48,7 +48,8 @@ const schema = z.object({
     if(!["127.0.0.1","::1","localhost"].includes(cfg.DASHBOARD_BIND))ctx.addIssue({code:"custom",path:["DASHBOARD_BIND"],message:"Aus Sicherheitsgründen muss das Dashboard an localhost gebunden sein"});
     if(!cfg.DISCORD_CLIENT_SECRET)ctx.addIssue({code:"custom",path:["DISCORD_CLIENT_SECRET"],message:"Für Discord-OAuth erforderlich"});
     if(!cfg.DASHBOARD_SESSION_SECRET||cfg.DASHBOARD_SESSION_SECRET.length<32)ctx.addIssue({code:"custom",path:["DASHBOARD_SESSION_SECRET"],message:"Mindestens 32 Zeichen erforderlich"});
-    if(![...(cfg.ROLE_LEADERS??[]),...(cfg.ROLE_STAFF??[]),...(cfg.ROLE_FINANCE??[]),...(cfg.ROLE_EVENT_TEAM??[]),...(cfg.ROLE_REVIEWERS??[])].length)ctx.addIssue({code:"custom",path:["ROLE_*"] ,message:"Mindestens eine Staff-Rolle muss für den Dashboard-Zugriff gesetzt sein"});
+    const dashboardRoles=[...(cfg.ROLE_LEADERS??[]),...(cfg.ROLE_STAFF??[]),...(cfg.ROLE_FINANCE??[]),...(cfg.ROLE_EVENT_TEAM??[]),...(cfg.ROLE_REVIEWERS??[])];
+    if(!dashboardRoles.length&&!cfg.BOT_OWNER_IDS?.length)ctx.addIssue({code:"custom",path:["ROLE_*"] ,message:"Mindestens eine Staff-Rolle oder BOT_OWNER_IDS muss für den Dashboard-Zugriff gesetzt sein"});
   }
 });
 
