@@ -17,6 +17,7 @@ export function initializeSchema(db) {
   db.pragma("busy_timeout = 5000");
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS guild_settings (guild_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(guild_id,key));
     CREATE TABLE IF NOT EXISTS accounts (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, balance_cents INTEGER NOT NULL DEFAULT 0 CHECK(balance_cents >= 0), updated_at TEXT NOT NULL, PRIMARY KEY(guild_id,user_id));
     CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, actor_id TEXT NOT NULL, type TEXT NOT NULL, amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0), gross_cents INTEGER, deduction_cents INTEGER, net_cents INTEGER, reason TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS transactions_user_time ON transactions(guild_id,user_id,created_at DESC);

@@ -27,6 +27,8 @@ Modularer Discord-Bot für Gambinos / Grand-RP mit discord.js 14 und SQLite. Das
 
 ## Module und Befehle
 
+- `/setup channels`: zeigt die in `Gambinos Bot Idee.pdf` definierte Struktur (5 Kategorien, 25 Text-Channels) als Vorschau und legt nach Bestätigung nur Fehlendes an. Nur Server-Administratoren oder die konfigurierte Leitungsrolle dürfen starten und bestätigen. Vorhandene Channels werden weder verschoben noch umbenannt oder gelöscht. Der neue STAFF-Bereich ist privat und erhält die konfigurierten Leitungs-, Staff-, Finanz-, Reviewer- und Event-Team-Rollen; ohne Staff-Rollen bleibt er für Administratoren und den Bot sichtbar. Die erkannten Funktions-Channel-IDs werden in SQLite gespeichert und beim Neustart geladen. Für neue Slash-Commands danach einmal `npm run deploy-commands` ausführen.
+
 - `/ticket panel`, `/ticket übernehmen`, `/ticket schliessen`, `/ticket wiedereroeffnen`: private Tickets, zuständige Rollen, Cooldown, Begrenzung offener Tickets und DB-Transkript der letzten 100 Channel-Nachrichten. Geschlossene Channels bleiben zur Prüfung erhalten.
 - `/event erstellen`, `/event bearbeiten`, `/event liste`, `/event historie`, `/event anwesenheit`, `/event absagen`, `/event beenden`: persistente Events und An-/Abmeldung per Button. ISO-Zeit mit Offset angeben (z. B. `2026-12-31T19:00:00+01:00`); gespeichert wird UTC, Discord zeigt die Zeit lokal. Reminder bei ungefähr 60 und 15 Minuten.
 - `/bewerbung-panel`, `/antrag bewerben`, `/antrag liste`, `/antrag entscheiden`, `/antrag status`: Bewerbungs- und Rang-Formulare mit Status, Reviewer und optionalem Entscheidungskommentar. Rollen werden nie automatisch vergeben.

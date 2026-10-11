@@ -5,12 +5,14 @@ import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
+import { loadChannelBindings } from "./src/channel-setup.js";
 
 let config;
 try { config=loadConfig(); }
 catch(error){ console.error(error.message); process.exit(1); }
 
 const db=openDatabase(config.DATABASE_PATH);
+loadChannelBindings(db,config.DISCORD_GUILD_ID,config);
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel]});
 const finance=createFinance(db);
 const handlers=createHandler({db,finance,config,client});
