@@ -107,6 +107,7 @@ const ACTIONS = {
   "ticket.closed": "Ticket geschlossen",
   "ticket.reopened": "Ticket wieder geöffnet",
   "ticket.channel_missing": "Ticket-Channel nicht gefunden",
+  "event.created": "Event veröffentlicht",
   "event.updated": "Event geändert",
   "event.attendance": "Anwesenheit erfasst",
   "event.ended": "Event abgeschlossen",
@@ -124,7 +125,7 @@ const ACTIONS = {
 const ACTION_EMOJI = {
   "application.submitted": "📨", "application.claimed": "🔎", "application.accepted": "✅", "application.rejected": "❌", "application.withdrawn": "↩️",
   "ticket.created": "🎫", "ticket.claimed": "👤", "ticket.closed": "🔒", "ticket.reopened": "🔓", "ticket.channel_missing": "⚠️",
-  "event.updated": "📅", "event.attendance": "📝", "event.ended": "🏁", "event.cancelled": "❌", "giveaway.ended": "🎉",
+  "event.created": "📅", "event.updated": "📅", "event.attendance": "📝", "event.ended": "🏁", "event.cancelled": "❌", "giveaway.ended": "🎉",
   "finance.credit": "💰", "finance.payout": "💸", "sanction.created": "⚖️", "sanction.applied": "➖", "sanction.refunded": "↩️", "sanction.void": "🚫", "automod.action": "🛡️",
 };
 

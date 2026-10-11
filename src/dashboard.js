@@ -3,9 +3,13 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { audit } from "./database.js";
+import { eventButtons, eventEmbed, parseEventDate, ticketActions, ticketCard, ticketClosedCard, buildApplicationReviewPayload } from "./commands.js";
+import { applicationDecisionDm, applicationInReviewDm } from "./presentation.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dashboard");
-const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml" };
+const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".gif": "image/gif" };
 const html = value => String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 
 export function createDashboard({ db, client, config }) {
@@ -27,6 +31,34 @@ export function createDashboard({ db, client, config }) {
     const roles = staffRoleIds.filter(id => member.roles.cache.has(id));
     const owner = config.BOT_OWNER_IDS?.includes(userId) ?? false;
     return roles.length || owner ? { id: member.id, tag: member.user.tag, displayName: member.displayName, roles, owner } : null;
+  };
+  const can = (member, group) => member.owner || (config[group] ?? []).some(id => member.roles.includes(id));
+  const readBody = req => new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", chunk => { raw += chunk; if (raw.length > 20_000) { reject(new Error("Anfrage ist zu groß.")); req.destroy(); } });
+    req.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new Error("Ungültige Anfrage.")); } });
+    req.on("error", reject);
+  });
+  const ensureGuildChannel = async channelId => {
+    if (!channelId) return null;
+    const guild = client.guilds.cache.get(config.DISCORD_GUILD_ID) ?? await client.guilds.fetch(config.DISCORD_GUILD_ID);
+    return guild.channels.fetch(channelId).catch(() => null);
+  };
+  const applicationChannel = async kind => {
+    const channelId = kind === "rang" ? config.CHANNEL_RANK_REVIEW : config.CHANNEL_APPLICATION_REVIEW;
+    return ensureGuildChannel(channelId);
+  };
+  const refreshApplication = async row => {
+    const channel = await applicationChannel(row.kind);
+    const message = channel && row.message_id ? await channel.messages.fetch(row.message_id).catch(() => null) : null;
+    if (!message) return;
+    if (["open", "review"].includes(row.status)) {
+      const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import("discord.js");
+      const controls = [];
+      if (row.status === "open") controls.push(new ButtonBuilder().setCustomId(`application:review:${row.id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary));
+      controls.push(new ButtonBuilder().setCustomId(`application:accept:${row.id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`application:reject:${row.id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));
+      await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status === "review" ? "review" : null, row.review_note ?? "", row.reviewer_id), components: [new ActionRowBuilder().addComponents(...controls)] }).catch(() => {});
+    } else await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status, row.review_note ?? ""), components: [] }).catch(() => {});
   };
   const sessionFor = async req => {
     const raw = req.headers.cookie?.split(";").map(x => x.trim()).find(x => x.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
@@ -84,6 +116,127 @@ export function createDashboard({ db, client, config }) {
       if (url.pathname.startsWith("/api/")) {
         const member = await sessionFor(req);
         if (!member) return send(res, 401, { error: "Bitte melde dich mit Discord an." });
+        if (req.method === "POST" && req.headers.origin !== new URL(config.DASHBOARD_PUBLIC_URL).origin) return send(res, 403, { error: "Ungültige Anfragequelle." });
+        if (req.method === "GET" && url.pathname === "/api/manage") {
+          const canReview = can(member, "ROLE_REVIEWERS") || can(member, "ROLE_LEADERS");
+          const canStaff = can(member, "ROLE_STAFF") || can(member, "ROLE_LEADERS");
+          const canEvents = can(member, "ROLE_EVENT_TEAM") || can(member, "ROLE_LEADERS");
+          const data = { capabilities: { applications: canReview, tickets: canStaff, events: canEvents }, applications: [], tickets: [], events: [] };
+          if (canReview) data.applications = db.prepare("SELECT id,user_id,kind,status,reviewer_id,created_at,answers FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at").all(config.DISCORD_GUILD_ID);
+          if (canStaff) data.tickets = db.prepare("SELECT id,channel_id,user_id,category,status,claimed_by,created_at FROM tickets WHERE guild_id=? AND status='open' ORDER BY created_at").all(config.DISCORD_GUILD_ID);
+          if (canEvents) data.events = db.prepare("SELECT e.id,e.name,e.description,e.starts_at,e.location,e.host_id,e.channel_id,e.message_id,(SELECT COUNT(*) FROM event_participants p WHERE p.event_id=e.id AND p.status IN ('signed_up','present')) AS participants FROM events e WHERE e.guild_id=? AND e.status='scheduled' ORDER BY e.starts_at LIMIT 25").all(config.DISCORD_GUILD_ID);
+          return send(res, 200, data);
+        }
+        if (req.method === "POST" && url.pathname.startsWith("/api/")) {
+          const body = await readBody(req);
+          const now = new Date().toISOString();
+          let match;
+          if ((match = /^\/api\/applications\/([\w-]+)\/(claim|decision)$/.exec(url.pathname))) {
+            if (!can(member, "ROLE_REVIEWERS") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Reviewer- oder Leitungsrolle." });
+            const [, id, action] = match;
+            const current = db.prepare("SELECT * FROM applications WHERE id=? AND guild_id=? AND status IN ('open','review')").get(id, config.DISCORD_GUILD_ID);
+            if (!current) return send(res, 404, { error: "Der Antrag ist nicht mehr offen." });
+            if (action === "claim") {
+              if (current.status === "review" && current.reviewer_id !== member.id) return send(res, 409, { error: "Der Antrag wird bereits von einem anderen Staffmitglied bearbeitet." });
+              const row = db.transaction(() => {
+                const claimed = db.prepare("UPDATE applications SET status='review',reviewer_id=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') AND (status='open' OR reviewer_id=?)").run(member.id, now, id, config.DISCORD_GUILD_ID, member.id);
+                if (!claimed.changes) return null;
+                const application = db.prepare("SELECT * FROM applications WHERE id=?").get(id);
+                audit(db, config.DISCORD_GUILD_ID, member.id, "application.claimed", id, { kind: application.kind, applicantId: application.user_id, reviewerId: member.id });
+                return application;
+              })();
+              if (!row) return send(res, 409, { error: "Der Antrag wurde parallel bereits übernommen." });
+              await refreshApplication(row);
+              const dmSent = await client.users.fetch(row.user_id).then(user => user.send(applicationInReviewDm({ kind: row.kind, applicationId: id, reviewerId: member.id })).then(() => true)).catch(() => false);
+              return send(res, 200, { ok: true, message: dmSent ? "Antrag übernommen. Der Antragsteller wurde privat benachrichtigt." : "Antrag übernommen. Eine private Nachricht konnte nicht zugestellt werden; der Status ist gespeichert." });
+            }
+            const status = body.status;
+            const reason = String(body.reason ?? "").trim();
+            if (!['accepted', 'rejected'].includes(status)) return send(res, 400, { error: "Ungültige Entscheidung." });
+            if (status === "rejected" && reason.length < 3) return send(res, 400, { error: "Bitte gib einen nachvollziehbaren Ablehnungsgrund an." });
+            if (reason.length > 1000) return send(res, 400, { error: "Der Grund darf höchstens 1.000 Zeichen enthalten." });
+            const changed = db.transaction(() => {
+              const application = db.prepare("UPDATE applications SET status=?,reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING *").get(status, member.id, reason, now, id, config.DISCORD_GUILD_ID);
+              if (application) audit(db, config.DISCORD_GUILD_ID, member.id, `application.${status}`, id, { kind: application.kind, applicantId: application.user_id, reason, reviewerId: member.id });
+              return application;
+            })();
+            if (!changed) return send(res, 409, { error: "Der Antrag wurde parallel bereits bearbeitet." });
+            await refreshApplication(changed);
+            const dmSent = await client.users.fetch(changed.user_id).then(user => user.send(applicationDecisionDm({ kind: changed.kind, status, applicationId: id, reason })).then(() => true)).catch(() => false);
+            return send(res, 200, { ok: true, message: status === "accepted" ? (dmSent ? "Antrag angenommen und Antragsteller privat benachrichtigt." : "Antrag angenommen. Eine private Nachricht konnte nicht zugestellt werden.") : (dmSent ? "Antrag mit Begründung abgelehnt; die Rückmeldung wurde privat gesendet." : "Antrag mit Begründung abgelehnt. Eine private Nachricht konnte nicht zugestellt werden.") });
+          }
+          if ((match = /^\/api\/tickets\/([\w-]+)\/(claim|close)$/.exec(url.pathname))) {
+            if (!can(member, "ROLE_STAFF") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Staff- oder Leitungsrolle." });
+            const [, id, action] = match;
+            const ticket = db.prepare("SELECT * FROM tickets WHERE id=? AND guild_id=? AND status='open'").get(id, config.DISCORD_GUILD_ID);
+            if (!ticket) return send(res, 404, { error: "Das Ticket ist nicht mehr offen." });
+            const channel = await ensureGuildChannel(ticket.channel_id);
+            if (!channel?.isTextBased()) return send(res, 409, { error: "Der Ticket-Channel ist nicht erreichbar." });
+            if (action === "claim") {
+              if (ticket.claimed_by && ticket.claimed_by !== member.id) return send(res, 409, { error: "Das Ticket wurde bereits von jemand anderem übernommen." });
+              const claimed = db.transaction(() => {
+                const changed = db.prepare("UPDATE tickets SET claimed_by=?,updated_at=? WHERE id=? AND status='open' AND (claimed_by IS NULL OR claimed_by=?)").run(member.id, now, id, member.id);
+                if (changed.changes) audit(db, config.DISCORD_GUILD_ID, member.id, "ticket.claimed", ticket.user_id, { ticketId: id, category: ticket.category });
+                return changed.changes;
+              })();
+              if (!claimed) return send(res, 409, { error: "Das Ticket wurde parallel übernommen." });
+              const message = ticket.message_id ? await channel.messages.fetch(ticket.message_id).catch(() => null) : null;
+              if (message) await message.edit({ embeds: [ticketCard(ticket.category, ticket.user_id, member.id)], components: ticketActions(id, true) }).catch(() => {});
+              return send(res, 200, { ok: true, message: "Ticket übernommen und im Discord aktualisiert." });
+            }
+            const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+            if (!messages) return send(res, 503, { error: "Der Ticketverlauf konnte nicht geladen werden. Das Ticket bleibt offen; bitte prüfe die Discord-Berechtigungen und versuche es erneut." });
+            const transcript = messages ? [...messages.values()].sort((a,b) => a.createdTimestamp-b.createdTimestamp).map(message => ({ author: message.author?.tag ?? "Unbekannt", userId: message.author?.id ?? null, content: message.content, createdAt: message.createdAt.toISOString(), attachments: [...message.attachments.values()].map(file => ({ name: file.name, url: file.url })) })) : [];
+            db.transaction(() => {
+              db.prepare("INSERT OR REPLACE INTO ticket_transcripts(ticket_id,messages,created_at) VALUES(?,?,?)").run(id, JSON.stringify(transcript), now);
+              const changed = db.prepare("UPDATE tickets SET status='closed',closed_at=?,updated_at=? WHERE id=? AND status='open'").run(now, now, id);
+              if (!changed.changes) throw new Error("Das Ticket wurde parallel geschlossen.");
+              audit(db, config.DISCORD_GUILD_ID, member.id, "ticket.closed", ticket.user_id, { ticketId: id, channelId: ticket.channel_id, transcriptMessages: transcript.length });
+            })();
+            await channel.permissionOverwrites.edit(ticket.user_id, { SendMessages: false }).catch(() => {});
+            await channel.setName(`closed-${ticket.category}-${ticket.user_id.slice(-4)}`.slice(0, 100)).catch(() => {});
+            const message = ticket.message_id ? await channel.messages.fetch(ticket.message_id).catch(() => null) : null;
+            if (message) await message.edit({ embeds: [ticketClosedCard(ticket.category, ticket.user_id)], components: [] }).catch(() => {});
+            return send(res, 200, { ok: true, message: "Ticket geschlossen. Der Verlauf wurde gespeichert." });
+          }
+          if (url.pathname === "/api/events" && req.method === "POST") {
+            if (!can(member, "ROLE_EVENT_TEAM") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Event-Team- oder Leitungsrolle." });
+            const name = String(body.name ?? "").trim(), description = String(body.description ?? "").trim(), location = String(body.location ?? "").trim();
+            const starts = parseEventDate(body.startsAt, config.TIMEZONE);
+            const maximum = body.maximum == null || body.maximum === "" ? null : Number(body.maximum);
+            if (name.length < 3 || name.length > 100 || description.length > 1000 || location.length < 2 || location.length > 100 || !starts || starts.getTime() < Date.now() + 60_000 || (maximum !== null && (!Number.isInteger(maximum) || maximum < 1 || maximum > 500))) return send(res, 400, { error: `Bitte Name, Treffpunkt, ein gültiges zukünftiges Datum${maximum !== null ? " sowie ein Teilnehmerlimit zwischen 1 und 500" : ""} eintragen (${config.TIMEZONE}).` });
+            const target = await ensureGuildChannel(config.CHANNEL_EVENT_ANNOUNCEMENTS);
+            if (!target?.isTextBased()) return send(res, 409, { error: "Der Ankündigungskanal ist nicht konfiguriert oder nicht erreichbar." });
+            const id = randomUUID();
+            const event = { id, guild_id: config.DISCORD_GUILD_ID, name, description, starts_at: starts.toISOString(), location, host_id: member.id, equipment: String(body.equipment ?? "").slice(0, 500), notes: String(body.notes ?? "").slice(0, 500), max_participants: maximum };
+            const message = await target.send({ embeds: [eventEmbed(event, 0)], components: [eventButtons(id)] });
+            try {
+              db.transaction(() => {
+                db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'scheduled',?)").run(id, event.guild_id, target.id, message.id, event.name, event.description, event.starts_at, event.location, event.host_id, event.equipment, event.notes, event.max_participants, now);
+                audit(db, config.DISCORD_GUILD_ID, member.id, "event.created", id, { name, startsAt: event.starts_at, channelId: target.id });
+              })();
+            } catch (error) { await message.delete().catch(() => {}); throw error; }
+            return send(res, 201, { ok: true, message: "Event veröffentlicht und zur Übersicht hinzugefügt." });
+          }
+          if ((match = /^\/api\/events\/([\w-]+)\/cancel$/.exec(url.pathname))) {
+            if (!can(member, "ROLE_EVENT_TEAM") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Event-Team- oder Leitungsrolle." });
+            const id = match[1], event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled'").get(id, config.DISCORD_GUILD_ID);
+            if (!event) return send(res, 404, { error: "Das Event ist nicht mehr geplant." });
+            const cancelled = db.transaction(() => {
+              const changed = db.prepare("UPDATE events SET status='cancelled' WHERE id=? AND status='scheduled'").run(id);
+              if (changed.changes) audit(db, config.DISCORD_GUILD_ID, member.id, "event.cancelled", id, { name: event.name });
+              return changed.changes;
+            })();
+            if (!cancelled) return send(res, 409, { error: "Das Event wurde parallel geändert." });
+            const channel = await ensureGuildChannel(event.channel_id), message = channel && event.message_id ? await channel.messages.fetch(event.message_id).catch(() => null) : null;
+            if (message) {
+              const participants = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(id);
+              await message.edit({ embeds: [eventEmbed({ ...event, name: `ABGESAGT · ${event.name}` }, participants.length, participants)], components: [] }).catch(() => {});
+            }
+            return send(res, 200, { ok: true, message: "Event abgesagt und Anmeldung geschlossen." });
+          }
+          return send(res, 404, { error: "Nicht gefunden." });
+        }
         if (req.method === "GET" && url.pathname === "/api/overview") {
           const events = db.prepare("SELECT name,starts_at,location FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>? ORDER BY starts_at LIMIT 5").all(config.DISCORD_GUILD_ID, new Date().toISOString());
           const applications = db.prepare("SELECT id,kind,status,created_at FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at LIMIT 8").all(config.DISCORD_GUILD_ID);
@@ -100,7 +253,7 @@ export function createDashboard({ db, client, config }) {
       if (req.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
         const relative = url.pathname === "/" ? "index.html" : url.pathname.slice("/assets/".length);
         if (relative.includes("..") || relative.includes("\\")) return send(res, 400, { error: "Ungültiger Pfad." });
-        const file = path.join(root, relative);
+        const file = url.pathname === "/" ? path.join(root, relative) : path.join(root, "assets", relative);
         const body = await readFile(file);
         return send(res, 200, body, mime[path.extname(file)] ?? "application/octet-stream");
       }
