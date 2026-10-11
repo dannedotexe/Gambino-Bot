@@ -129,7 +129,7 @@ const ACTION_EMOJI = {
 };
 
 const DETAIL_NAMES = {
-  category: "Kategorie", kind: "Antragstyp", reason: "Grund", note: "Kommentar", caseRef: "Fallbezug",
+  category: "Kategorie", kind: "Antragstyp", applicantId: "Antragsteller", reason: "Grund", note: "Kommentar", caseRef: "Fallbezug",
   rule: "Regel", action: "Maßnahme", entries: "Teilnahmen", transcriptMessages: "Nachrichten im Transkript",
   cents: "Betrag", grossCents: "Brutto", deductionCents: "Sanktionsabzug", netCents: "Netto ausgezahlt",
   remainingCents: "Offener Rest", startsAt: "Beginn", name: "Name", status: "Status", channelId: "Channel",
@@ -142,6 +142,7 @@ function formatDetail(key, value) {
     return `${(Number(value) / 100).toLocaleString("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
   }
   if (key === "channelId") return `<#${value}>`;
+  if (key === "applicantId") return `<@${value}>`;
   if (key === "kind") return value === "rang" ? "Rang-Antrag" : value === "bewerbung" ? "Familienbewerbung" : String(value).slice(0, 1000);
   if (key === "category") return ({ support: "Support", beschwerde: "Beschwerde", leitung: "Leitung" })[value] ?? String(value).slice(0, 1000);
   if (key === "rule") return ({ message_spam: "Nachrichten-Spam", blocked_term: "Gesperrter Begriff", unapproved_link: "Nicht erlaubter Link", join_raid: "Möglicher Join-Raid" })[value] ?? String(value).slice(0, 1000);
@@ -160,19 +161,20 @@ export function auditLogPayload(item) {
   const color = action.startsWith("automod.") || action.includes("rejected") || action.includes("void") ? COLORS.error
     : action.startsWith("finance.") || action.includes("accepted") || action.includes("refunded") ? COLORS.success
       : action.startsWith("sanction.") ? COLORS.warning : BRAND_COLOR;
-  const targetIsPerson = ["application.submitted", "application.claimed", "application.accepted", "application.rejected", "application.withdrawn"].includes(action)
-    ? false
+  const applicationAction = action.startsWith("application.");
+  const targetIsPerson = applicationAction ? Boolean(details.applicantId)
     : !["ticket.created", "giveaway.ended"].includes(action) && Boolean(item.target_id);
-  const target = !item.target_id ? "—"
-    : targetIsPerson ? `<@${item.target_id}>`
-      : `\`${String(item.target_id).slice(0, 12)}\``;
+  const target = targetIsPerson ? `<@${applicationAction ? details.applicantId : item.target_id}>`
+    : !item.target_id ? "—" : `\`${String(item.target_id).slice(0, 12)}\``;
   const fields = [
     { name: "👤 Verantwortlich", value: `<@${item.actor_id}>`, inline: true },
     { name: targetIsPerson ? "🎯 Betroffenes Mitglied" : "🧾 Referenz", value: target, inline: true },
   ];
+  if (applicationAction && item.target_id) fields.push({ name: "🧾 Antragsreferenz", value: `\`${String(item.target_id).slice(0, 8).toUpperCase()}\``, inline: true });
   for (const [key, value] of Object.entries(details)) {
+    if (key === "applicantId") continue;
     if (key === "winnerIds") { fields.push({ name: "Gewinner", value: value.length ? value.map(id => `<@${id}>`).join(", ").slice(0, 1000) : "Keine", inline: false }); continue; }
-    fields.push({ name: DETAIL_NAMES[key] ?? "Weitere Angabe", value: formatDetail(key, value), inline: ["kind", "category", "entries", "cents", "status"].includes(key) });
+    fields.push({ name: DETAIL_NAMES[key] ?? "Weitere Angabe", value: formatDetail(key, value), inline: ["kind", "category", "entries", "cents", "status", "applicantId"].includes(key) });
   }
   fields.push({ name: "🕒 Zeitpunkt", value: `<t:${Math.floor(new Date(item.created_at).getTime() / 1000)}:f>`, inline: false });
   const title = ACTIONS[action] ?? `Serveraktion · ${String(action).split(".").at(-1).replaceAll("_", " ")}`;

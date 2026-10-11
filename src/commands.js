@@ -199,8 +199,15 @@ export function createHandler({db,finance,config,client}) {
           const denied=requireRole(i,guards.finance,"Finanzrolle"); if(denied)return respond(i,denied);
           const rows=db.prepare("SELECT user_id,balance_cents FROM accounts WHERE guild_id=? ORDER BY balance_cents DESC LIMIT 30").all(g);
           const min=config.PAYOUT_MINIMUM_CENTS;
-          const rowsText=rows.map((r,index)=>`**${index+1}.** <@${r.user_id}> · **${formatMoney(r.balance_cents)}**${min==null?"":" · "+(r.balance_cents>=min?"✅ auszahlbar":"⏳ Mindestbetrag nicht erreicht")}`).join("\n");
-          return answer(i,fieldsEmbed("📋 Familien-Auszahlungsliste",rows.length?[{name:`Mitglieder (${rows.length})`,value:rowsText}]:[],rows.length?(min==null?"Alle Guthaben werden angezeigt.":`Mindestbetrag: ${formatMoney(min)}`):"Es sind noch keine Familienkonten vorhanden."));
+          const total=db.prepare("SELECT COUNT(*) n FROM accounts WHERE guild_id=?").get(g).n;
+          const listFields=[];
+          for(let offset=0;offset<rows.length;offset+=10){
+            const page=rows.slice(offset,offset+10);
+            listFields.push({name:`Platz ${offset+1}–${offset+page.length}`,value:page.map((r,index)=>`**${offset+index+1}.** <@${r.user_id}> · **${formatMoney(r.balance_cents)}**${min==null?"":" · "+(r.balance_cents>=min?"✅ auszahlbar":"⏳ Mindestbetrag fehlt")}`).join("\n"),inline:false});
+          }
+          const summary=total>rows.length?`Die Liste zeigt die 30 höchsten Guthaben von ${total} Konten; ${total-rows.length} weitere Konten sind hier nicht aufgeführt.`:`${total} ${total===1?"Familienkonto":"Familienkonten"} nach Guthaben sortiert.`;
+          const description=total?`${summary}${min==null?"":"\nAuszahlungsgrenze: "+formatMoney(min)}`:"Es sind noch keine Familienkonten vorhanden.";
+          return answer(i,fieldsEmbed("📋 Familien-Auszahlungsliste",listFields,description));
         }
         if (sub==="historie") {
           const target=i.options.getUser("mitglied")?.id??u;
@@ -277,11 +284,11 @@ export function createHandler({db,finance,config,client}) {
   async function applicationCommand(i,sub,{db,config,guards,g,u}) {
     if(sub==="bewerben"){const kind=i.options.getString("typ");await i.showModal(applicationModal(kind));return;}
     if(sub==="liste"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const rows=db.prepare("SELECT id,user_id,kind,status,reviewer_id,created_at FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at LIMIT 20").all(g);const items=rows.map(r=>({name:`${r.kind==="rang"?"🏅 Rang-Antrag":"🤝 Familienbewerbung"} · ${statusLabels[r.status]??r.status}`,value:`**Antragsteller:** <@${r.user_id}>\n**Eingereicht:** <t:${Math.floor(new Date(r.created_at).getTime()/1000)}:R>${r.reviewer_id?`\n**Bearbeitung:** <@${r.reviewer_id}>`:""}\n**Antrags-ID:** \`${r.id}\``,inline:false}));return answer(i,fieldsEmbed("📨 Offene Anträge",items,rows.length?"Wähle den passenden Antrag im jeweiligen Staff-Channel aus.":"Es gibt aktuell keine offenen Anträge."));}
-    if(sub==="entscheiden"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const id=i.options.getString("id"),status=i.options.getString("entscheidung"),note=i.options.getString("kommentar")?.trim()??"";if(status==="rejected"&&!note)return respond(i,"Bitte gib bei einer Ablehnung einen Grund an.");const row=db.prepare("UPDATE applications SET status=?,reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,message_id,kind,answers").get(status,u,note,isoNow(),id,g);if(!row)return respond(i,"Offener Antrag nicht gefunden.");audit(db,g,u,`application.${status}`,id,{note,kind:row.kind});const channel=await applicationReviewChannel(i.guild,config,row.kind);if(channel&&row.message_id){const msg=await channel.messages.fetch(row.message_id).catch(()=>null);if(msg)await msg.edit({...buildApplicationReviewPayload(row.kind,row.user_id,JSON.parse(row.answers),status,note),components:[]}).catch(()=>{});}const applicant=await client.users.fetch(row.user_id).catch(()=>null);await applicant?.send(applicationDecisionDm({kind:row.kind,status,applicationId:id,reason:note})).catch(()=>{});return respond(i,`${row.kind==="rang"?"Der Rang-Antrag":"Die Familienbewerbung"} wurde ${status==="accepted"?"angenommen":"abgelehnt"}.`);}
+    if(sub==="entscheiden"){const denied=requireRole(i,guards.reviewers,"Reviewer-Rolle");if(denied)return respond(i,denied);const id=i.options.getString("id"),status=i.options.getString("entscheidung"),note=i.options.getString("kommentar")?.trim()??"";if(status==="rejected"&&!note)return respond(i,"Bitte gib bei einer Ablehnung einen Grund an.");const row=db.prepare("UPDATE applications SET status=?,reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,message_id,kind,answers").get(status,u,note,isoNow(),id,g);if(!row)return respond(i,"Offener Antrag nicht gefunden.");audit(db,g,u,`application.${status}`,id,{note,kind:row.kind,applicantId:row.user_id});const channel=await applicationReviewChannel(i.guild,config,row.kind);if(channel&&row.message_id){const msg=await channel.messages.fetch(row.message_id).catch(()=>null);if(msg)await msg.edit({...buildApplicationReviewPayload(row.kind,row.user_id,JSON.parse(row.answers),status,note),components:[]}).catch(()=>{});}const applicant=await client.users.fetch(row.user_id).catch(()=>null);await applicant?.send(applicationDecisionDm({kind:row.kind,status,applicationId:id,reason:note})).catch(()=>{});return respond(i,`${row.kind==="rang"?"Der Rang-Antrag":"Die Familienbewerbung"} wurde ${status==="accepted"?"angenommen":"abgelehnt"}.`);}
     if(sub==="status"){
       const id=i.options.getString("id"),row=db.prepare("UPDATE applications SET status='withdrawn',updated_at=? WHERE id=? AND guild_id=? AND user_id=? AND status IN ('open','review') RETURNING id,kind,answers,message_id").get(isoNow(),id,g,u);
       if(!row)return respond(i,"Offener eigener Antrag nicht gefunden.");
-      audit(db,g,u,"application.withdrawn",id,{kind:row.kind});
+      audit(db,g,u,"application.withdrawn",id,{kind:row.kind,applicantId:u});
       const channel=await applicationReviewChannel(i.guild,config,row.kind);
       if(channel&&row.message_id){const message=await channel.messages.fetch(row.message_id).catch(()=>null);if(message)await message.edit({...buildApplicationReviewPayload(row.kind,u,JSON.parse(row.answers),"withdrawn"),components:[]}).catch(()=>{});}
       return respond(i,"Dein Antrag wurde zurückgezogen. Das Team sieht den aktualisierten Status.");
@@ -396,7 +403,7 @@ export function createHandler({db,finance,config,client}) {
       if(reason.length<3)return answer(i,{content:"Bitte beschreibe den Ablehnungsgrund etwas genauer.",ephemeral:true});
       const row=db.prepare("UPDATE applications SET status='rejected',reviewer_id=?,review_note=?,updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,message_id,kind,answers").get(i.user.id,reason,isoNow(),id,i.guildId);
       if(!row)return answer(i,{content:"Dieser Antrag wurde bereits entschieden oder nicht gefunden.",ephemeral:true});
-      audit(db,i.guildId,i.user.id,"application.rejected",id,{reason,kind:row.kind});
+      audit(db,i.guildId,i.user.id,"application.rejected",id,{reason,kind:row.kind,applicantId:row.user_id});
       const channel=await applicationReviewChannel(i.guild,config,row.kind);
       if(channel&&row.message_id){const message=await channel.messages.fetch(row.message_id).catch(()=>null);if(message)await message.edit({...buildApplicationReviewPayload(row.kind,row.user_id,JSON.parse(row.answers),"rejected",reason),components:[]}).catch(()=>{});}
       const applicant=await client.users.fetch(row.user_id).catch(()=>null);
@@ -407,7 +414,7 @@ export function createHandler({db,finance,config,client}) {
     const kind=i.customId.split(":")[2];if(!["bewerbung","rang"].includes(kind))return answer(i,{content:"Dieser Antragstyp ist ungültig.",ephemeral:true});
     const answers=Object.fromEntries(applicationQuestions(kind).map(question=>[question.id,i.fields.getTextInputValue(question.id)]));
     const open=db.prepare("SELECT id FROM applications WHERE guild_id=? AND user_id=? AND kind=? AND status IN ('open','review')").get(i.guildId,i.user.id,kind);if(open)return answer(i,{content:`Du hast bereits einen offenen Antrag: \`${open.id}\``,ephemeral:true});
-    const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind});
+    const id=randomUUID(),ts=isoNow();db.prepare("INSERT INTO applications(id,guild_id,user_id,kind,answers,status,created_at,updated_at) VALUES(?,?,?,?,?,'open',?,?)").run(id,i.guildId,i.user.id,kind,JSON.stringify(answers),ts,ts);audit(db,i.guildId,i.user.id,"application.submitted",id,{kind,applicantId:i.user.id});
     const channel=await applicationReviewChannel(i.guild,config,kind);
     if(channel){const reviewButtons=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:review:${id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary),new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));const msg=await channel.send({...buildApplicationReviewPayload(kind,i.user.id,answers),components:[reviewButtons]});db.prepare("UPDATE applications SET message_id=? WHERE id=?").run(msg.id,id);}else{return answer(i,{content:`Dein Antrag wurde gespeichert, aber der Staff-Channel für ${kind==="rang"?"Rang-Anträge":"Bewerbungen"} wurde nicht gefunden. Bitte melde es der Leitung. Referenz: \`${id}\``,ephemeral:true});}
     const applicant=await client.users.fetch(i.user.id).catch(()=>null);
@@ -434,7 +441,7 @@ export function createHandler({db,finance,config,client}) {
       }
       const claimed=db.prepare("UPDATE applications SET status='review',reviewer_id=?,updated_at=? WHERE id=? AND guild_id=? AND status='open' RETURNING user_id,kind,answers,message_id").get(i.user.id,isoNow(),id,i.guildId);
       if(!claimed)return answer(i,{content:"Der Antrag wurde gerade bereits übernommen oder entschieden. Bitte aktualisiere die Ansicht.",ephemeral:true});
-      audit(db,i.guildId,i.user.id,"application.claimed",id,{kind:claimed.kind});
+      audit(db,i.guildId,i.user.id,"application.claimed",id,{kind:claimed.kind,applicantId:claimed.user_id});
       await updateMessage(i,{...buildApplicationReviewPayload(claimed.kind,claimed.user_id,JSON.parse(claimed.answers),"review","",i.user.id),components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger))]});
       const applicant=await client.users.fetch(claimed.user_id).catch(()=>null);
       await applicant?.send(applicationInReviewDm({kind:claimed.kind,applicationId:id,reviewerId:i.user.id})).catch(()=>{});
@@ -447,7 +454,7 @@ export function createHandler({db,finance,config,client}) {
     }
     if(action!=="accept")return answer(i,{content:"Unbekannte Antragsaktion.",ephemeral:true});
     const accepted=db.prepare("UPDATE applications SET status='accepted',reviewer_id=?,review_note='',updated_at=? WHERE id=? AND guild_id=? AND status IN ('open','review') RETURNING user_id,kind,answers").get(i.user.id,isoNow(),id,i.guildId);if(!accepted)return answer(i,{content:"Dieser Antrag wurde gerade bereits entschieden.",ephemeral:true});
-    audit(db,i.guildId,i.user.id,"application.accepted",id,{kind:accepted.kind});
+    audit(db,i.guildId,i.user.id,"application.accepted",id,{kind:accepted.kind,applicantId:accepted.user_id});
     await updateMessage(i,{...buildApplicationReviewPayload(accepted.kind,accepted.user_id,JSON.parse(accepted.answers),"accepted"),components:[]});
     const applicant=await client.users.fetch(accepted.user_id).catch(()=>null);await applicant?.send(applicationDecisionDm({kind:accepted.kind,status:"accepted",applicationId:id})).catch(()=>{});
     return;

@@ -63,10 +63,12 @@ test("auch bereits gestaltete private Antworten verwenden die aktuelle Discord-F
 test("bekannte Aktionen bekommen verständliche deutsche Protokolltitel", () => {
   const payload = auditLogPayload({
     action: "application.claimed", actor_id: "11111111111111111", target_id: "request-123",
-    created_at: "2026-10-11T18:00:00.000Z", details: JSON.stringify({ kind: "rang" }),
+    created_at: "2026-10-11T18:00:00.000Z", details: JSON.stringify({ kind: "rang", applicantId: "22222222222222222" }),
   });
   const embed = payload.embeds[0].toJSON();
   assert.equal(embed.title, "🔎 Antrag zur Bearbeitung übernommen");
+  assert.equal(embed.fields.find(field => field.name === "🎯 Betroffenes Mitglied").value, "<@22222222222222222>");
+  assert.equal(embed.fields.find(field => field.name === "🧾 Antragsreferenz").value, "`REQUEST-`");
   assert.ok(embed.fields.some(field => field.name === "Antragstyp" && field.value === "Rang-Antrag"));
   assert.ok(embed.fields.some(field => field.name === "🕒 Zeitpunkt"));
   assert.ok(!embed.fields.some(field => field.name === "action" || field.value.includes("Actor")));
