@@ -6,7 +6,7 @@ import {
 import { audit } from "./database.js";
 import { formatMoney, parseMoney } from "./services/finance.js";
 import { requireRole } from "./config.js";
-import { BRAND_COLOR, applicationDecisionDm, logEmbed, presentInteractionPayload } from "./presentation.js";
+import { BRAND_COLOR, applicationDecisionDm, applicationInReviewDm, logEmbed, presentInteractionPayload } from "./presentation.js";
 
 const isoNow=()=>new Date().toISOString();
 const ts=()=>Math.floor(Date.now()/1000);
@@ -302,6 +302,8 @@ export function createHandler({db,finance,config,client}) {
       if(!claimed)return answer(i,{content:"Der Antrag wurde gerade bereits übernommen oder entschieden. Bitte aktualisiere die Ansicht.",ephemeral:true});
       audit(db,i.guildId,i.user.id,"application.claimed",id,{kind:claimed.kind});
       await updateMessage(i,{...buildApplicationReviewPayload(claimed.kind,claimed.user_id,JSON.parse(claimed.answers),"review","",i.user.id),components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`application:accept:${id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`application:reject:${id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger))]});
+      const applicant=await client.users.fetch(claimed.user_id).catch(()=>null);
+      await applicant?.send(applicationInReviewDm({kind:claimed.kind,applicationId:id,reviewerId:i.user.id})).catch(()=>{});
       return;
     }
     if(action==="reject"){

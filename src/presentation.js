@@ -41,6 +41,18 @@ export function applicationDecisionDm({ kind, status, applicationId, reason = ""
   return { embeds: [embed.setFooter({ text: "GAMBINOS  •  Private Nachricht" }).setTimestamp()] };
 }
 
+export function applicationInReviewDm({ kind, applicationId, reviewerId }) {
+  const label = kind === "rang" ? "Dein Rang-Antrag" : "Deine Familienbewerbung";
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setAuthor({ name: "GAMBINOS  •  FAMILIENBÜRO" })
+    .setTitle("🔎 Antrag wird bearbeitet")
+    .setDescription(`${label} wurde von unserem Team übernommen und ist jetzt in Bearbeitung. Wir prüfen deine Angaben und melden uns, sobald es Neuigkeiten gibt.`)
+    .addFields({ name: "Referenz", value: `\`${applicationId}\``, inline: true });
+  if (reviewerId) embed.addFields({ name: "Zuständig", value: `<@${reviewerId}>`, inline: true });
+  return { embeds: [embed.setFooter({ text: "GAMBINOS  •  Wir halten dich auf dem Laufenden" }).setTimestamp()] };
+}
+
 const ACTIONS = {
   "application.submitted": "Neuer Antrag eingereicht",
   "application.claimed": "Antrag zur Bearbeitung übernommen",

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applicationDecisionDm, auditLogPayload, presentInteractionPayload } from "../src/presentation.js";
+import { applicationDecisionDm, applicationInReviewDm, auditLogPayload, presentInteractionPayload } from "../src/presentation.js";
 
 test("private Antragsentscheidung nennt Typ, Referenz und Ablehnungsgrund", () => {
   const payload = applicationDecisionDm({ kind: "rang", status: "rejected", applicationId: "request-123", reason: "Noch zu wenig Erfahrung" });
@@ -9,6 +9,16 @@ test("private Antragsentscheidung nennt Typ, Referenz und Ablehnungsgrund", () =
   assert.match(embed.description, /Rang-Antrag/);
   assert.equal(embed.fields.find(field => field.name === "Referenz").value, "`request-123`");
   assert.equal(embed.fields.find(field => field.name === "Begründung").value, "Noch zu wenig Erfahrung");
+});
+
+test("private Eingangsbestätigung nennt Bearbeitungsstatus, Typ und Referenz", () => {
+  const payload = applicationInReviewDm({ kind: "rang", applicationId: "request-456", reviewerId: "12345678901234567" });
+  const embed = payload.embeds[0].toJSON();
+  assert.match(embed.title, /bearbeitet/i);
+  assert.match(embed.description, /Rang-Antrag/);
+  assert.match(embed.description, /in Bearbeitung/);
+  assert.equal(embed.fields.find(field => field.name === "Referenz").value, "`request-456`");
+  assert.equal(embed.fields.find(field => field.name === "Zuständig").value, "<@12345678901234567>");
 });
 
 test("Audit-Einträge sind als deutsche, strukturierte Einbettung formatiert", () => {
