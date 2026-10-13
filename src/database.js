@@ -11,12 +11,7 @@ export function openDatabase(filename) {
   return db;
 }
 
-export function initializeSchema(db) {
-  db.pragma("foreign_keys = ON");
-  db.pragma("journal_mode = WAL");
-  db.pragma("busy_timeout = 5000");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+const BASE_SCHEMA = `
     CREATE TABLE IF NOT EXISTS guild_settings (guild_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(guild_id,key));
     CREATE TABLE IF NOT EXISTS accounts (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, balance_cents INTEGER NOT NULL DEFAULT 0 CHECK(balance_cents >= 0), updated_at TEXT NOT NULL, PRIMARY KEY(guild_id,user_id));
     CREATE TABLE IF NOT EXISTS transactions (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, actor_id TEXT NOT NULL, type TEXT NOT NULL, amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0), gross_cents INTEGER, deduction_cents INTEGER, net_cents INTEGER, reason TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
@@ -27,6 +22,8 @@ export function initializeSchema(db) {
     CREATE TABLE IF NOT EXISTS sanction_refunds (id TEXT PRIMARY KEY, sanction_id TEXT NOT NULL REFERENCES sanctions(id), transaction_id TEXT NOT NULL UNIQUE REFERENCES transactions(id), amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), reason TEXT NOT NULL, created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, channel_id TEXT UNIQUE, user_id TEXT NOT NULL, category TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','closed')), claimed_by TEXT, message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT);
     CREATE TABLE IF NOT EXISTS ticket_transcripts (ticket_id TEXT PRIMARY KEY REFERENCES tickets(id), messages TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, actor_id TEXT NOT NULL, action TEXT NOT NULL, target_id TEXT, details TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS audit_time ON audit_logs(guild_id,created_at DESC);
     CREATE TABLE IF NOT EXISTS audit_log_deliveries (audit_id TEXT PRIMARY KEY REFERENCES audit_logs(id), attempted_at TEXT NOT NULL, result TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS tickets_user_open ON tickets(guild_id,user_id,status);
     CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, channel_id TEXT, message_id TEXT, name TEXT NOT NULL, description TEXT NOT NULL, starts_at TEXT NOT NULL, location TEXT NOT NULL, host_id TEXT NOT NULL, equipment TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', max_participants INTEGER, status TEXT NOT NULL CHECK(status IN ('scheduled','cancelled','ended')), created_at TEXT NOT NULL);
@@ -37,16 +34,95 @@ export function initializeSchema(db) {
     CREATE TABLE IF NOT EXISTS giveaways (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, channel_id TEXT, message_id TEXT, prize TEXT NOT NULL, ends_at TEXT NOT NULL, winner_count INTEGER NOT NULL, conditions TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('active','ended','cancelled')), winners TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL, ended_at TEXT);
     CREATE TABLE IF NOT EXISTS giveaway_entries (giveaway_id TEXT NOT NULL REFERENCES giveaways(id) ON DELETE CASCADE, user_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(giveaway_id,user_id));
     CREATE TABLE IF NOT EXISTS giveaway_announcements (giveaway_id TEXT PRIMARY KEY REFERENCES giveaways(id), sent_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, actor_id TEXT NOT NULL, action TEXT NOT NULL, target_id TEXT, details TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS audit_time ON audit_logs(guild_id,created_at DESC);
     CREATE TABLE IF NOT EXISTS automod_actions (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, rule TEXT NOT NULL, action TEXT NOT NULL, created_at TEXT NOT NULL);
-  `);
-  const ticketColumns = db.prepare("PRAGMA table_info(tickets)").all();
-  if (!ticketColumns.some(column => column.name === "message_id")) db.exec("ALTER TABLE tickets ADD COLUMN message_id TEXT");
-  db.prepare("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,?)").run(new Date().toISOString());
+`;
+
+const appendOnly = (table, label) => `
+    CREATE TRIGGER IF NOT EXISTS ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'${label} sind unveränderlich'); END;
+    CREATE TRIGGER IF NOT EXISTS ${table}_no_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT,'${label} dürfen nicht gelöscht werden'); END;
+`;
+
+/**
+ * Versionierte Migrationen. Jede Migration ist idempotent (IF NOT EXISTS), läuft genau einmal in einer
+ * Transaktion und wird in schema_migrations mit Name und Zeitpunkt festgehalten. Neue Änderungen
+ * immer als neue Version anhängen, niemals bestehende Versionen umschreiben.
+ */
+export const MIGRATIONS = [
+  { version: 1, name: "basisschema", up: db => db.exec(BASE_SCHEMA) },
+  {
+    version: 2,
+    name: "audit-historie-statistik",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS sanction_changes (id TEXT PRIMARY KEY, sanction_id TEXT NOT NULL REFERENCES sanctions(id), guild_id TEXT NOT NULL, actor_id TEXT NOT NULL, change_type TEXT NOT NULL CHECK(change_type IN ('created','corrected','voided','refunded','allocated')), old_amount_cents INTEGER, new_amount_cents INTEGER, old_remaining_cents INTEGER, new_remaining_cents INTEGER, reference_id TEXT, reason TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS sanction_changes_sanction ON sanction_changes(sanction_id,created_at);
+      CREATE TABLE IF NOT EXISTS member_warnings (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, actor_id TEXT NOT NULL, reason TEXT NOT NULL, case_ref TEXT, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS member_warnings_user ON member_warnings(guild_id,user_id,created_at);
+      CREATE TABLE IF NOT EXISTS application_notes (id TEXT PRIMARY KEY, application_id TEXT NOT NULL REFERENCES applications(id), guild_id TEXT NOT NULL, author_id TEXT NOT NULL, note TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS application_notes_app ON application_notes(application_id,created_at);
+      CREATE TABLE IF NOT EXISTS application_role_grants (application_id TEXT PRIMARY KEY REFERENCES applications(id), guild_id TEXT NOT NULL, user_id TEXT NOT NULL, role_id TEXT NOT NULL, actor_id TEXT NOT NULL, result TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS member_stats_daily (guild_id TEXT NOT NULL, day TEXT NOT NULL, joins INTEGER NOT NULL DEFAULT 0, leaves INTEGER NOT NULL DEFAULT 0, member_count INTEGER, PRIMARY KEY(guild_id,day));
+      CREATE INDEX IF NOT EXISTS audit_action_time ON audit_logs(guild_id,action,created_at);
+      CREATE INDEX IF NOT EXISTS audit_actor_time ON audit_logs(guild_id,actor_id,created_at);
+      CREATE INDEX IF NOT EXISTS transactions_type_time ON transactions(guild_id,type,created_at);
+      CREATE INDEX IF NOT EXISTS payout_allocations_sanction ON payout_allocations(sanction_id);
+      CREATE INDEX IF NOT EXISTS sanction_refunds_sanction ON sanction_refunds(sanction_id);
+      CREATE INDEX IF NOT EXISTS automod_time ON automod_actions(guild_id,created_at);
+      CREATE INDEX IF NOT EXISTS events_guild_status ON events(guild_id,status,starts_at);
+      CREATE INDEX IF NOT EXISTS giveaways_status_end ON giveaways(status,ends_at);
+      ${appendOnly("transactions", "Transaktionen")}
+      ${appendOnly("payout_allocations", "Sanktionsverrechnungen")}
+      ${appendOnly("sanction_refunds", "Sanktionserstattungen")}
+      ${appendOnly("sanction_changes", "Sanktionsänderungen")}
+      ${appendOnly("audit_logs", "Audit-Logs")}
+    `),
+  },
+];
+
+// Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.
+const COLUMNS = [
+  ["tickets", "message_id", "TEXT"],
+  ["tickets", "claimed_at", "TEXT"],
+  ["tickets", "closed_by", "TEXT"],
+  ["giveaways", "required_role_id", "TEXT"],
+  ["automod_actions", "details", "TEXT NOT NULL DEFAULT '{}'"],
+];
+
+export function initializeSchema(db) {
+  db.pragma("foreign_keys = ON");
+  db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
+  db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
+  const migrationColumns = db.prepare("PRAGMA table_info(schema_migrations)").all();
+  if (!migrationColumns.some(column => column.name === "name")) db.exec("ALTER TABLE schema_migrations ADD COLUMN name TEXT");
+  // Ältere Installationen haben Version 1 bereits vermerkt; das Basisschema ist idempotent und wird trotzdem geprüft.
+  db.exec(BASE_SCHEMA);
+  for (const migration of MIGRATIONS) {
+    if (db.prepare("SELECT 1 FROM schema_migrations WHERE version=?").get(migration.version)) continue;
+    const apply = db.transaction(() => {
+      migration.up(db);
+      db.prepare("INSERT INTO schema_migrations(version,applied_at,name) VALUES(?,?,?)").run(migration.version, new Date().toISOString(), migration.name);
+    });
+    try { apply(); }
+    catch (error) { throw new Error(`Datenbank-Migration ${migration.version} (${migration.name}) fehlgeschlagen: ${error.message}`); }
+  }
+  for (const [table, column, definition] of COLUMNS) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!columns.some(item => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 export function audit(db, guildId, actorId, action, targetId = null, details = {}) {
+  const id = randomUUID();
   db.prepare("INSERT INTO audit_logs(id,guild_id,actor_id,action,target_id,details,created_at) VALUES(?,?,?,?,?,?,?)")
-    .run(randomUUID(), guildId, actorId, action, targetId, JSON.stringify(details), new Date().toISOString());
+    .run(id, guildId, actorId, action, targetId, JSON.stringify(details), new Date().toISOString());
+  return id;
+}
+
+export function getSetting(db, guildId, key) {
+  return db.prepare("SELECT value FROM guild_settings WHERE guild_id=? AND key=?").get(guildId, key)?.value ?? null;
+}
+
+export function setSetting(db, guildId, key, value) {
+  db.prepare("INSERT INTO guild_settings(guild_id,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(guild_id,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+    .run(guildId, key, value, new Date().toISOString());
 }

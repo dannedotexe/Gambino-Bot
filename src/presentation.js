@@ -120,6 +120,23 @@ const ACTIONS = {
   "sanction.refunded": "Sanktionsabzug erstattet",
   "sanction.void": "Sanktion aufgehoben",
   "automod.action": "AutoMod-Maßnahme ausgeführt",
+  "application.commented": "Interne Antragsnotiz",
+  "application.role_granted": "Rang-Rolle vergeben",
+  "application.role_failed": "Rang-Rollenvergabe fehlgeschlagen",
+  "application.role_skipped": "Keine Rang-Rolle vergeben",
+  "event.participation": "Event-Teilnahme geändert",
+  "giveaway.created": "Giveaway gestartet",
+  "giveaway.cancelled": "Giveaway abgebrochen",
+  "giveaway.entry": "Giveaway-Teilnahme geändert",
+  "finance.correction": "Korrekturbuchung",
+  "finance.failed": "Buchung fehlgeschlagen",
+  "sanction.settled": "Sanktion vollständig beglichen",
+  "sanction.corrected": "Sanktion korrigiert",
+  "sanction.warning": "Verwarnung eingetragen",
+  "admin.override": "Bot-Owner-Override genutzt",
+  "config.changed": "Einstellung geändert",
+  "config.panel_published": "Dashboard-Panel veröffentlicht",
+  "config.automod_synced": "Native AutoMod-Regel synchronisiert",
 };
 
 const ACTION_EMOJI = {
@@ -127,6 +144,8 @@ const ACTION_EMOJI = {
   "ticket.created": "🎫", "ticket.claimed": "👤", "ticket.closed": "🔒", "ticket.reopened": "🔓", "ticket.channel_missing": "⚠️",
   "event.created": "📅", "event.updated": "📅", "event.attendance": "📝", "event.ended": "🏁", "event.cancelled": "❌", "giveaway.ended": "🎉",
   "finance.credit": "💰", "finance.payout": "💸", "sanction.created": "⚖️", "sanction.applied": "➖", "sanction.refunded": "↩️", "sanction.void": "🚫", "automod.action": "🛡️",
+  "application.commented": "💬", "application.role_granted": "🏅", "application.role_failed": "⚠️", "event.participation": "🙋", "giveaway.created": "🎉", "giveaway.cancelled": "🚫",
+  "finance.correction": "🛠️", "finance.failed": "⛔", "sanction.settled": "✅", "sanction.corrected": "✏️", "sanction.warning": "📝", "admin.override": "🔑", "config.changed": "⚙️", "config.panel_published": "🧭", "config.automod_synced": "🛡️",
 };
 
 const DETAIL_NAMES = {
@@ -134,25 +153,29 @@ const DETAIL_NAMES = {
   rule: "Regel", action: "Maßnahme", entries: "Teilnahmen", transcriptMessages: "Nachrichten im Transkript",
   cents: "Betrag", amountCents: "Betrag", grossCents: "Brutto", deductionCents: "Abzug", netCents: "Netto", remainingCents: "Offener Rest",
   startsAt: "Eventbeginn", name: "Name", status: "Status", channelId: "Channel", messageId: "Nachricht",
+  direction: "Richtung", operation: "Vorgang", code: "Fehlercode", setting: "Einstellung", previous: "Vorher", value: "Neu", command: "Befehl", group: "Rollengruppe",
+  oldAmountCents: "Alter Betrag", newAmountCents: "Neuer Betrag", previousSubmissions: "Frühere Anträge", prize: "Preis", endsAt: "Ende", winners: "Gewinnerzahl", changed: "Geändert", roleId: "Rolle", label: "Rang",
   transactionId: "Buchungsreferenz", sanctionId: "Sanktionsreferenz", applicationId: "Antragsreferenz", payoutId: "Auszahlungsreferenz", eventId: "Eventreferenz", ticketId: "Ticketreferenz",
 };
 
 function formatDetail(key, value) {
   if (value == null || value === "") return "—";
-  if (["cents", "amountCents", "grossCents", "deductionCents", "netCents", "remainingCents"].includes(key) && Number.isFinite(Number(value))) {
+  if (["cents", "amountCents", "grossCents", "deductionCents", "netCents", "remainingCents", "oldAmountCents", "newAmountCents"].includes(key) && Number.isFinite(Number(value))) {
     return `${(Number(value) / 100).toLocaleString("de-AT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
   }
   if (key === "channelId") return `<#${value}>`;
   if (key === "applicantId") return `<@${value}>`;
+  if (key === "roleId") return `<@&${value}>`;
+  if (key === "direction") return value === "debit" ? "Verringerung" : "Erhöhung";
   if (key === "kind") return value === "rang" ? "Rang-Antrag" : value === "bewerbung" ? "Familienbewerbung" : String(value).slice(0, 1000);
   if (key === "category") return ({ support: "Support", beschwerde: "Beschwerde", leitung: "Leitung" })[value] ?? String(value).slice(0, 1000);
-  if (key === "rule") return ({ message_spam: "Nachrichten-Spam", blocked_term: "Gesperrter Begriff", unapproved_link: "Nicht erlaubter Link", join_raid: "Möglicher Join-Raid" })[value] ?? String(value).slice(0, 1000);
-  if (key === "status") return ({ present: "Anwesend", absent: "Abwesend", signed_up: "Angemeldet", left: "Abgemeldet" })[value] ?? value;
+  if (key === "rule") return ({ message_spam: "Nachrichten-Spam", blocked_term: "Gesperrter Begriff", unapproved_link: "Nicht erlaubter Link", join_raid: "Möglicher Join-Raid", duplicate_message: "Wiederholte Nachricht", message_flood: "Nachrichtenflut" })[value] ?? String(value).slice(0, 1000);
+  if (key === "status") return ({ present: "Anwesend", absent: "Abwesend", signed_up: "Angemeldet", left: "Abgemeldet", joined: "Teilgenommen", open: "Offen", partial: "Teilweise verrechnet", paid: "Beglichen", void: "Aufgehoben", created: "Erstellt", updated: "Aktualisiert" })[value] ?? value;
   if (key === "startsAt") { const time = Math.floor(new Date(value).getTime() / 1000); return Number.isFinite(time) ? `<t:${time}:F>` : String(value); }
   if (["transactionId", "sanctionId", "payoutId", "eventId", "ticketId"].includes(key)) return `\`${String(value).slice(0, 12)}\``;
   if (Array.isArray(value)) return value.length ? value.map(String).join(", ").slice(0, 1000) : "Keine";
   if (typeof value === "object") return Object.entries(value).map(([name, item]) => `${DETAIL_NAMES[name] ?? name}: ${formatDetail(name, item)}`).join("\n").slice(0, 1000);
-  if (key === "action" && value === "message_deleted") return "Nachricht gelöscht";
+  if (key === "action") return String(value).split(",").map(item => ({ message_deleted: "Nachricht gelöscht", delete: "Nachricht gelöscht", warn: "Hinweis", timeout: "Timeout", alert: "Staff-Meldung", logged: "Protokolliert" })[item] ?? item.replace("_failed", " fehlgeschlagen")).join(", ");
   return String(value).slice(0, 1000);
 }
 

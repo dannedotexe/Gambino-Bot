@@ -3,14 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A Discord bot built with discord.js",
+  "description": "Gambinos All-in-One Discord-Bot für die Grand-RP-Familienverwaltung",
   "engines": {
     "node": ">=20.6.0"
   },
   "scripts": {
     "start": "node --env-file=.env index.js",
     "deploy-commands": "node --env-file=.env deploy-commands.js",
-    "test": "node --test"
+    "test": "node --test",
+    "backup": "node --env-file=.env scripts/backup-db.js",
+    "check": "node --check index.js && node --check deploy-commands.js && node -e \"import('./src/commands.js').then(m=>console.log(m.buildCommands().length+' Slash-Commands gültig'))\""
   },
   "dependencies": {
     "better-sqlite3": "11.10.0",

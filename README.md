@@ -1,121 +1,173 @@
 # Gambino Bot
 
-Modularer Discord-Bot für Gambinos / Grand-RP mit discord.js 14 und SQLite. Das Projekt speichert keine Secrets im Repository. Produktivdaten gehören in die `.env` und SQLite-Datei auf der Oracle-VM.
+All-in-One-Discord-Bot für die Gambinos-Familie (Grand-RP), gebaut mit discord.js 14 und SQLite (`better-sqlite3`). Secrets stehen nie im Repository: Produktivwerte gehören in die `.env` und die SQLite-Datei auf der Oracle-VM.
 
-## Voraussetzungen
+## Inhalt
 
-- Node.js 20.6 oder neuer; für den laufenden VM-Betrieb ist derzeit Node 20.20.2 dokumentiert. Node 20 ist seit März 2026 End-of-Life; vor dem produktiven Betrieb sollte die VM auf eine unterstützte Node-LTS-Version aktualisiert werden. Das ist eine separate Betriebsänderung und wurde hier nicht ausgeführt.
-- Ein Discord-Bot im Developer Portal und ein Discord-Server.
-- Auf der VM: PM2, Schreibrechte auf den Datenbankpfad sowie Internetzugang zur Discord API.
-- `better-sqlite3` nutzt ein natives Modul. Auf Linux werden passende Prebuilds verwendet, andernfalls braucht der Installationshost Python und einen C++-Compiler.
+- [Funktionen](#funktionen)
+- [Familienkonto und Sanktionsverrechnung](#familienkonto-und-sanktionsverrechnung)
+- [Rollen und Berechtigungen](#rollen-und-berechtigungen)
+- [Einrichtung](#einrichtung)
+- [Konfiguration](#konfiguration)
+- [Oracle-VM: Betrieb und Aktualisierung](#oracle-vm-betrieb-und-aktualisierung)
+- [Datenbank, Migrationen und Backups](#datenbank-migrationen-und-backups)
+- [Tests](#tests)
+- [Bekannte Grenzen](#bekannte-grenzen)
+
+## Funktionen
+
+| Bereich | Befehle / Bedienung | Kurzbeschreibung |
+| --- | --- | --- |
+| Tickets | `/ticket panel`, Auswahlmenü, Buttons *Übernehmen / Schließen / Wieder öffnen*, `/ticket uebernehmen \| schliessen \| wiedereroeffnen` | Private Channels je Ticket; Zugriff für Ersteller, Staff, Leitung und die zuständigen Rollen der Kategorie. Mehrere offene Tickets und schnelle Wiederholungen werden begrenzt. Vor dem Schließen kommt eine Bestätigung. Beim Schließen wird ein Transkript mit bis zu `TICKET_TRANSCRIPT_LIMIT` Nachrichten in der DB gespeichert und als `.txt` in den Ticket-Log gesendet; lässt sich der Verlauf nicht laden, bleibt das Ticket offen. Gelöschte Channels werden erkannt: Das Ticket wird geschlossen und protokolliert, die Daten bleiben erhalten. |
+| Events | `/event erstellen \| bearbeiten \| liste \| historie \| teilnehmer \| anwesenheit \| beenden \| absagen`, Buttons *Teilnehmen / Abmelden* | Persistente Events mit Name, Beschreibung, Zeit, Treffpunkt, Veranstalter, Ausrüstung, Hinweisen und Teilnehmerlimit. Die Anmeldung läuft atomar, doppelte Klicks sind wirkungslos. Erinnerungen (`EVENT_REMINDER_MINUTES`) erwähnen die Angemeldeten und überstehen Neustarts. Bei einer Absage werden die Teilnehmenden benachrichtigt. Anwesenheit lässt sich auch ohne vorherige Anmeldung erfassen. |
+| Bewerbungen & Rang-Anträge | `/bewerbung-panel`, `/antrag bewerben \| liste \| kommentieren \| entscheiden \| status`, Reviewer-Buttons *Übernehmen / Annehmen / Ablehnen / Notiz* | Modal-Formulare mit konfigurierbaren Fragen. Status: offen → in Prüfung → angenommen/abgelehnt/zurückgezogen. Interne Notizen; Ablehnungen nur mit Grund. Antragsteller bekommen private Rückmeldungen. Pro Typ ist nur ein offener Antrag möglich, neue Einreichungen sind als solche gekennzeichnet. Rollen werden **nie** automatisch vergeben (siehe `RANK_ROLE_ASSIGNMENT_ENABLED`). |
+| Familienkonto | `/konto stand \| ansehen \| gutschrift \| auszahlen \| korrektur \| liste \| historie` | Siehe unten. |
+| Sanktionen | `/sanktion erstellen \| verwarnung \| offen \| historie \| korrigieren \| aufheben \| rueckerstatten` | Offene Auszahlungsabzüge mit Status, Historie und Rückerstattung. Verwarnungen ohne Geldwirkung. |
+| Giveaways | `/giveaway erstellen \| abbrechen`, Buttons *Teilnehmen / Abmelden* | Preis, Dauer, Gewinnerzahl, Bedingungen und optional eine Pflichtrolle. Teilnahmen werden gespeichert; die Ziehung läuft auch nach einem Neustart genau einmal. |
+| Staff-Dashboard (Discord) | `/dashboard panel`, `/dashboard ansicht [bereich]` | Dauerhaftes Panel mit Zählwerten (aktualisiert sich automatisch und funktioniert nach Neustarts weiter) und privaten Detailansichten: Tickets, Anträge, Events, Sanktionen, Auszahlungen, letzte Aktionen, Statistik. Jede Ansicht prüft serverseitig die Rolle. |
+| Statistik | `/statistik [zeitraum]`, optional `CHANNEL_STATS` | Mitglieder-Zu-/Abgänge, Tickets, Events/Teilnahmen, Anträge, Sanktionen, Giveaways, AutoMod und Staff-Aktivität für 7/30/90/365 Tage oder den Gesamtzeitraum. Finanzwerte nur mit Finanzrechten, im Statistik-Channel nie. |
+| AutoMod & Raid-Schutz | `/automod status \| sync` | Spam, wiederholte Nachrichten, Begriffe, Links; Aktionen je Regel konfigurierbar (Hinweis/Löschen/Timeout/Staff-Meldung), optionale Eskalation. Erkennt Join-Raids und Nachrichtenfluten. Native Discord-AutoMod-Regel für gesperrte Begriffe per `/automod sync`. |
+| Einstellungen | `/einstellungen anzeigen \| kanal` | Prüft die Konfiguration und setzt Funktions-Channels; jede Änderung wird protokolliert. |
+| Webdashboard (optional) | HTTPS + Discord-OAuth | Siehe [Staff-Webdashboard](#staff-webdashboard-optional). |
+
+Alle relevanten Aktionen landen in `audit_logs` (Actor, Ziel, Aktion, Details, Zeit) und werden asynchron in `CHANNEL_AUDIT_LOG` gespiegelt. Schlägt das Senden in den Log-Channel fehl, wird die Hauptaktion dadurch nie wiederholt.
+
+## Familienkonto und Sanktionsverrechnung
+
+**Fachliche Bedeutung:** Das Gambinos-Familienguthaben (`accounts.balance_cents`) ist der Betrag, den die Familie einem Mitglied für Grand-RP-Events oder Familienaktivitäten schuldet und noch nicht ausgezahlt hat. Es ist keine Discord-Spielwährung und wird mit keiner Community-Economy verrechnet. Alle Beträge sind Ganzzahlen in Cent; Eingaben erfolgen in Dollar, z. B. `2500000` oder `12,50`.
+
+| Feld | Bedeutung |
+| --- | --- |
+| `transactions.type` | `credit`, `correction_credit`, `sanction_refund` erhöhen das Guthaben; `payout`, `correction_debit` verringern es |
+| `transactions.gross_cents` | Bei Auszahlung: vom Familienguthaben abgebuchter Bruttobetrag (= gesamter Kontostand) |
+| `transactions.deduction_cents` | Bei dieser Auszahlung verrechnete Sanktionen |
+| `transactions.net_cents` | Tatsächlich an das Mitglied auszuzahlender Betrag (Brutto − Abzug) |
+| `sanctions.amount_cents` / `remaining_cents` | Festgesetzter Sanktionsbetrag / davon noch offen |
+| `sanctions.status` | `open` (nichts verrechnet), `partial` (teilweise), `paid` (vollständig beglichen), `void` (aufgehoben) |
+| `payout_allocations` | Je verrechnetem Teilbetrag: Auszahlungs-ID, Sanktions-ID, Betrag |
+| `sanction_changes` | Historie: erstellt, verrechnet, korrigiert, aufgehoben, erstattet, jeweils mit Person und Grund |
+
+Ablauf einer Auszahlung (`/konto auszahlen`):
+
+1. Eine Sanktion belastet das Guthaben bei ihrer Erstellung nicht. Sie bleibt als offener Abzug mit eindeutiger ID stehen.
+2. Die Vorschau zeigt Brutto, offene Sanktionen, den jetzt verrechneten Betrag, die tatsächliche Auszahlung und die verbleibenden Sanktionen. Wird das gesamte Guthaben durch Sanktionen aufgebraucht, bestätigt man ausdrücklich eine Verrechnung ohne Auszahlung (netto 0).
+3. Nach der Bestätigung läuft alles in **einer** SQLite-Transaktion: Abgleich mit der Vorschau (hat sich etwas geändert, wird nichts gebucht), Guthaben auf 0, Sanktionen in der Reihenfolge ihrer Erstellung (FIFO) bis höchstens zum Bruttobetrag verrechnen, Allocations anlegen, Sanktionsstatus setzen, eine Transaktion und die Audit-Einträge schreiben. Bei einem Fehler wird alles zurückgerollt, und der fehlgeschlagene Versuch wird als `finance.failed` protokolliert.
+4. Idempotenz: Die ID der Vorschau-Interaktion ist der eindeutige Buchungsschlüssel. Doppelklicks, Discord-Retries oder parallele Klicks führen zu genau einer Buchung; ein erneuter Klick zeigt nur die bestehende Buchung an.
+5. Eine Sanktion kann insgesamt nie mehr als ihren offenen Rest abgezogen bekommen. Aufgehobene oder beglichene Sanktionen werden nie erneut verrechnet. Wurde bereits etwas verrechnet, ist nur noch eine Rückerstattung möglich (Gutschrift plus Aufhebung, mit Grund).
+6. Transaktionen, Allocations, Erstattungen, Sanktionsänderungen und Audit-Logs sind per Datenbank-Trigger unveränderlich und lassen sich nicht löschen.
+
+## Rollen und Berechtigungen
+
+Alle Berechtigungen hängen an Discord-Rollen-IDs aus der `.env`. Jede Aktion wird serverseitig geprüft, egal ob der Button für alle sichtbar ist. Leere Rollenlisten verweigern die Aktion sicher.
+
+| Gruppe | Variablen | Darf |
+| --- | --- | --- |
+| Leitung | `ROLE_LEADERS` | alles unten, zusätzlich Korrekturbuchungen, Sanktionen korrigieren/aufheben/erstatten, Einstellungen, AutoMod-Sync, Rang-Rollen vergeben |
+| Staff | `ROLE_STAFF` (+ Leitung) | Tickets, Sanktionen und Verwarnungen erstellen, Giveaways, Dashboard-Panel |
+| Finanzen | `ROLE_FINANCE` (+ Leitung) | Gutschriften, Auszahlungen, Auszahlungsliste, fremde Konten |
+| Finanz-Einsicht | `ROLE_FINANCE_VIEWERS` (+ Finanzen) | nur ansehen: fremde Konten, Auszahlungsliste, Finanzstatistik |
+| Reviewer | `ROLE_REVIEWERS` (+ Leitung) | Anträge übernehmen, kommentieren, entscheiden |
+| Event-Team | `ROLE_EVENT_TEAM` (+ Leitung) | Events verwalten, Anwesenheit |
+| Mitglieder | `ROLE_MEMBERS` | Wenn gesetzt: nur Mitglieder (oder Staff) können sich für Events anmelden und Rang-Anträge stellen |
+| Ticket-Kategorie | `roleIds` in `TICKET_CATEGORIES_JSON` | Tickets dieser Kategorie sehen, übernehmen, schließen und wieder öffnen |
+
+`BOT_OWNER_IDS` ist ein eng begrenzter Admin-Override: Ohne passende Rolle wird die Aktion erlaubt, aber als `admin.override` protokolliert. Ist `DISCORD_GUILD_ID` gesetzt, lehnt der Bot Interaktionen aus anderen Servern ab.
 
 ## Einrichtung
 
-1. `.env.example` nach `.env` kopieren und `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` sowie die tatsächlichen Rollen-, Channel- und Kategorie-IDs des Servers eintragen. Keine Beispiel-ID übernehmen. Das Discord-Token ausschließlich direkt in der VM-Datei hinterlegen und niemals hier senden.
-2. Alle Rollenlisten sind kommaseparierte IDs. Leere Staff-Listen verweigern die zugehörige Aktion sicher. `TICKET_CATEGORIES_JSON` konfiguriert Ticket-Kategorien und optionale zuständige Rollen pro Kategorie, z. B. `[ {"id":"support","label":"Support","roleIds":[]} ]`. Bewerbungen sind dem separaten Bewerbungs-Panel vorbehalten und werden automatisch aus den Ticket-Kategorien entfernt.
-3. `DATABASE_PATH` muss auf einen dauerhaften Datenträger zeigen, z. B. `/home/ubuntu/Gambino-Bot/data/gambino.sqlite`. SQLite WAL benötigt Schreibzugriff auf Verzeichnis und Datenbankdatei.
-4. Im Discord Developer Portal für den Bot **Server Members Intent** einschalten (Join-Raid-Beobachtung). **Message Content Intent** ist nur für AutoMod erforderlich; die Funktion ist standardmäßig deaktiviert. Bot-Berechtigungen: Slash Commands, Channels verwalten/Channels ansehen, Nachrichten senden und lesen, Nachrichtenverlauf lesen, Nachrichten verwalten (wenn AutoMod aktiv ist), Rollen erwähnen. Keine Administrator-Berechtigung vergeben.
-5. Abhängigkeiten installieren, Commands registrieren und starten:
+1. **Discord Developer Portal:** Bot anlegen und unter *Bot → Privileged Gateway Intents* **Server Members Intent** (Join-Raid-Schutz, Mitgliederstatistik) und **Message Content Intent** (Ticket-Transkripte, AutoMod) aktivieren.
+2. **Bot-Berechtigungen** (keine Administrator-Rechte vergeben): Kanäle ansehen, Nachrichten senden, Nachrichtenverlauf lesen, Dateien anhängen, Links einbetten, Kanäle verwalten (Ticket-Channels), Nachrichten verwalten (AutoMod-Löschung), Mitglieder moderieren (nur bei Timeout-Aktionen), Server verwalten (nur für `/automod sync`), Rollen verwalten (nur bei `RANK_ROLE_ASSIGNMENT_ENABLED=true`; die Bot-Rolle muss über den Rang-Rollen stehen).
+3. `.env.example` nach `.env` kopieren und `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` sowie die echten Rollen- und Channel-IDs eintragen (Entwicklermodus in Discord → Rechtsklick → *ID kopieren*). Das Token gehört nur in die `.env` auf dem Server und nie in einen Chat.
+4. Abhängigkeiten installieren, prüfen, Commands registrieren, starten:
 
    ```sh
    npm install
+   npm test
    npm run deploy-commands
    npm start
    ```
 
-`DISCORD_GUILD_ID` bewirkt sofortige Guild-Registrierung zum Testen. Ist es leer, werden Commands global registriert; deren Verfügbarkeit kann verzögert sein. Ein späterer Registrierungsaufruf ersetzt die Command-Liste für die konfigurierte Anwendung.
+Beim Start wird die Konfiguration validiert: Fehlen notwendige Werte oder sind sie ungültig, bricht der Start mit einer verständlichen Meldung ab. Fehlende optionale Werte erscheinen als `Konfigurationshinweis` im Log und unter `/einstellungen anzeigen`.
 
-## Module und Befehle
+**Slash-Commands:** `npm run deploy-commands` ersetzt die Command-Liste der Anwendung. Mit `DISCORD_GUILD_ID` werden die Commands nur für diesen Server registriert und sind sofort verfügbar; ohne sie global (das kann bis zu einer Stunde dauern). Der Bot registriert beim Start selbst nichts, deshalb gibt es keine doppelten Registrierungen.
 
-### Automatische Aktualisierung auf Oracle
+## Konfiguration
 
-Die VM kann GitHub automatisch prüfen und neue `main`-Änderungen einspielen. Der Timer läuft minütlich; bei einer neuen Version zieht er nur Fast-Forward-Änderungen, registriert die Slash-Commands und startet `gambino-bot` neu. Der Dienst bricht ab, wenn lokale VM-Dateien geändert wurden oder der Bot nach dem Neustart nicht online ist. Einrichtung auf der Oracle-VM:
+Vollständige Liste mit Kommentaren: [`.env.example`](.env.example). Die wichtigsten Gruppen:
+
+- **Pflicht:** `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`. Dringend empfohlen: `DISCORD_GUILD_ID`.
+- **Rollen:** `ROLE_LEADERS`, `ROLE_STAFF`, `ROLE_FINANCE`, `ROLE_FINANCE_VIEWERS`, `ROLE_REVIEWERS`, `ROLE_EVENT_TEAM`, `ROLE_MEMBERS`, `BOT_OWNER_IDS`; jeweils kommaseparierte IDs.
+- **Channels:** `CHANNEL_TICKET_CATEGORY` (Kategorie), `CHANNEL_TICKET_LOG`, `CHANNEL_APPLICATION_REVIEW`, `CHANNEL_RANK_REVIEW`, `CHANNEL_EVENT_ANNOUNCEMENTS`, `CHANNEL_AUDIT_LOG`, `CHANNEL_AUTOMOD_LOG`, `CHANNEL_STATS`. Alternativ lassen sie sich mit `/einstellungen kanal` setzen; das wird in der Datenbank gespeichert und hat Vorrang vor der `.env`.
+- **Tickets:** `TICKET_CATEGORIES_JSON`, `TICKET_COOLDOWN_SECONDS`, `TICKET_MAX_OPEN_PER_USER`, `TICKET_TRANSCRIPT_LIMIT`.
+- **Events:** `TIMEZONE` (Standard `Europe/Vienna`; Datumseingaben wie `31.12.2026 19:00` gelten in dieser Zone, gespeichert wird UTC), `EVENT_REMINDER_MINUTES`.
+- **Anträge:** `APPLICATION_QUESTIONS_JSON`, `RANK_ROLE_ASSIGNMENT_ENABLED`, `RANK_ROLES_JSON`.
+- **Konto:** `PAYOUT_MINIMUM_CENTS`; leer bedeutet, alle Kontostände werden ohne Grenzwert angezeigt.
+- **AutoMod/Raid:** `AUTOMOD_*`, `RAID_*`, `FLOOD_*`. Die Standardwerte sind bewusst zurückhaltend: Der Bot-AutoMod ist aus, Raids erzeugen nur eine Staff-Meldung, Timeouts gibt es nur, wenn sie ausdrücklich konfiguriert sind. Ausgenommen sind Mitglieder mit „Nachrichten verwalten“, alle Staff-Rollen sowie `AUTOMOD_EXEMPT_ROLES`/`AUTOMOD_EXEMPT_CHANNELS`. Nachrichteninhalte werden nicht gespeichert.
+- **Logs:** `AUDIT_CHANNEL_IGNORE_ACTIONS` hält häufige Ereignisse (Event-/Giveaway-Teilnahmen) aus dem Audit-Channel heraus; in der Datenbank bleiben sie trotzdem.
+
+### Staff-Webdashboard (optional)
+
+Die responsive Staff-Website mit Discord-OAuth ist standardmäßig aus. Zum Aktivieren: `DASHBOARD_ENABLED=true`, `DASHBOARD_PUBLIC_URL` (HTTPS-Domain), `DISCORD_CLIENT_SECRET`, `DASHBOARD_SESSION_SECRET` (z. B. `openssl rand -hex 32`, nur in der VM-`.env`). In der OAuth-Anwendung die Redirect-URL `https://DEINE-DOMAIN/oauth/callback` eintragen. Der Dienst bindet nur an `127.0.0.1:3080` und braucht einen HTTPS-Reverse-Proxy. Reviewer, Staff und Event-Team können dort Anträge, Tickets und Events bearbeiten; jede Aktion prüft die aktuelle Discord-Rolle und wird protokolliert.
+
+## Oracle-VM: Betrieb und Aktualisierung
+
+Auf der VM liegt das Repository unter `/home/ubuntu/Gambino-Bot`, der PM2-Prozess heißt `gambino-bot`.
+
+**Automatisch (eingerichteter Timer):** `deploy/gambino-autodeploy.timer` prüft jede Minute `origin/main`. Bei einer neuen Version passiert Folgendes:
+
+1. Fast-Forward-Merge; bei lokalen Änderungen bricht der Dienst ab.
+2. `npm install`, falls sich `package.json` oder ein Lockfile geändert hat.
+3. Datenbank-Backup über `npm run backup`.
+4. Slash-Commands registrieren.
+5. `pm2 restart gambino-bot`, danach Prüfung, ob der Bot online ist.
+
+Ein Merge nach `main` ist damit ein Produktiv-Deployment. Einmalige Einrichtung des Timers:
 
 ```sh
 sudo install -m 644 deploy/gambino-autodeploy.service /etc/systemd/system/gambino-autodeploy.service
 sudo install -m 644 deploy/gambino-autodeploy.timer /etc/systemd/system/gambino-autodeploy.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now gambino-autodeploy.timer
+journalctl -u gambino-autodeploy.service -n 50   # letzte Deploy-Läufe
 ```
 
-- `/ticket panel`, `/ticket übernehmen`, `/ticket schliessen`, `/ticket wiedereroeffnen`: private Tickets, zuständige Rollen, Cooldown, Begrenzung offener Tickets und DB-Transkript der letzten 100 Channel-Nachrichten. Geschlossene Channels bleiben zur Prüfung erhalten.
-- `/event erstellen`, `/event bearbeiten`, `/event liste`, `/event historie`, `/event anwesenheit`, `/event absagen`, `/event beenden`: persistente Events und An-/Abmeldung per Button. Datum einfach als `31.12.2026 19:00` in der konfigurierten Server-Zeitzone oder ISO-Zeit mit Offset angeben; gespeicherte Zeit ist UTC. Events für Staff-Aktionen lassen sich über die Namensvorschläge auswählen. Reminder bei ungefähr 60 und 15 Minuten.
-- `/bewerbung-panel`, `/antrag bewerben`, `/antrag liste`, `/antrag entscheiden`, `/antrag status`: Bewerbungs- und Rang-Formulare mit Status, Reviewer und optionalem Entscheidungskommentar. Rollen werden nie automatisch vergeben.
-- `/konto stand`, `/konto ansehen`, `/konto gutschrift`, `/konto auszahlen`, `/konto liste`, `/konto historie`: persönliches Familienguthaben und Leitungsbuchungen. Geld wird als Integer-Cent geführt; Textwerte sind Dollarbeträge, etwa `2500000` oder `12,50`.
-- `/sanktion erstellen`, `/sanktion offen`, `/sanktion aufheben`, `/sanktion rueckerstatten`: offene Auszahlungsabzüge. Aufhebung und Rückerstattung verlangen Gründe und bleiben auditierbar.
-- `/giveaway erstellen`, `/giveaway abbrechen`: Teilnehmerlisten und Endzeitpunkte werden gespeichert; fällige Giveaways werden beim nächsten Scheduler-Lauf genau einmal beendet.
-- `/dashboard`, `/statistik`, `/ping`, `/help`: Discord-Übersichten und Status. Die Auszahlungsliste ist seitenweise navigierbar, und Events, Anträge, Sanktionen sowie Giveaways schlagen passende Einträge direkt im Command vor.
-
-### Staff-Webdashboard (optional)
-
-Das Gambinos-Dashboard ist eine responsive Staff-Website mit Discord-OAuth und Live-Übersicht. Reviewer können Bewerbungen und Rang-Anträge übernehmen, annehmen oder mit verpflichtender Begründung ablehnen; der Antragsteller bekommt dieselben privaten Statusmeldungen wie im Discord-Workflow. Staff kann Tickets übernehmen und nach Bestätigung schließen; der Bot speichert dabei ein Transkript der letzten 100 Nachrichten. Das Event-Team kann Events veröffentlichen und absagen. Jede Aktion prüft die aktuelle Discord-Rolle serverseitig und landet im Audit-Log. Finanzkennzahlen bleiben Leitung und Finanzrollen vorbehalten. Das animierte Gambinos-Profilbild und Banner werden als Markenbilder verwendet. Das Dashboard ist standardmäßig ausgeschaltet. Zum Aktivieren auf der VM müssen `DASHBOARD_ENABLED=true`, `DASHBOARD_PUBLIC_URL` (HTTPS), `DISCORD_CLIENT_SECRET` und `DASHBOARD_SESSION_SECRET` gesetzt werden; letztere beiden nur direkt in der VM-`.env`, nie im Repository oder Chat. `DISCORD_GUILD_ID` und mindestens eine Staff-Rolle sind erforderlich. In der Discord OAuth-Anwendung die Redirect-URL `https://DEINE-DOMAIN/oauth/callback` registrieren. Den Session-Schlüssel direkt auf der VM beispielsweise mit `openssl rand -hex 32` erzeugen. Der Dienst bindet absichtlich nur auf `127.0.0.1:3080`; für externen Zugriff ist ein korrekt konfigurierter HTTPS-Reverse-Proxy nötig. Session-Cookies sind signiert, HttpOnly, Secure und laufen nach acht Stunden ab. Für Events muss `CHANNEL_EVENT_ANNOUNCEMENTS` konfiguriert sein. Ohne Domain, Proxy und OAuth-Client-Secret lässt sich die Website nicht sicher öffentlich einschalten.
-
-### Konten und Sanktionsverrechnung
-
-Das Familienkonto steht für noch nicht ausgezahltes Geld aus Grand-RP-Events oder anderen Familienaktivitäten. Es ist keine Discord-Spielwährung und wird nicht mit einer Community-Economy verrechnet. Bei einer Auszahlung wird innerhalb einer SQLite-Transaktion der vollständige Kontostand als Brutto ermittelt, offene Sanktionsreste nach FIFO abgezogen, Restbeträge aktualisiert und eine einzige unveränderliche Transaktion mit Auszahlungs- und Sanktionszuordnung erstellt. Die Vorschau wird bei Bestätigung auf Änderungen geprüft; Interaktions-ID und Datenbank-Constraints verhindern Doppelbuchungen. Ein Fehlerschritt rollt den ganzen Vorgang zurück.
-
-## Rollen und Channel-Einstellungen
-
-| Einstellung | Verwendung |
-| --- | --- |
-| `ROLE_LEADERS` | Leitungsaktionen, Sanktionskorrektur und Rückerstattung |
-| `ROLE_STAFF` | Tickets, Sanktionen und Giveaways |
-| `ROLE_FINANCE` | Familienkonto, Gutschriften, Auszahlungen und Auszahlungsliste |
-| `ROLE_EVENT_TEAM` | Events und Anwesenheit |
-| `ROLE_REVIEWERS` | Anträge und Reviewer-Panel |
-| `ROLE_MEMBERS` | vorbereitet für Mitgliedsrollen; derzeit keine automatische Rollenvergabe |
-| `BOT_OWNER_IDS` | optionale Discord-Benutzer-IDs mit persönlichem Vollzugriff auf rollenbeschränkte Staff-Befehle |
-| `CHANNEL_TICKET_CATEGORY` | Kategorie, unter der private Ticket-Channels erstellt werden |
-| `CHANNEL_TICKET_LOG` | Ticket-Kurzmeldungen |
-| `CHANNEL_APPLICATION_REVIEW` | Familienbewerbungen in `STAFF・bewerbungen` und Reviewer-Buttons |
-| `CHANNEL_RANK_REVIEW` | Rang-Anträge in `STAFF・rang-anträge` und Reviewer-Buttons |
-| `CHANNEL_EVENT_ANNOUNCEMENTS` | Event-Ankündigungen; leer nutzt den Command-Channel |
-| `CHANNEL_AUDIT_LOG` | zentrale Weiterleitung von Datenbank-Audit-Logs |
-| `CHANNEL_AUTOMOD_LOG` | AutoMod- und Raid-Meldungen |
-
-Alle IDs sind optional, soweit nicht die Discord-Anwendung selbst betroffen ist. Rollen, die eine Aktion freischalten, müssen explizit eingetragen sein. Wenn `DISCORD_GUILD_ID` gesetzt ist, lehnt der Bot Aktionen in anderen Servern ab.
-
-## Daten, Migrationen und Backups
-
-Beim Start werden SQLite-Tabellen mit `CREATE TABLE IF NOT EXISTS` und eindeutigen Constraints idempotent angelegt; `schema_migrations` hält die angewandte Basisversion fest. Transaktionen und Sanction-Allocations sind append-only. Ticket-Transkripte enthalten bis zu 100 Nachrichten und werden in SQLite gespeichert; Zugriff auf die Datenbank und Backups entsprechend beschränken. Logs speichern IDs und Aktionsmetadaten, keine Tokens.
-
-Beispiel für ein VM-Backup bei gestopptem Bot (Datenbank plus WAL-Dateien zusammen sichern):
-
-```sh
-pm2 stop gambino-bot
-tar -czf "$HOME/gambino-backup-$(date +%F-%H%M).tar.gz" -C /home/ubuntu/Gambino-Bot data
-pm2 start gambino-bot
-```
-
-Backups regelmäßig auf ein separates, zugriffsgeschütztes Ziel übertragen und eine Wiederherstellung mit einer Kopie testen. Nie ein laufendes SQLite-Datenbankfile ohne WAL sichern.
-
-## Tests
-
-`npm test` führt ausschließlich In-Memory-Tests aus. Die Suite umfasst Konfiguration/Rollen, Geldbeträge, Gutschrift, Auszahlung, vollständige und teilweise Sanktion, Wiederholungen, Rückerstattung und atomaren Rollback sowie Statusübergänge und doppelte Event-/Giveaway-Teilnahmen.
-
-## Oracle-VM-Workflow
-
-Das Repository liegt auf der VM unter `/home/ubuntu/Gambino-Bot`; PM2-Prozessname ist `gambino-bot`. Es wurden keine VM-Dateien, laufenden Prozesse, Secrets oder produktiven Discord-Commands mit dieser Änderung verändert.
-
-Nach Review und Merge der Änderung kann die bestehende ChatGPT-verwaltete Aktualisierung auf der VM so ausgeführt werden:
+**Manuell:**
 
 ```sh
 cd /home/ubuntu/Gambino-Bot
+npm run backup
 git pull --ff-only
 npm install
 npm test
 npm run deploy-commands
 pm2 restart gambino-bot --update-env
-pm2 save
 pm2 logs gambino-bot --lines 100
 ```
 
-Vor dem ersten Neustart `.env`-Konfiguration und ein Backup prüfen. Die VM läuft laut vorheriger Bestandsaufnahme mit Node 20.20.2; Node 20 ist nicht mehr unterstützt. Node-Version-Upgrade und Deployment sind bewusst nicht Teil dieser lokalen Änderung.
+Node: Die VM lief laut früherer Bestandsaufnahme mit Node 20.20.2. Der Code läuft ab Node 20.6. Node 20 ist aber End-of-Life, ein Upgrade auf eine aktuelle LTS-Version (z. B. 22) ist empfohlen; danach `npm rebuild better-sqlite3`.
 
-## Bekannte Grenzen des aktuellen Ausbaus
+## Datenbank, Migrationen und Backups
 
-- Der Discord-Livebetrieb, Discord-API-Berechtigungen und Oracle-VM-Installationspfad wurden nicht mit produktiven Zugangsdaten getestet.
-- AutoMod ist opt-in und löscht bei Aktivierung Links außerhalb der Allowlist, konfigurierte Begriffe und Spam-Nachrichten; Timeout-Aktionen oder automatische Raid-Lockdowns sind absichtlich nicht aktiv.
-- Tickets können gelöschte Channels als geschlossen protokollieren; Transkripte sind auf die letzten 100 Discord-Nachrichten begrenzt.
-- Bewerbungsfragen und Event-Reminder-Intervalle sind derzeit Code-Defaults; Rollenzuordnungen und Review-/Announcement-Channels sind konfigurierbar.
-- Das optionale Webdashboard benötigt weiterhin HTTPS/OAuth-Konfiguration und passende Discord-Rollen. Discord-Livebetrieb und OAuth-Login müssen gegen die konkrete Oracle-VM-Konfiguration geprüft werden.
+- Beim Start laufen versionierte Migrationen (`MIGRATIONS` in `src/database.js`), jede in einer Transaktion und mit Name und Zeitpunkt in `schema_migrations` festgehalten. Sie sind idempotent; Spalten älterer Installationen werden ohne Datenverlust ergänzt. Neue Schemaänderungen kommen immer als neue Version hinzu.
+- Schema: Konten, Transaktionen, Sanktionen, Sanktionsänderungen, Auszahlungs-Allocations, Erstattungen, Verwarnungen, Tickets und Transkripte, Events, Teilnehmer, Erinnerungen, Anträge, Notizen, Rollenvergaben, Giveaways und Teilnahmen, Audit-Logs und deren Zustellstatus, AutoMod-Aktionen, Mitgliederstatistik, Guild-Einstellungen. Dazu Fremdschlüssel, Unique-Constraints und Indizes.
+- **Backup:** `npm run backup` erstellt eine konsistente Online-Kopie (SQLite-Backup-API, auch bei laufendem Bot), prüft deren Integrität und behält die letzten `BACKUP_KEEP` Dateien in `BACKUP_DIR` (Rechte 600). Täglich per Cron, z. B. `crontab -e` → `15 4 * * * cd /home/ubuntu/Gambino-Bot && npm run --silent backup >> $HOME/gambino-backup.log 2>&1`. Backups zusätzlich auf ein separates, zugriffsgeschütztes Ziel kopieren, denn Transkripte und Finanzdaten sind vertraulich.
+- **Wiederherstellung:** `pm2 stop gambino-bot`; die aktuelle `data/gambino.sqlite` samt `-wal`/`-shm` beiseitelegen; die Backup-Datei als `data/gambino.sqlite` kopieren; `pm2 start gambino-bot`. Am besten vorher mit einer Kopie testen.
+
+## Tests
+
+`npm test` läuft ausschließlich mit In-Memory-Datenbanken und simulierten Discord-Objekten, ohne echte Nutzer, Tokens oder Produktivdaten. `npm run check` prüft Syntax und Command-Definitionen. Abgedeckt sind:
+
+- Konfiguration und Rollenstufen.
+- Berechtigungen über den echten Interaktions-Handler, inklusive Owner-Override-Protokoll.
+- Gutschrift, Korrektur, Auszahlung, Vorgabebeispiel 2.500.000/500.000/2.000.000, FIFO, Teilverrechnung mit Rest, Auszahlung mit netto 0, kein Doppelabzug bei Retry, parallelem Doppelklick oder zweitem Klick, veraltete Vorschau, Aufhebung, Korrektur, Rückerstattung.
+- Atomarer Rollback und Unveränderlichkeit der Buchungen.
+- Ticket- und Antragsstatusübergänge, Event-Teilnahme, Giveaway-Ziehung genau einmal nach Neustart.
+- Rang-Rollenvergabe, AutoMod-Regeln, Erinnerungen, Statistik, Migrationen, Audit-Darstellung und Webdashboard.
+
+## Bekannte Grenzen
+
+- Discord-Livebetrieb, die echten Discord-Berechtigungen und die konkrete VM-Konfiguration lassen sich nur auf dem Server selbst prüfen. Alle Discord-Zugriffe sind in den Tests simuliert.
+- AutoMod-Zähler (Spam-Fenster, Raid-Erkennung) liegen bewusst im Arbeitsspeicher und beginnen nach einem Neustart neu. Alle Maßnahmen werden dauerhaft gespeichert.
+- Erinnerungen werden vor dem Senden reserviert. Ist der Event-Channel in diesem Moment nicht erreichbar, wird diese eine Erinnerung nicht nachgeholt (dafür nie doppelt gesendet).
+- Antragsfragen sind auf 5 pro Typ begrenzt (Discord-Modal-Limit). Weitere Antragstypen außer Bewerbung/Rang bräuchten zusätzlichen Code.
+- Das Webdashboard nutzt eigene Ticket-Logik und kennt die kategoriebezogenen Ticket-Rollen noch nicht (dort gelten nur Staff/Leitung).

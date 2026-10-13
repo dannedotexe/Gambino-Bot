@@ -31,6 +31,15 @@ if ! git merge-base --is-ancestor HEAD "$target_commit"; then
 fi
 
 git merge --ff-only "$target_commit"
+# Abhängigkeiten nur aktualisieren, wenn sich package.json oder ein Lockfile geändert hat.
+if [[ -n "$deployed_commit" ]] && ! git diff --quiet "$deployed_commit" "$target_commit" -- package.json package-lock.json pnpm-lock.yaml 2>/dev/null; then
+  # --no-package-lock: keine untracked Lockfile-Änderung, die den nächsten Deploy blockieren würde.
+  npm install --omit=dev --no-package-lock
+fi
+# Sicherung vor dem Neustart, weil neue Versionen beim Start Datenbank-Migrationen ausführen können.
+if [[ -f scripts/backup-db.js ]]; then
+  npm run --silent backup -- --if-exists
+fi
 npm run deploy-commands
 pm2 restart gambino-bot
 sleep 5
