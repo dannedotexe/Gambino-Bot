@@ -5,7 +5,8 @@ import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
-import { loadChannelBindings } from "./src/channel-setup.js";
+import { createSettingsService } from "./src/services/settings.js";
+import { createSeriesService } from "./src/services/event-series.js";
 import { createDashboard } from "./src/dashboard.js";
 import { createTicketService } from "./src/services/tickets.js";
 
@@ -18,15 +19,19 @@ for(const warning of configWarnings(config))console.warn(`Konfigurationshinweis:
 let db;
 try { db=openDatabase(config.DATABASE_PATH); }
 catch(error){ console.error(`Datenbank konnte nicht geöffnet werden (${config.DATABASE_PATH}):`,error.message); process.exit(1); }
-loadChannelBindings(db,config.DISCORD_GUILD_ID,config);
+// Über Website/Discord gespeicherte Einstellungen überschreiben die .env-Startwerte (nur mit DISCORD_GUILD_ID).
+const settings=config.DISCORD_GUILD_ID?createSettingsService({db,config,env:{...process.env},guildId:config.DISCORD_GUILD_ID}):null;
+if(settings){const {rejected}=settings.apply();for(const item of rejected)console.warn(`Gespeicherte Einstellung ignoriert (ungültig): ${item}`);}
+const series=createSeriesService(db);
+if(config.DISCORD_GUILD_ID){const seeded=series.seedDefaults(config.DISCORD_GUILD_ID);if(seeded)console.log(`${seeded} Standard-Aktivitäten angelegt (inaktiv). Aktivieren über Website oder /aktivitaeten.`);}
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel]});
 const finance=createFinance(db);
-const handlers=createHandler({db,finance,config,client});
-const dashboard=createDashboard({db,client,config});
+const handlers=createHandler({db,finance,config,client,settings,series});
+const dashboard=createDashboard({db,client,config,settings,series});
 
 client.once(Events.ClientReady,ready=>{
   console.log(`Gambino Bot bereit als ${ready.user.tag}.`);
-  startScheduler({db,client,config});
+  startScheduler({db,client,config,series});
 });
 client.on(Events.InteractionCreate,async interaction=>{
   try {

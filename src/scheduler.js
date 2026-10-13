@@ -4,6 +4,7 @@ import { auditLogPayload, BRAND_COLOR, logEmbed } from "./presentation.js";
 import { createGiveawayService } from "./services/giveaways.js";
 import { createTicketService } from "./services/tickets.js";
 import { collectStats } from "./services/stats.js";
+import { createSeriesEvents, endSeriesEvents, refreshActivityBoard } from "./activity-board.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
 /**
@@ -20,7 +21,7 @@ export function dueReminder(startsAt, reminderMinutes, sentSlots, now = new Date
   return { slot, skipped: reached.filter(item => item !== slot && !sentSlots.includes(item)) };
 }
 
-export function startScheduler({db,client,config}) {
+export function startScheduler({db,client,config,series=null}) {
   let running=false,lastTicketCheck=0,lastPanel=0,lastStats=0;
   const giveaways=createGiveawayService(db),tickets=createTicketService(db);
   const tick=async()=>{
@@ -34,6 +35,10 @@ export function startScheduler({db,client,config}) {
       }
       const announce=db.prepare("SELECT g.* FROM giveaways g LEFT JOIN giveaway_announcements a ON a.giveaway_id=g.id WHERE g.status='ended' AND a.giveaway_id IS NULL ORDER BY g.ended_at LIMIT 20").all();
       for(const giveaway of announce)await announceGiveaway(db,client,giveaway).catch(error=>console.warn(`Giveaway-Ergebnis ${giveaway.id} noch nicht zugestellt:`,error.message));
+      if(series){
+        await createSeriesEvents({db,client,config,series,reference:now}).catch(error=>console.error("Aktivitäten konnten nicht angelegt werden:",error.message));
+        await endSeriesEvents({db,client,config,reference:now}).catch(error=>console.error("Aktivitäten konnten nicht beendet werden:",error.message));
+      }
       await sendReminders(db,client,config,now);
       if(Date.now()-lastTicketCheck>60_000){
         lastTicketCheck=Date.now();
@@ -44,7 +49,7 @@ export function startScheduler({db,client,config}) {
           if(missing)tickets.markChannelMissing({ticketId:ticket.id,actorId:client.user.id});
         }
       }
-      if(config.DASHBOARD_PANEL_REFRESH_MINUTES>0&&Date.now()-lastPanel>config.DASHBOARD_PANEL_REFRESH_MINUTES*60_000){lastPanel=Date.now();await refreshStaffPanel(db,client,config);}
+      if(config.DASHBOARD_PANEL_REFRESH_MINUTES>0&&Date.now()-lastPanel>config.DASHBOARD_PANEL_REFRESH_MINUTES*60_000){lastPanel=Date.now();await refreshStaffPanel(db,client,config);if(series)await refreshActivityBoard({db,client,config,series});}
       if(config.STATS_CHANNEL_UPDATE_MINUTES>0&&config.CHANNEL_STATS&&Date.now()-lastStats>config.STATS_CHANNEL_UPDATE_MINUTES*60_000){lastStats=Date.now();await refreshStatsChannel(db,client,config);}
       await deliverAuditLogs(db,client,config,now);
     }catch(error){console.error("Scheduler tick failed:",error);}finally{running=false;}

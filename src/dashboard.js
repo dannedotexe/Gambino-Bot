@@ -16,15 +16,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dash
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".gif": "image/gif" };
 const html = value => String(value ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 
-export function createDashboard({ db, client, config }) {
+export function createDashboard({ db, client, config, settings = null, series = null }) {
   if (!config.DASHBOARD_ENABLED) return { close: async () => {} };
   const state = new Map();
   const cookieName = "gambino_staff";
   const secret = config.DASHBOARD_SESSION_SECRET;
-  const groups = accessGroups(config);
-  // Login: alle Staff-Stufen, reine Finanz-Einsicht und für Ticket-Kategorien zuständige Rollen.
-  const staffRoleIds = [...new Set([...groups.anyStaff, ...groups.financeView, ...(config.TICKET_CATEGORIES_JSON ?? []).flatMap(category => category.roleIds)])];
-  const extendedApi = createDashboardApi({ db, client, config });
+  const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
+  // Login: alle Staff-Stufen, reine Finanz-Einsicht und für Ticket-Kategorien zuständige Rollen (live, damit Rollenänderungen sofort gelten).
+  const staffRoleIds = () => [...new Set([...groups.anyStaff, ...groups.financeView, ...(config.TICKET_CATEGORIES_JSON ?? []).flatMap(category => category.roleIds)])];
+  const extendedApi = createDashboardApi({ db, client, config, settings, series });
   const ticketService = createTicketService(db);
   const categoryLabel = id => (config.TICKET_CATEGORIES_JSON ?? []).find(category => category.id === id)?.label ?? id;
   const sign = value => createHmac("sha256", secret).update(value).digest("base64url");
@@ -37,7 +37,7 @@ export function createDashboard({ db, client, config }) {
     const guild = client.guilds.cache.get(config.DISCORD_GUILD_ID) ?? await client.guilds.fetch(config.DISCORD_GUILD_ID);
     const member = await guild.members.fetch(userId).catch(() => null);
     if (!member) return null;
-    const roles = staffRoleIds.filter(id => member.roles.cache.has(id));
+    const roles = staffRoleIds().filter(id => member.roles.cache.has(id));
     const owner = config.BOT_OWNER_IDS?.includes(userId) ?? false;
     return roles.length || owner ? { id: member.id, tag: member.user.tag, displayName: member.displayName, roles, owner } : null;
   };

@@ -15,6 +15,8 @@ import { collectStats, PERIODS } from "./services/stats.js";
 import { CHANNEL_BINDINGS } from "./channel-setup.js";
 import { PANEL_SETTING_KEY, VIEWS, buildPanelPayload, buildView, statsEmbed } from "./staff-panel.js";
 import { syncNativeAutomod } from "./moderation.js";
+import { describeSchedule, nextOccurrence } from "./services/event-series.js";
+import { buildActivityBoard, publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 
 const isoNow=()=>new Date().toISOString();
 const unix=iso=>Math.floor(new Date(iso).getTime()/1000);
@@ -177,20 +179,24 @@ export function buildCommands() {
   const automod = new SlashCommandBuilder().setName("automod").setDescription("AutoMod und Raid-Schutz")
     .addSubcommand(s=>s.setName("status").setDescription("AutoMod-Einstellungen und letzte Maßnahmen (Staff)"))
     .addSubcommand(s=>s.setName("sync").setDescription("Gesperrte Begriffe als native Discord-AutoMod-Regel übernehmen (Leitung)"));
+  const activities = new SlashCommandBuilder().setName("aktivitaeten").setDescription("Wiederkehrende Familien-Aktivitäten")
+    .addSubcommand(s=>s.setName("liste").setDescription("Aktivitätenplan anzeigen"))
+    .addSubcommand(s=>s.setName("status").setDescription("Aktivität aktivieren oder deaktivieren (Event-Team)").addStringOption(o=>o.setName("aktivitaet").setDescription("Aktivität auswählen").setRequired(true).setAutocomplete(true)).addBooleanOption(o=>o.setName("aktiv").setDescription("Aktiv = Termine werden automatisch angekündigt").setRequired(true)))
+    .addSubcommand(s=>s.setName("board").setDescription("Dauerhafte Aktivitäten-Übersicht in diesem Channel posten (Event-Team)"));
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
     new SlashCommandBuilder().setName("help").setDescription("Befehlsübersicht"),
     new SlashCommandBuilder().setName("bewerbung-panel").setDescription("Bewerbungs-Panel senden (Reviewer)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen (Staff)").addIntegerOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices(...Object.entries(PERIODS).map(([days,label])=>({name:label,value:Number(days)})))),
   ];
-  return [money,sanction,ticket,event,apps,giveaway,dashboard,settings,automod,...misc].map(c=>c.toJSON());
+  return [money,sanction,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
 }
 
-export function createHandler({db,finance,config,client}) {
+export function createHandler({db,finance,config,client,settings=null,series=null}) {
   client.gambinoOwnerIds=config.BOT_OWNER_IDS??[];
   questionConfig=config;
-  const groups=accessGroups(config);
-  const guards=groups;
+  // Live berechnet: Rollenänderungen über Website/Discord gelten sofort.
+  const groups=new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const events=createEventService(db),giveaways=createGiveawayService(db),tickets=createTicketService(db),applications=createApplicationService(db);
   const isOwner=i=>config.BOT_OWNER_IDS?.includes(i.user?.id)??false;
   const memberRoleIds=i=>[...(i.member?.roles?.cache?.keys?.()??i.member?.roles??[])];
@@ -233,6 +239,8 @@ export function createHandler({db,finance,config,client}) {
         else if(sub==="korrigieren")rows=db.prepare("SELECT s.id,s.user_id,s.amount_cents AS cents,s.reason FROM sanctions s WHERE s.guild_id=? AND s.status<>'void' ORDER BY s.created_at DESC LIMIT 100").all(g);
         else if(sub==="rueckerstatten")rows=db.prepare("SELECT s.id,s.user_id,s.reason,COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)-COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) AS cents FROM sanctions s WHERE s.guild_id=? AND COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)>COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) ORDER BY s.created_at DESC LIMIT 100").all(g);
         choices=rows.map(r=>({name:`${r.reason.slice(0,55)} · Mitglied …${r.user_id.slice(-5)} · ${formatMoney(r.cents)}`.slice(0,100),value:r.id}));
+      }else if(i.commandName==="aktivitaeten"&&series&&can(i,"events")){
+        choices=series.list(g).map(r=>({name:`${r.active?"🟢":"⚪"} ${r.name} · ${describeSchedule(r)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="giveaway"&&sub==="abbrechen"&&can(i,"staff")){
         rows=db.prepare("SELECT id,prize,ends_at FROM giveaways WHERE guild_id=? AND status='active' ORDER BY ends_at LIMIT 100").all(g);
         choices=rows.map(r=>({name:`🎉 ${r.prize.slice(0,65)} · endet ${new Date(r.ends_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})}`,value:r.id}));
@@ -270,6 +278,7 @@ export function createHandler({db,finance,config,client}) {
       }
       if (i.commandName==="einstellungen") return await settingsCommand(i,sub,g,u);
       if (i.commandName==="automod") return await automodCommand(i,sub,g,u);
+      if (i.commandName==="aktivitaeten") return await activityCommand(i,sub,g,u);
       return respond(i,"Unbekannter Befehl.");
     } catch(e) { if(!(e instanceof FinanceError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
   }
@@ -669,11 +678,29 @@ export function createHandler({db,finance,config,client}) {
       if(!Object.hasOwn(CHANNEL_BINDINGS,key))return respond(i,"Unbekannte Einstellung.");
       const wantsCategory=key==="CHANNEL_TICKET_CATEGORY";
       if(wantsCategory!==(channel.type===ChannelType.GuildCategory))return respond(i,wantsCategory?"Bitte eine Kategorie auswählen.":"Bitte einen Text-Channel auswählen.");
-      const previous=config[key]??null;
-      setSetting(db,g,key,channel.id);
-      config[key]=channel.id;
-      audit(db,g,u,"config.changed",key,{setting:key,previous,value:channel.id});
+      if(settings)settings.update({key,value:channel.id,actorId:u,actorRoleIds:memberRoleIds(i),actorIsOwner:isOwner(i)});
+      else{const previous=config[key]??null;setSetting(db,g,key,channel.id);config[key]=channel.id;audit(db,g,u,"config.changed",key,{setting:key,previous,value:channel.id});}
       return respond(i,`Einstellung ${key} wurde aktualisiert: ${channel}. Die Änderung gilt sofort und bleibt nach einem Neustart erhalten.`);
+    }
+  }
+
+  async function activityCommand(i,sub,g,u){
+    if(!series)return respond(i,"Aktivitäten sind nicht verfügbar.");
+    if(sub==="liste"){
+      const list=series.list(g);
+      const lines=list.map(item=>{const next=item.active?nextOccurrence(item,config.TIMEZONE):null;return `${item.active?"🟢":"⚪"} **${item.name}** · ${describeSchedule(item)}${next?` · nächstes <t:${unix(next.toISOString())}:R>`:""}`;});
+      return answer(i,{...fieldsEmbed("📆 Aktivitätenplan",[],(lines.join("\n")||"Keine Aktivitäten angelegt.").slice(0,4000)+"\n\n🟢 aktiv (wird automatisch angekündigt) · ⚪ inaktiv"),ephemeral:true});
+    }
+    const denied=guard(i,"events","Event-Team");if(denied)return respond(i,denied);
+    if(sub==="status"){
+      const row=series.setActive({guildId:g,id:i.options.getString("aktivitaet"),actorId:u,active:i.options.getBoolean("aktiv")});
+      if(!row)return respond(i,"Aktivität nicht gefunden.");
+      await refreshActivityBoard({db,client,config,series});
+      return respond(i,`**${row.name}** ist jetzt ${row.active?"aktiv. Termine werden automatisch im Event-Channel angekündigt.":"inaktiv. Es werden keine neuen Termine mehr angekündigt."}`);
+    }
+    if(sub==="board"){
+      await publishActivityBoard({db,channel:i.channel,config,series,actorId:u});
+      return respond(i,"Die Aktivitäten-Übersicht wurde veröffentlicht und aktualisiert sich automatisch.");
     }
   }
 

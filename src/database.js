@@ -76,6 +76,17 @@ export const MIGRATIONS = [
       ${appendOnly("audit_logs", "Audit-Logs")}
     `),
   },
+  {
+    version: 3,
+    name: "wiederkehrende-aktivitaeten",
+    up: db => {
+      if (!db.prepare("PRAGMA table_info(events)").all().some(column => column.name === "series_id")) db.exec("ALTER TABLE events ADD COLUMN series_id TEXT");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS event_series (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('scheduled','flexible')), weekdays TEXT NOT NULL DEFAULT '', times TEXT NOT NULL DEFAULT '', availability TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', location TEXT NOT NULL DEFAULT '', lead_minutes INTEGER NOT NULL DEFAULT 120 CHECK(lead_minutes BETWEEN 5 AND 1440), max_participants INTEGER, active INTEGER NOT NULL DEFAULT 0 CHECK(active IN (0,1)), sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(guild_id,name));
+        CREATE UNIQUE INDEX IF NOT EXISTS events_series_occurrence ON events(series_id,starts_at) WHERE series_id IS NOT NULL;
+      `);
+    },
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.
@@ -85,6 +96,7 @@ const COLUMNS = [
   ["tickets", "closed_by", "TEXT"],
   ["giveaways", "required_role_id", "TEXT"],
   ["automod_actions", "details", "TEXT NOT NULL DEFAULT '{}'"],
+  ["events", "series_id", "TEXT"],
 ];
 
 export function initializeSchema(db) {

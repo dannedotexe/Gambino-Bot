@@ -10,7 +10,6 @@ const ACTION_LABELS = { warn: "Hinweis", delete: "Nachricht gelöscht", timeout:
 
 export function startModeration({ client, db, config }) {
   const recent = new Map(), joins = new Map(), floods = new Map(), violations = new Map(), alertCooldown = new Map();
-  const staffRoles = accessGroups(config).anyStaff;
 
   const sendLog = async (guild, payload) => {
     if (!config.CHANNEL_AUTOMOD_LOG) return;
@@ -31,7 +30,7 @@ export function startModeration({ client, db, config }) {
       const recentJoins = slidingWindow(joins, member.guild.id, config.RAID_WINDOW_SECONDS * 1000);
       if (recentJoins.length < config.RAID_JOIN_COUNT) return;
       const performed = [];
-      if (config.RAID_ACTIONS.includes("timeout") && !staffRoles.some(id => member.roles.cache.has(id))) {
+      if (config.RAID_ACTIONS.includes("timeout") && !accessGroups(config).anyStaff.some(id => member.roles.cache.has(id))) {
         const ok = await member.timeout(config.RAID_TIMEOUT_MINUTES * 60_000, "Gambinos Raid-Schutz: ungewöhnliche Beitrittsrate").then(() => true).catch(error => { console.warn("Raid-Timeout fehlgeschlagen:", error.message); return false; });
         performed.push(ok ? "timeout" : "timeout_failed");
       }
@@ -66,7 +65,7 @@ export function startModeration({ client, db, config }) {
       }
       if (!config.AUTOMOD_ENABLED) return;
       const memberRoleIds = [...(message.member?.roles?.cache?.keys() ?? [])];
-      const exempt = exemptionReason({ memberRoleIds, canManageMessages: message.member?.permissions?.has(PermissionFlagsBits.ManageMessages), channelId: message.channelId, parentId: message.channel?.parentId }, config, staffRoles);
+      const exempt = exemptionReason({ memberRoleIds, canManageMessages: message.member?.permissions?.has(PermissionFlagsBits.ManageMessages), channelId: message.channelId, parentId: message.channel?.parentId }, config, accessGroups(config).anyStaff);
       if (exempt) return;
       const key = `${message.guild.id}:${message.author.id}`;
       const history = (recent.get(key) ?? []).filter(entry => entry.at > Date.now() - config.AUTOMOD_SPAM_WINDOW_SECONDS * 1000);

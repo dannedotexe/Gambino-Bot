@@ -26,7 +26,7 @@ const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit
 const TABS = [
   ["overview", "Übersicht", () => true], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
   ["events", "Events", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
-  ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff],
+  ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["settings", "Einstellungen", c => c.settings],
 ];
 
 async function api(path, options = {}) {
@@ -50,6 +50,7 @@ function fieldHtml(field, index) {
   const hint = field.hint ? ` <small>${escapeHtml(field.hint)}</small>` : "";
   if (field.type === "textarea") return `<label for="${id}">${escapeHtml(field.label)}${hint}<textarea id="${id}" name="${field.name}" rows="${field.rows ?? 3}" maxlength="${field.max ?? 1000}" ${required} placeholder="${escapeHtml(field.placeholder ?? "")}">${value}</textarea></label>`;
   if (field.type === "select") return `<label for="${id}">${escapeHtml(field.label)}${hint}<select id="${id}" name="${field.name}" ${required}>${field.options.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(v) === String(field.value ?? "") ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>`;
+  if (field.type === "checks") return `<fieldset class="checks" data-name="${field.name}"><legend>${escapeHtml(field.label)}${hint}</legend>${field.options.map(([v, l]) => `<label class="check"><input type="checkbox" value="${escapeHtml(v)}" ${(field.value ?? []).map(String).includes(String(v)) ? "checked" : ""}> ${escapeHtml(l)}</label>`).join("")}</fieldset>`;
   if (field.type === "member") return `<label for="${id}">${escapeHtml(field.label)}${hint}<input id="${id}" name="${field.name}" data-member list="${id}-list" autocomplete="off" ${required} placeholder="Name eingeben und auswählen …" value="${value}"><datalist id="${id}-list"></datalist></label>`;
   const type = { money: "text", number: "number", datetime: "datetime-local" }[field.type] ?? "text";
   const extra = field.type === "money" ? 'inputmode="decimal" placeholder="z. B. 2500000 oder 12,50"' : field.type === "number" ? `min="${field.min ?? 1}" max="${field.maxValue ?? 100000}"` : `maxlength="${field.max ?? 200}" placeholder="${escapeHtml(field.placeholder ?? "")}"`;
@@ -75,6 +76,7 @@ $("dialog-form").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget, values = {};
   for (const field of dialogHandler.fields) {
+    if (field.type === "checks") { values[field.name] = [...form.querySelectorAll(`fieldset[data-name="${field.name}"] input:checked`)].map(box => box.value); if (field.required && !values[field.name].length) { $("dialog-error").textContent = `${field.label}: bitte mindestens eine Auswahl treffen.`; return; } continue; }
     const input = form.elements[field.name];
     values[field.name] = field.type === "member" ? memberValue(input) : input.value.trim();
     if (field.required && !values[field.name]) { $("dialog-error").textContent = field.type === "member" ? `${field.label}: bitte ein Mitglied aus der Vorschlagsliste wählen.` : `${field.label} ist erforderlich.`; input.focus(); return; }
@@ -105,7 +107,7 @@ document.addEventListener("input", event => {
 });
 function filterList(input) {
   const term = input.value.trim().toLocaleLowerCase("de-AT"), target = $(input.dataset.target);
-  target?.querySelectorAll(".manage-card,.table-row").forEach(card => { card.hidden = Boolean(term) && !card.textContent.toLocaleLowerCase("de-AT").includes(term); });
+  target?.querySelectorAll(".manage-card,.table-row,.setting").forEach(card => { card.hidden = Boolean(term) && !card.textContent.toLocaleLowerCase("de-AT").includes(term); });
 }
 const confirmAction = (title, intro, submit, action, danger = true) => openForm({ eyebrow: "BESTÄTIGUNG", title, intro: `<p>${intro}</p>`, submit, danger, onSubmit: action });
 const memberField = (value = "", label = "Mitglied") => ({ name: "userId", label, type: "member", required: true, value: value ? `${state.names[value] ?? "Mitglied"} ${value}` : "" });
@@ -192,7 +194,28 @@ const eventFields = (e = {}) => [
   { name: "notes", label: "Hinweise", hint: "(optional)", max: 500, value: e.notes },
   { name: "maximum", label: "Max. Teilnehmer", hint: "(leer = kein Limit)", type: "number", min: 1, maxValue: 500, value: e.max_participants ?? "" },
 ];
+const DAYS = [["1", "Mo"], ["2", "Di"], ["3", "Mi"], ["4", "Do"], ["5", "Fr"], ["6", "Sa"], ["7", "So"]];
+const seriesFields = (s = {}) => [
+  { name: "name", label: "Name", required: true, max: 100, value: s.name },
+  { name: "kind", label: "Art", type: "select", value: s.kind ?? "scheduled", options: [["scheduled", "Feste Termine (automatisch ankündigen)"], ["flexible", "Flexibel verfügbar (nur Übersicht)"]] },
+  { name: "weekdays", label: "Wochentage", hint: "(bei festen Terminen)", type: "checks", options: DAYS, value: s.weekdays ? String(s.weekdays).split(",") : ["1", "2", "3", "4", "5", "6", "7"] },
+  { name: "times", label: "Uhrzeiten", hint: "(z. B. 20:20 oder 10:30, 16:30, 22:30)", max: 120, value: s.times ? String(s.times).split(",").join(", ") : "" },
+  { name: "availability", label: "Verfügbarkeit", hint: "(bei flexibel, z. B. „alle 3 Stunden möglich“)", max: 200, value: s.availability },
+  { name: "location", label: "Treffpunkt", hint: "(optional)", max: 100, value: s.location },
+  { name: "description", label: "Beschreibung", hint: "(optional)", type: "textarea", rows: 2, max: 1000, value: s.description },
+  { name: "maxParticipants", label: "Max. Teilnehmer", hint: "(leer = kein Limit)", type: "number", min: 1, maxValue: 500, value: s.max_participants ?? "" },
+  { name: "leadMinutes", label: "Ankündigung … Minuten vorher", type: "number", min: 5, maxValue: 1440, value: s.lead_minutes ?? 120 },
+];
+async function loadSeries() {
+  const data = await api("/api/series"), caps = state.me.capabilities;
+  state.cache.series = Object.fromEntries(data.series.map(s => [s.id, s]));
+  const warn = !data.announcementChannel && data.series.some(s => s.active && s.kind === "scheduled") ? '<p class="warn-text">⚠️ Kein Event-Ankündigungs-Channel eingestellt – aktive Termine können nicht angekündigt werden (Einstellungen → Channels).</p>' : "";
+  $("series-list").innerHTML = warn + (data.series.map(s => `<div class="series ${s.active ? "on" : ""}"><button type="button" class="switch" role="switch" aria-checked="${s.active}" ${caps.events ? "" : "disabled"} data-action="series-toggle" data-id="${escapeHtml(s.id)}" data-active="${s.active ? "1" : "0"}" title="${s.active ? "Aktiv – klicken zum Deaktivieren" : "Inaktiv – klicken zum Aktivieren"}"><span></span></button>
+    <div class="series-main"><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.schedule)}${s.next && s.active ? ` · nächster Termin ${date(s.next)}` : ""}</small></div>
+    <span class="badge">${s.kind === "scheduled" ? "Fest" : "Flexibel"}</span>${caps.events ? `<span class="actions tight">${btn("Bearbeiten", "series-edit", { id: s.id })}${btn("Löschen", "series-delete", { id: s.id }, "reject")}</span>` : ""}</div>`).join("") || empty("Keine Aktivitäten angelegt."));
+}
 async function loadEvents() {
+  await loadSeries();
   const scope = $("events-filter").value, caps = state.me.capabilities;
   const data = await api(`/api/events?scope=${scope}`);
   state.cache.events = Object.fromEntries(data.events.map(e => [e.id, e]));
@@ -333,6 +356,11 @@ const actions = {
       { name: "conditions", label: "Bedingungen", hint: "(optional)", type: "textarea", max: 500 },
     ], submit: "Veröffentlichen", onSubmit: v => post("/api/giveaways", { ...v, minutes: Number(v.minutes), winners: Number(v.winners) }) });
   },
+  "series-toggle": async ({ id, active }) => { const r = await post(`/api/series/${id}/toggle`, { active: active !== "1" }); notify(r.message); await loadSeries(); },
+  "series-create": () => openForm({ eyebrow: "AKTIVITÄT", title: "Neue Aktivität", fields: seriesFields(), submit: "Anlegen", onSubmit: v => post("/api/series", { ...v, active: false }) }),
+  "series-edit": ({ id }) => { const s = state.cache.series[id]; openForm({ eyebrow: "AKTIVITÄT", title: s.name, intro: "<p>Änderungen gelten für künftige Termine. Bereits angekündigte Termine bleiben bestehen.</p>", fields: seriesFields(s), submit: "Speichern", onSubmit: v => post(`/api/series/${id}/update`, v) }); },
+  "series-delete": ({ id }) => confirmAction(`${state.cache.series[id].name} löschen?`, "Es werden keine neuen Termine mehr angelegt. Bereits erstellte Events bleiben in der Historie. Zum Pausieren reicht der Schalter.", "Löschen", () => post(`/api/series/${id}/delete`)),
+  "series-board": async () => { const data = await api("/api/channels"); openForm({ eyebrow: "DISCORD", title: "Aktivitäten-Übersicht posten", intro: "<p>Eine dauerhafte Nachricht mit allen aktiven Aktivitäten und dem nächsten Termin. Sie aktualisiert sich automatisch.</p>", fields: [{ name: "channelId", label: "Channel", type: "select", required: true, options: data.channels.map(c => [c.id, `#${c.name}${c.parent ? ` · ${c.parent}` : ""}`]) }], submit: "Posten", onSubmit: v => post("/api/series/board", v) }); },
   "giveaway-draw": ({ id }) => confirmAction("Jetzt auslosen?", "Das Giveaway endet sofort; die Gewinner werden in Discord verkündet.", "Auslosen", () => post(`/api/giveaways/${id}/draw`), false),
   "giveaway-cancel": ({ id }) => openForm({ eyebrow: "GIVEAWAY", title: "Giveaway abbrechen", intro: "<p>Es wird kein Gewinner gezogen.</p>", fields: [{ name: "reason", label: "Grund", hint: "(optional)", max: 300 }], submit: "Abbrechen", danger: true, onSubmit: v => post(`/api/giveaways/${id}/cancel`, v) }),
 };
@@ -345,7 +373,7 @@ document.addEventListener("click", async event => {
   if (!button || busy) return;
   const handler = actions[button.dataset.action]; if (!handler) return;
   busy = true; button.disabled = true;
-  try { await handler({ ...button.dataset }); }
+  try { await handler({ ...button.dataset }, button); }
   catch (error) { notify(error.message, "error"); }
   finally { busy = false; button.disabled = false; }
 });
@@ -368,4 +396,4 @@ async function start() {
     setInterval(() => { if (!$("dialog").open && document.visibilityState === "visible") refresh(); }, 60_000);
   } catch (error) { login.classList.remove("hidden"); message.textContent = error.message; }
 }
-start();
+document.addEventListener("DOMContentLoaded", start);

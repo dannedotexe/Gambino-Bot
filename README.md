@@ -20,6 +20,7 @@ All-in-One-Discord-Bot für die Gambinos-Familie (Grand-RP), gebaut mit discord.
 | --- | --- | --- |
 | Tickets | `/ticket panel`, Auswahlmenü, Buttons *Übernehmen / Schließen / Wieder öffnen*, `/ticket uebernehmen \| schliessen \| wiedereroeffnen` | Private Channels je Ticket; Zugriff für Ersteller, Staff, Leitung und die zuständigen Rollen der Kategorie. Mehrere offene Tickets und schnelle Wiederholungen werden begrenzt. Vor dem Schließen kommt eine Bestätigung. Beim Schließen wird ein Transkript mit bis zu `TICKET_TRANSCRIPT_LIMIT` Nachrichten in der DB gespeichert und als `.txt` in den Ticket-Log gesendet; lässt sich der Verlauf nicht laden, bleibt das Ticket offen. Gelöschte Channels werden erkannt: Das Ticket wird geschlossen und protokolliert, die Daten bleiben erhalten. |
 | Events | `/event erstellen \| bearbeiten \| liste \| historie \| teilnehmer \| anwesenheit \| beenden \| absagen`, Buttons *Teilnehmen / Abmelden* | Persistente Events mit Name, Beschreibung, Zeit, Treffpunkt, Veranstalter, Ausrüstung, Hinweisen und Teilnehmerlimit. Die Anmeldung läuft atomar, doppelte Klicks sind wirkungslos. Erinnerungen (`EVENT_REMINDER_MINUTES`) erwähnen die Angemeldeten und überstehen Neustarts. Bei einer Absage werden die Teilnehmenden benachrichtigt. Anwesenheit lässt sich auch ohne vorherige Anmeldung erfassen. |
+| Wiederkehrende Aktivitäten | Website (Tab *Events*), `/aktivitaeten liste \| status \| board` | Die 13 Gambinos-Aktivitäten (Cayo Perico, Flugzeugträger, Gefängnis, Ladenraub, RP Fabrik, Banküberfall, Hotel, Waffenfabrik, Drogenlabor, Razzia, Gießerei, Bizwar, Kampf um die Rangfolge) sind vorangelegt und standardmäßig **inaktiv**. Für aktive Aktivitäten mit festen Zeiten legt der Bot jeden Termin automatisch als Event mit Anmeldung und Erinnerungen an: standardmäßig 120 Minuten vorher im Event-Channel, genau einmal je Termin, nach `EVENT_SERIES_AUTO_END_MINUTES` automatisch beendet. Flexible Aktivitäten (z. B. „alle 3 Stunden“) erscheinen nur auf der dauerhaften Aktivitäten-Übersicht. Zeiten gelten in `TIMEZONE`; Termine, die es wegen der Zeitumstellung nicht gibt, werden übersprungen. |
 | Bewerbungen & Rang-Anträge | `/bewerbung-panel`, `/antrag bewerben \| liste \| kommentieren \| entscheiden \| status`, Reviewer-Buttons *Übernehmen / Annehmen / Ablehnen / Notiz* | Modal-Formulare mit konfigurierbaren Fragen. Status: offen → in Prüfung → angenommen/abgelehnt/zurückgezogen. Interne Notizen; Ablehnungen nur mit Grund. Antragsteller bekommen private Rückmeldungen. Pro Typ ist nur ein offener Antrag möglich, neue Einreichungen sind als solche gekennzeichnet. Rollen werden **nie** automatisch vergeben (siehe `RANK_ROLE_ASSIGNMENT_ENABLED`). |
 | Familienkonto | `/konto stand \| ansehen \| gutschrift \| auszahlen \| korrektur \| liste \| historie` | Siehe unten. |
 | Sanktionen | `/sanktion erstellen \| verwarnung \| offen \| historie \| korrigieren \| aufheben \| rueckerstatten` | Offene Auszahlungsabzüge mit Status, Historie und Rückerstattung. Verwarnungen ohne Geldwirkung. |
@@ -93,6 +94,11 @@ Beim Start wird die Konfiguration validiert: Fehlen notwendige Werte oder sind s
 
 ## Konfiguration
 
+**Fast alles lässt sich über die Website einstellen** (Tab *Einstellungen*, nur Leitung oder Bot-Owner). Die Werte werden in der Datenbank gespeichert, mit derselben Prüfung wie beim Start validiert und gelten sofort ohne Neustart. Jede Änderung landet als `config.changed` im Protokoll. Die `.env` liefert nur die Startwerte; mit „Zurücksetzen“ gilt wieder der `.env`-Wert. Ein ungültiger gespeicherter Wert wird beim Start übersprungen und gemeldet. Die Leitung kann sich nicht selbst aussperren (eine eigene Rolle muss in `ROLE_LEADERS` bleiben).
+
+Aus Sicherheitsgründen **nur in der `.env`** und nicht über die Website änderbar: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `BOT_OWNER_IDS`, `DATABASE_PATH` sowie alle `DASHBOARD_*`-Werte und `DISCORD_CLIENT_SECRET`. Website-Einstellungen setzen `DISCORD_GUILD_ID` voraus.
+
+
 Vollständige Liste mit Kommentaren: [`.env.example`](.env.example). Die wichtigsten Gruppen:
 
 - **Pflicht:** `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`. Dringend empfohlen: `DISCORD_GUILD_ID`.
@@ -120,6 +126,7 @@ Responsive Staff-Website mit Discord-Login. Man kann dort alles nicht nur ansehe
 | Giveaways | starten (Channel und optionale Pflichtrolle wählen), vorzeitig auslosen, abbrechen, Gewinner ansehen |
 | Statistik | alle Auswertungen nach Zeitraum, Finanzteil nur mit Finanzrechten |
 | Protokoll | Audit-Log mit Bereichsfilter; Finanzeinträge nur mit Finanzrechten |
+| Einstellungen (Leitung) | alle Rollen, Channels, Ticket-Kategorien inkl. zuständiger Rollen, Mindestbetrag, Zeitzone, Erinnerungen, Rang-Rollen, Antragsfragen, AutoMod, Raid-Schutz und Panels. Gilt sofort, wird protokolliert und lässt sich auf den `.env`-Wert zurücksetzen |
 
 Statt IDs zeigt die Website Namen an, und Mitglieder werden über eine Suche ausgewählt. Gutschriften, Auszahlungen, Korrekturen und Erstattungen tragen eine eindeutige Anfrage-ID: Ein Doppelklick bucht nie doppelt, und eine veraltete Auszahlungsvorschau wird abgelehnt.
 

@@ -9,6 +9,8 @@ import { createGiveawayService } from "./services/giveaways.js";
 import { canHandleTicket, createTicketService } from "./services/tickets.js";
 import { assignRankRole, createApplicationService } from "./services/applications.js";
 import { collectStats } from "./services/stats.js";
+import { createSeriesService, describeSchedule, nextOccurrence } from "./services/event-series.js";
+import { publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
 
 /** Fehler mit HTTP-Status und einer für Staff verständlichen Meldung. */
@@ -33,9 +35,10 @@ const nowIso = () => new Date().toISOString();
  * Erweiterte Staff-API für das Webdashboard. Jede Route prüft die aktuelle Discord-Rolle des angemeldeten
  * Mitglieds serverseitig, nutzt dieselben Services wie der Bot und protokolliert jede Änderung.
  */
-export function createDashboardApi({ db, client, config }) {
+export function createDashboardApi({ db, client, config, settings = null, series = null }) {
   const guildId = config.DISCORD_GUILD_ID;
-  const groups = accessGroups(config);
+  series = series ?? createSeriesService(db);
+  const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const finance = createFinance(db), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
   const names = new Map();
@@ -90,6 +93,7 @@ export function createDashboardApi({ db, client, config }) {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
         sanctions: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
+        settings: Boolean(settings) && can(member, "leaders"),
       },
       settings: {
         timezone: config.TIMEZONE, minimumCents: config.PAYOUT_MINIMUM_CENTS ?? null,
@@ -115,8 +119,11 @@ export function createDashboardApi({ db, client, config }) {
       need(member, "staff", "Staff-Rolle");
       const g = await guild();
       const me = g.members.me;
-      const list = [...(await g.channels.fetch()).values()].filter(ch => ch?.isTextBased?.() && !ch.isThread?.() && (!me || ch.permissionsFor?.(me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]) !== false));
-      return { channels: list.sort((a, b) => (a.rawPosition ?? 0) - (b.rawPosition ?? 0)).map(ch => ({ id: ch.id, name: ch.name, parent: ch.parent?.name ?? "" })) };
+      const all = [...(await g.channels.fetch()).values()].filter(Boolean);
+      const text = all.filter(ch => ch.isTextBased?.() && !ch.isThread?.() && (!me || ch.permissionsFor?.(me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]) !== false));
+      const categories = all.filter(ch => ch.type === 4);
+      const sort = list => list.sort((a, b) => (a.rawPosition ?? 0) - (b.rawPosition ?? 0));
+      return { channels: sort(text).map(ch => ({ id: ch.id, name: ch.name, parent: ch.parent?.name ?? "" })), categories: sort(categories).map(ch => ({ id: ch.id, name: ch.name })) };
     }],
     [/^\/api\/applications$/, async (member, url) => {
       need(member, "reviewers", "Reviewer- oder Leitungsrolle");
@@ -198,6 +205,20 @@ export function createDashboardApi({ db, client, config }) {
         .all(...[guildId, ...(prefix ? [`${prefix}%`] : [])]);
       const items = rows.map(row => ({ ...row, details: JSON.parse(row.details || "{}") }));
       return withNames({ entries: items }, items.flatMap(r => [r.actor_id, r.target_id, r.details.applicantId]));
+    }],
+    [/^\/api\/settings$/, async member => {
+      if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");
+      need(member, "leaders", "Leitungsrolle");
+      return { settings: settings.describe() };
+    }],
+    [/^\/api\/series$/, async member => {
+      need(member, "anyStaff", "Staff-Rolle");
+      if (!series) return { series: [] };
+      const list = series.list(guildId).map(item => {
+        const next = item.kind === "scheduled" ? nextOccurrence(item, config.TIMEZONE) : null;
+        return { ...item, active: Boolean(item.active), schedule: describeSchedule(item), next: next?.toISOString() ?? null };
+      });
+      return { series: list, announcementChannel: config.CHANNEL_EVENT_ANNOUNCEMENTS ?? null };
     }],
   ];
 
@@ -368,6 +389,55 @@ export function createDashboardApi({ db, client, config }) {
       })();
       if (!changed) throw new HttpError(409, "Das Giveaway ist nicht mehr aktiv.");
       return { message: "Giveaway wird in wenigen Sekunden ausgelost und in Discord verkündet." };
+    }],
+    [/^\/api\/settings$/, async (member, body) => {
+      if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");
+      need(member, "leaders", "Leitungsrolle");
+      try { settings.update({ key: String(body.key ?? ""), value: body.value, actorId: member.id, actorRoleIds: member.roles, actorIsOwner: member.owner }); }
+      catch (error) { throw new HttpError(400, error.message); }
+      if (String(body.key).startsWith("CHANNEL_") || body.key === "TIMEZONE") await refreshActivityBoard({ db, client, config, series }).catch(() => {});
+      return { message: "Gespeichert. Die Änderung gilt sofort.", settings: settings.describe() };
+    }],
+    [/^\/api\/settings\/reset$/, async (member, body) => {
+      if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");
+      need(member, "leaders", "Leitungsrolle");
+      try { settings.reset({ key: String(body.key ?? ""), actorId: member.id, actorRoleIds: member.roles, actorIsOwner: member.owner }); }
+      catch (error) { throw new HttpError(400, error.message); }
+      return { message: "Zurückgesetzt auf den Wert aus der .env bzw. den Standard.", settings: settings.describe() };
+    }],
+    [/^\/api\/series$/, async (member, body) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      try { series.create({ guildId, actorId: member.id, input: body }); } catch (error) { throw new HttpError(400, error.message); }
+      await refreshActivityBoard({ db, client, config, series }).catch(() => {});
+      return { message: "Aktivität angelegt." };
+    }],
+    [/^\/api\/series\/([\w-]+)\/update$/, async (member, body, [, id]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      try { series.update({ guildId, id, actorId: member.id, input: body }); } catch (error) { throw new HttpError(400, error.message); }
+      await refreshActivityBoard({ db, client, config, series }).catch(() => {});
+      return { message: "Aktivität gespeichert. Bereits angekündigte Termine bleiben unverändert." };
+    }],
+    [/^\/api\/series\/([\w-]+)\/toggle$/, async (member, body, [, id]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const row = series.setActive({ guildId, id, actorId: member.id, active: Boolean(body.active) });
+      if (!row) throw new HttpError(404, "Aktivität nicht gefunden.");
+      await refreshActivityBoard({ db, client, config, series }).catch(() => {});
+      const hint = row.active && row.kind === "scheduled" && !config.CHANNEL_EVENT_ANNOUNCEMENTS ? " Achtung: Kein Event-Ankündigungs-Channel eingestellt." : "";
+      return { message: `${row.name} ist jetzt ${row.active ? "aktiv" : "inaktiv"}.${hint}` };
+    }],
+    [/^\/api\/series\/([\w-]+)\/delete$/, async (member, body, [, id]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const row = series.remove({ guildId, id, actorId: member.id });
+      if (!row) throw new HttpError(404, "Aktivität nicht gefunden.");
+      await refreshActivityBoard({ db, client, config, series }).catch(() => {});
+      return { message: `${row.name} wurde gelöscht. Bereits erstellte Events bleiben in der Historie.` };
+    }],
+    [/^\/api\/series\/board$/, async (member, body) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const target = await channel(snowflake(body.channelId, "Channel"));
+      if (!target?.isTextBased?.()) throw new HttpError(400, "Der Channel ist nicht erreichbar.");
+      await publishActivityBoard({ db, channel: target, config, series, actorId: member.id }).catch(() => { throw new HttpError(502, "Discord hat die Nachricht abgelehnt. Bitte Bot-Rechte im Channel prüfen."); });
+      return { message: "Aktivitäten-Übersicht veröffentlicht. Sie aktualisiert sich automatisch." };
     }],
   ];
 

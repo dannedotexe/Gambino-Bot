@@ -139,7 +139,7 @@ test("ein Fehler beim Sanktionsupdate rollt Auszahlung, Guthaben und Allocation 
 test("Migrationen sind wiederholbar und alte Datenbanken erhalten Version 2", () => {
   const db = testDb();
   initializeSchema(db); initializeSchema(db);
-  assert.deepEqual(db.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map(r => r.version), [1, 2]);
+  assert.deepEqual(db.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map(r => r.version), [1, 2, 3]);
   db.exec("DELETE FROM schema_migrations WHERE version=2; DROP TABLE sanction_changes;");
   initializeSchema(db);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name='sanction_changes'").get());
