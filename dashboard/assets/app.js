@@ -349,7 +349,7 @@ const actions = {
     const [channels, roles] = await Promise.all([api("/api/channels"), api("/api/roles")]);
     openForm({ eyebrow: "GIVEAWAY", title: "Giveaway starten", fields: [
       { name: "prize", label: "Preis", required: true, max: 200 },
-      { name: "channelId", label: "Channel", type: "select", required: true, options: channels.channels.map(c => [c.id, `#${c.name}${c.parent ? ` · ${c.parent}` : ""}`]) },
+      { name: "channelId", label: "Channel", type: "select", required: true, value: state.me.settings.giveawayChannel ?? "", options: channels.channels.map(c => [c.id, `#${c.name}${c.parent ? ` · ${c.parent}` : ""}`]) },
       { name: "minutes", label: "Dauer in Minuten", type: "number", required: true, min: 1, maxValue: 43200, value: 1440 },
       { name: "winners", label: "Gewinnerzahl", type: "number", required: true, min: 1, maxValue: 20, value: 1 },
       { name: "roleId", label: "Nur für Rolle", hint: "(optional)", type: "select", options: [["", "Alle dürfen teilnehmen"], ...roles.roles.map(r => [r.id, r.name])] },

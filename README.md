@@ -57,6 +57,34 @@ Ablauf einer Auszahlung (`/konto auszahlen`):
 5. Eine Sanktion kann insgesamt nie mehr als ihren offenen Rest abgezogen bekommen. Aufgehobene oder beglichene Sanktionen werden nie erneut verrechnet. Wurde bereits etwas verrechnet, ist nur noch eine Rückerstattung möglich (Gutschrift plus Aufhebung, mit Grund).
 6. Transaktionen, Allocations, Erstattungen, Sanktionsänderungen und Audit-Logs sind per Datenbank-Trigger unveränderlich und lassen sich nicht löschen.
 
+## Channels und ihre Funktionen
+
+Jede Funktion hat einen eigenen, einstellbaren Channel (Website → *Einstellungen* → *Channels* oder `/einstellungen kanal`). Empfohlene Zuordnung zum Gambinos-Layout:
+
+| Funktion | Einstellung | Empfohlen | Sichtbarkeit |
+| --- | --- | --- | --- |
+| Ticket-Panel (automatisch gepostet) | `CHANNEL_TICKET_PANEL` | SUPPORT・ticket | öffentlich |
+| Private Ticket-Channels | `CHANNEL_TICKET_CATEGORY` | Kategorie SUPPORT | Tickets privat |
+| Ticket-Log + Transkripte | `CHANNEL_TICKET_LOG` | STAFF・ticket-logs | Staff |
+| Bewerbungs-Panel (automatisch gepostet) | `CHANNEL_APPLICATION_PANEL` | SUPPORT・bewerbungen | öffentlich |
+| Bewerbungen prüfen | `CHANNEL_APPLICATION_REVIEW` | STAFF・bewerbungen | Staff |
+| Rang-Anträge prüfen | `CHANNEL_RANK_REVIEW` | STAFF・rang-anträge | Staff |
+| Event-Ankündigungen inkl. Aktivitäten | `CHANNEL_EVENT_ANNOUNCEMENTS` | EVENTS・event-ankündigungen | öffentlich |
+| Aktivitäten-Übersicht (automatisch) | `CHANNEL_ACTIVITY_BOARD` | EVENTS・event-infos | öffentlich |
+| Event-Ergebnisse beim Beenden | `CHANNEL_EVENT_RESULTS` | EVENTS・event-ergebnisse | öffentlich |
+| Event-Protokoll | `CHANNEL_EVENT_LOG` | EVENTS・event-logs | beliebig |
+| Giveaways | `CHANNEL_GIVEAWAYS` | COMMUNITY・giveaway | öffentlich |
+| Staff-Dashboard-Panel (automatisch) | `CHANNEL_STAFF_DASHBOARD` | STAFF・staff-dashboard | Staff |
+| Sanktions-Protokoll | `CHANNEL_SANCTION_LOG` | STAFF・sanktions-logs | Staff |
+| Gutschriften/Auszahlungen | `CHANNEL_FINANCE_LOG` | STAFF・auszahlungen | Staff |
+| Statistik (ohne Finanzen) | `CHANNEL_STATS` | STAFF・server-statistik | beliebig |
+| Übriges Audit-Log | `CHANNEL_AUDIT_LOG` | STAFF・bot-logs (neu anlegen) | Staff |
+| AutoMod-/Raid-Meldungen | `CHANNEL_AUTOMOD_LOG` | STAFF・bot-logs | Staff |
+
+Audit-Einträge werden nach Bereich verteilt: Sanktionen ins Sanktions-Log, Finanzen ins Auszahlungs-Log, Events ins Event-Log, alles andere ins Audit-Log. Ist ein Bereichs-Channel leer, landet der Eintrag im Audit-Log. Panels werden in ihrem Channel automatisch genau einmal gepostet und aktualisiert; nach einem Channel-Wechsel wird das alte Panel entfernt. Ohne eigene Funktion bleiben `willkommen`, `regeln`, `sanktionsliste`, `ankündigungen`, `neue-spieler`, `chat`, `abstimmungen`, `marktplatz`, `kleidung` und `abmeldungen` (manuelle Inhalte).
+
+**Live-Prüfung:** Website → *Einstellungen* → „Jetzt prüfen“ oder `/einstellungen pruefen`. Der Bot prüft für jede Funktion, ob der Channel existiert und den richtigen Typ hat, ob er die nötigen Rechte hat, ob Staff-Channels für @everyone unsichtbar und öffentliche für Mitglieder sichtbar sind und ob der Name zur Funktion passt. Außerdem prüft er die nötigen Server-Rechte. Dabei wird nichts verändert.
+
 ## Rollen und Berechtigungen
 
 Alle Berechtigungen hängen an Discord-Rollen-IDs aus der `.env`. Jede Aktion wird serverseitig geprüft, egal ob der Button für alle sichtbar ist. Leere Rollenlisten verweigern die Aktion sicher.

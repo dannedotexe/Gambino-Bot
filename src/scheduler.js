@@ -5,6 +5,7 @@ import { createGiveawayService } from "./services/giveaways.js";
 import { createTicketService } from "./services/tickets.js";
 import { collectStats } from "./services/stats.js";
 import { createSeriesEvents, endSeriesEvents, refreshActivityBoard } from "./activity-board.js";
+import { ensurePanels, postEventResult } from "./panels.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
 /**
@@ -19,6 +20,12 @@ export function dueReminder(startsAt, reminderMinutes, sentSlots, now = new Date
   const slot = Math.min(...reached);
   if (sentSlots.some(sent => sent <= slot)) return null;
   return { slot, skipped: reached.filter(item => item !== slot && !sentSlots.includes(item)) };
+}
+
+/** Bereichs-Logs: Sanktionen, Finanzen und Events in ihre eigenen Channels, alles andere ins Audit-Log. */
+export function auditChannelFor(action,config){
+  const area=action.startsWith("sanction.")?config.CHANNEL_SANCTION_LOG:action.startsWith("finance.")?config.CHANNEL_FINANCE_LOG:action.startsWith("event.")?config.CHANNEL_EVENT_LOG:null;
+  return area||config.CHANNEL_AUDIT_LOG||null;
 }
 
 export function startScheduler({db,client,config,series=null}) {
@@ -37,7 +44,7 @@ export function startScheduler({db,client,config,series=null}) {
       for(const giveaway of announce)await announceGiveaway(db,client,giveaway).catch(error=>console.warn(`Giveaway-Ergebnis ${giveaway.id} noch nicht zugestellt:`,error.message));
       if(series){
         await createSeriesEvents({db,client,config,series,reference:now}).catch(error=>console.error("Aktivitäten konnten nicht angelegt werden:",error.message));
-        await endSeriesEvents({db,client,config,reference:now}).catch(error=>console.error("Aktivitäten konnten nicht beendet werden:",error.message));
+        await endSeriesEvents({db,client,config,reference:now,onEnded:event=>postEventResult({db,client,config,event})}).catch(error=>console.error("Aktivitäten konnten nicht beendet werden:",error.message));
       }
       await sendReminders(db,client,config,now);
       if(Date.now()-lastTicketCheck>60_000){
@@ -49,7 +56,13 @@ export function startScheduler({db,client,config,series=null}) {
           if(missing)tickets.markChannelMissing({ticketId:ticket.id,actorId:client.user.id});
         }
       }
-      if(config.DASHBOARD_PANEL_REFRESH_MINUTES>0&&Date.now()-lastPanel>config.DASHBOARD_PANEL_REFRESH_MINUTES*60_000){lastPanel=Date.now();await refreshStaffPanel(db,client,config);if(series)await refreshActivityBoard({db,client,config,series});}
+      const panelEvery=(config.DASHBOARD_PANEL_REFRESH_MINUTES>0?config.DASHBOARD_PANEL_REFRESH_MINUTES:10)*60_000;
+      if(!lastPanel||Date.now()-lastPanel>panelEvery){
+        lastPanel=Date.now();
+        // Panels in den eingestellten Channels sicherstellen; ältere, manuell gepostete Panels weiter aktualisieren.
+        await ensurePanels({db,client,config,series}).catch(error=>console.warn("Panels konnten nicht geprüft werden:",error.message));
+        if(config.DASHBOARD_PANEL_REFRESH_MINUTES>0){if(!config.CHANNEL_STAFF_DASHBOARD)await refreshStaffPanel(db,client,config);if(series&&!config.CHANNEL_ACTIVITY_BOARD)await refreshActivityBoard({db,client,config,series});}
+      }
       if(config.STATS_CHANNEL_UPDATE_MINUTES>0&&config.CHANNEL_STATS&&Date.now()-lastStats>config.STATS_CHANNEL_UPDATE_MINUTES*60_000){lastStats=Date.now();await refreshStatsChannel(db,client,config);}
       await deliverAuditLogs(db,client,config,now);
     }catch(error){console.error("Scheduler tick failed:",error);}finally{running=false;}
@@ -83,8 +96,15 @@ async function sendReminders(db,client,config,now){
 async function deliverAuditLogs(db,client,config,now){
   const pending=db.prepare("SELECT a.* FROM audit_logs a LEFT JOIN audit_log_deliveries d ON d.audit_id=a.id WHERE d.audit_id IS NULL ORDER BY a.created_at LIMIT 50").all();
   if(!pending.length)return;
-  const logChannel=config.CHANNEL_AUDIT_LOG?await client.channels.fetch(config.CHANNEL_AUDIT_LOG).catch(()=>null):null;
+  const channels=new Map();
+  const channelFor=async action=>{
+    const id=auditChannelFor(action,config);
+    if(!id)return null;
+    if(!channels.has(id))channels.set(id,await client.channels.fetch(id).catch(()=>null));
+    return channels.get(id);
+  };
   for(const item of pending){
+    const logChannel=await channelFor(item.action);
     const skip=!logChannel?"no_channel":config.AUDIT_CHANNEL_IGNORE_ACTIONS.includes(item.action)?"skipped":null;
     // Zustellung wird vor dem Senden reserviert: ein Fehler im Log-Channel führt nie zu doppelter Ausführung.
     const claimed=db.prepare("INSERT OR IGNORE INTO audit_log_deliveries(audit_id,attempted_at,result) VALUES(?,?,?)").run(item.id,now.toISOString(),skip??"attempted");

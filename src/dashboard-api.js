@@ -11,6 +11,8 @@ import { assignRankRole, createApplicationService } from "./services/application
 import { collectStats } from "./services/stats.js";
 import { createSeriesService, describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
+import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
+import { checkChannels } from "./channel-check.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
 
 /** Fehler mit HTTP-Status und einer für Staff verständlichen Meldung. */
@@ -99,6 +101,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         timezone: config.TIMEZONE, minimumCents: config.PAYOUT_MINIMUM_CENTS ?? null,
         ticketCategories: (config.TICKET_CATEGORIES_JSON ?? []).map(({ id, label }) => ({ id, label })),
         rankRoles: config.RANK_ROLE_ASSIGNMENT_ENABLED ? config.RANK_ROLES_JSON : [],
+        giveawayChannel: config.CHANNEL_GIVEAWAYS ?? null,
       },
     })],
     [/^\/api\/members$/, async (member, url) => {
@@ -211,6 +214,10 @@ export function createDashboardApi({ db, client, config, settings = null, series
       need(member, "leaders", "Leitungsrolle");
       return { settings: settings.describe() };
     }],
+    [/^\/api\/channel-check$/, async member => {
+      need(member, "leaders", "Leitungsrolle");
+      return checkChannels({ guild: await guild(), config });
+    }],
     [/^\/api\/series$/, async member => {
       need(member, "anyStaff", "Staff-Rolle");
       if (!series) return { series: [] };
@@ -281,6 +288,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       })();
       if (!row) throw new HttpError(409, "Das Event ist nicht mehr geplant.");
       await refreshEventMessage(row, { closedTitle: "BEENDET" });
+      await postEventResult({ db, client, config, event: row }).catch(() => {});
       return { message: "Event beendet. Anwesenheit kann weiterhin dokumentiert werden." };
     }],
     [/^\/api\/events\/([\w-]+)\/attendance$/, async (member, body, [, id]) => {
@@ -395,8 +403,14 @@ export function createDashboardApi({ db, client, config, settings = null, series
       need(member, "leaders", "Leitungsrolle");
       try { settings.update({ key: String(body.key ?? ""), value: body.value, actorId: member.id, actorRoleIds: member.roles, actorIsOwner: member.owner }); }
       catch (error) { throw new HttpError(400, error.message); }
-      if (String(body.key).startsWith("CHANNEL_") || body.key === "TIMEZONE") await refreshActivityBoard({ db, client, config, series }).catch(() => {});
-      return { message: "Gespeichert. Die Änderung gilt sofort.", settings: settings.describe() };
+      const key = String(body.key);
+      let note = "";
+      if (PANEL_CHANNEL_KEYS.includes(key) || key === "TICKET_CATEGORIES_JSON" || key === "TIMEZONE") {
+        const panels = await ensurePanels({ db, client, config, series, only: key === "TICKET_CATEGORIES_JSON" ? ["CHANNEL_TICKET_PANEL"] : key === "TIMEZONE" ? ["CHANNEL_ACTIVITY_BOARD"] : [key] }).catch(() => []);
+        if (panels.some(p => p.status === "posted")) note = " Das Panel wurde im Channel gepostet.";
+        if (panels.some(p => p.status === "failed" || p.status === "channel_unavailable")) note = " Das Panel konnte nicht gepostet werden – bitte Bot-Rechte im Channel prüfen.";
+      }
+      return { message: `Gespeichert. Die Änderung gilt sofort.${note}`, settings: settings.describe() };
     }],
     [/^\/api\/settings\/reset$/, async (member, body) => {
       if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");

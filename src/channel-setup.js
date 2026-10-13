@@ -7,21 +7,31 @@ export const CHANNEL_LAYOUT = [
   { name: "EVENTS", emoji: "🔮", channels: [{name:"event-infos",emoji:"📅"},{name:"event-ankündigungen",emoji:"📢"},{name:"event-anmeldung",emoji:"🎟️"},{name:"event-ergebnisse",emoji:"🏆"},{name:"event-logs",emoji:"📊"}] },
   { name: "COMMUNITY", emoji: "☁️", channels: [{name:"chat",emoji:"💬"},{name:"abstimmungen",emoji:"🗳️"},{name:"giveaway",emoji:"🎁"},{name:"marktplatz",emoji:"🛒"},{name:"kleidung",emoji:"👕"}] },
   { name: "SUPPORT", emoji: "🆘", channels: [{name:"ticket",emoji:"🎫",topic:"Gambinos Support · Wähle das Ticket-Panel unten aus, um ein privates Anliegen beim zuständigen Team zu eröffnen."},{name:"bewerbungen",emoji:"📄"},{name:"rang-anträge",emoji:"📝"},{name:"abmeldungen",emoji:"🚫"}] },
-  { name: "STAFF", emoji: "👔", channels: [{name:"staff-dashboard",emoji:"📋"},{name:"bewerbungen",emoji:"📄"},{name:"sanktions-logs",emoji:"⚠️"},{name:"ticket-logs",emoji:"🗂️"},{name:"auszahlungen",emoji:"💰"},{name:"server-statistik",emoji:"📊"}] },
+  { name: "STAFF", emoji: "👔", channels: [{name:"staff-dashboard",emoji:"📋"},{name:"bewerbungen",emoji:"📄"},{name:"rang-anträge",emoji:"📝"},{name:"sanktions-logs",emoji:"⚠️"},{name:"ticket-logs",emoji:"🗂️"},{name:"auszahlungen",emoji:"💰"},{name:"server-statistik",emoji:"📊"},{name:"bot-logs",emoji:"🧾"}] },
 ];
 
 export const displayCategoryName = group => `${group.emoji}・${group.name}`;
 export const displayChannelName = channel => `${channel.emoji}・${channel.name}`;
 
+// Funktion -> [Kategorie, Channel] im Gambinos-Layout. Wird für Empfehlungen und /einstellungen kanal genutzt.
 export const CHANNEL_BINDINGS = {
+  CHANNEL_TICKET_PANEL: ["SUPPORT", "ticket"],
   CHANNEL_TICKET_CATEGORY: ["SUPPORT", null],
   CHANNEL_TICKET_LOG: ["STAFF", "ticket-logs"],
+  CHANNEL_APPLICATION_PANEL: ["SUPPORT", "bewerbungen"],
   CHANNEL_APPLICATION_REVIEW: ["STAFF", "bewerbungen"],
   CHANNEL_RANK_REVIEW: ["STAFF", "rang-anträge"],
   CHANNEL_EVENT_ANNOUNCEMENTS: ["EVENTS", "event-ankündigungen"],
-  CHANNEL_AUDIT_LOG: ["STAFF", "sanktions-logs"],
-  CHANNEL_AUTOMOD_LOG: ["STAFF", "sanktions-logs"],
+  CHANNEL_ACTIVITY_BOARD: ["EVENTS", "event-infos"],
+  CHANNEL_EVENT_RESULTS: ["EVENTS", "event-ergebnisse"],
+  CHANNEL_EVENT_LOG: ["EVENTS", "event-logs"],
+  CHANNEL_GIVEAWAYS: ["COMMUNITY", "giveaway"],
+  CHANNEL_STAFF_DASHBOARD: ["STAFF", "staff-dashboard"],
+  CHANNEL_SANCTION_LOG: ["STAFF", "sanktions-logs"],
+  CHANNEL_FINANCE_LOG: ["STAFF", "auszahlungen"],
   CHANNEL_STATS: ["STAFF", "server-statistik"],
+  CHANNEL_AUDIT_LOG: ["STAFF", "bot-logs"],
+  CHANNEL_AUTOMOD_LOG: ["STAFF", "bot-logs"],
 };
 
 export function bindCreatedChannels(db, guildId, config, categories, channels) {

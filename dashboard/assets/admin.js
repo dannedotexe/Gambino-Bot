@@ -69,7 +69,16 @@ loaders.settings = async () => {
   renderSettings();
 };
 
+function renderCheck(report) {
+  const icon = { ok: "✅", warn: "⚠️", error: "❌", info: "ℹ️" };
+  const perms = report.guildPermissions.filter(p => p.needed).map(p => `<div class="check-row ${p.has ? "ok" : "error"}"><span>${p.has ? "✅" : "❌"}</span><div><b>Server-Recht: ${escapeHtml(p.label)}</b><small>${escapeHtml(p.reason)}</small></div></div>`).join("");
+  const rows = report.channels.map(r => `<div class="check-row ${r.status}"><span>${icon[r.status]}</span><div><b>${escapeHtml(r.label)}</b>${r.channel ? ` <em>→ ${r.channel.parent ? `${escapeHtml(r.channel.parent)} / ` : ""}${r.channel.category ? "📁 " : "#"}${escapeHtml(r.channel.name)}</em>` : ""}${r.issues.map(x => `<small class="lvl-${x.level}">${icon[x.level]} ${escapeHtml(x.text)}</small>`).join("")}</div><button type="button" class="action" data-action="settings-focus" data-key="${r.key}">Ändern</button></div>`).join("");
+  $("channel-check").innerHTML = `<p class="check-summary"><b>${report.summary.ok}</b> passend · <b>${report.summary.warn}</b> mit Hinweis · <b>${report.summary.error}</b> Fehler${report.administrator ? " · ℹ️ Bot hat Administrator-Rechte (nicht nötig)" : ""}</p>${perms}${rows}`;
+}
+
 Object.assign(actions, {
+  "channel-check": async () => { $("channel-check").innerHTML = '<p class="muted">Prüfe …</p>'; renderCheck(await api("/api/channel-check")); },
+  "settings-focus": ({ key }) => { const el = document.querySelector(`.setting[data-key="${key}"]`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); el?.classList.add("flash"); setTimeout(() => el?.classList.remove("flash"), 1600); },
   "setting-save": async ({ key }) => {
     const def = settingsState.settings.find(item => item.key === key), root = document.querySelector(`.setting[data-key="${key}"]`);
     const data = await post("/api/settings", { key, value: readValue(def, root) });

@@ -78,7 +78,7 @@ export async function createSeriesEvents({ db, client, config, series, reference
 }
 
 /** Beendet automatisch erstellte Termine nach Ablauf der Dauer; Anwesenheit bleibt danach dokumentierbar. */
-export async function endSeriesEvents({ db, client, config, reference = new Date() }) {
+export async function endSeriesEvents({ db, client, config, reference = new Date(), onEnded = null }) {
   const cutoff = new Date(reference.getTime() - config.EVENT_SERIES_AUTO_END_MINUTES * 60_000).toISOString();
   const rows = db.prepare("SELECT * FROM events WHERE series_id IS NOT NULL AND status='scheduled' AND starts_at<=? LIMIT 50").all(cutoff);
   for (const row of rows) {
@@ -87,7 +87,9 @@ export async function endSeriesEvents({ db, client, config, reference = new Date
       if (updated) audit(db, row.guild_id, client.user.id, "event.ended", row.id, { name: row.name, reason: "automatisch nach Ablauf" });
       return updated;
     })();
-    if (!changed || !row.channel_id || !row.message_id) continue;
+    if (!changed) continue;
+    if (onEnded) await Promise.resolve(onEnded(row)).catch(() => {});
+    if (!row.channel_id || !row.message_id) continue;
     const channel = await client.channels.fetch(row.channel_id).catch(() => null);
     const message = channel ? await channel.messages.fetch(row.message_id).catch(() => null) : null;
     const participants = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(row.id);

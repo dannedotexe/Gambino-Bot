@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { testDb } from "./helpers.js";
 import { CHANNEL_LAYOUT, bindCreatedChannels, displayCategoryName, displayChannelName, loadChannelBindings } from "../src/channel-setup.js";
 
-test("PDF structure contains the five categories and 25 text channels",()=>{
+test("PDF structure contains the five categories, plus staff rank review and bot log channels",()=>{
   assert.deepEqual(CHANNEL_LAYOUT.map(x=>x.name),["INFORMATION","EVENTS","COMMUNITY","SUPPORT","STAFF"]);
-  assert.equal(CHANNEL_LAYOUT.reduce((n,x)=>n+x.channels.length,0),25);
+  assert.equal(CHANNEL_LAYOUT.reduce((n,x)=>n+x.channels.length,0),27);
+  assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="STAFF").channels.some(x=>x.name==="rang-anträge"),true);
   assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="SUPPORT").channels.some(x=>x.name==="bewerbungen"),true);
   assert.equal(CHANNEL_LAYOUT.find(x=>x.name==="STAFF").channels.some(x=>x.name==="bewerbungen"),true);
   assert.match(CHANNEL_LAYOUT.find(x=>x.name==="SUPPORT").channels.find(x=>x.name==="ticket").topic,/privates Anliegen/);

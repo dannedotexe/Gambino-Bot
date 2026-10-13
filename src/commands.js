@@ -17,6 +17,8 @@ import { PANEL_SETTING_KEY, VIEWS, buildPanelPayload, buildView, statsEmbed } fr
 import { syncNativeAutomod } from "./moderation.js";
 import { describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { buildActivityBoard, publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
+import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
+import { checkChannels } from "./channel-check.js";
 
 const isoNow=()=>new Date().toISOString();
 const unix=iso=>Math.floor(new Date(iso).getTime()/1000);
@@ -175,6 +177,7 @@ export function buildCommands() {
     .addSubcommand(s=>s.setName("panel").setDescription("Dauerhaftes Dashboard-Panel in diesem Channel veröffentlichen (Staff)"));
   const settings = new SlashCommandBuilder().setName("einstellungen").setDescription("Bot-Einstellungen (Leitung)")
     .addSubcommand(s=>s.setName("anzeigen").setDescription("Aktive Rollen-, Channel- und Moduleinstellungen prüfen"))
+    .addSubcommand(s=>s.setName("pruefen").setDescription("Prüft, ob alle Channels zu ihren Funktionen passen (Rechte, Sichtbarkeit, Name)"))
     .addSubcommand(s=>s.setName("kanal").setDescription("Funktions-Channel festlegen").addStringOption(o=>o.setName("schluessel").setDescription("Funktion").setRequired(true).addChoices(...Object.keys(CHANNEL_BINDINGS).map(key=>({name:key,value:key})))).addChannelOption(o=>o.setName("kanal").setDescription("Channel oder Kategorie").setRequired(true).addChannelTypes(ChannelType.GuildText,ChannelType.GuildCategory,ChannelType.GuildAnnouncement)));
   const automod = new SlashCommandBuilder().setName("automod").setDescription("AutoMod und Raid-Schutz")
     .addSubcommand(s=>s.setName("status").setDescription("AutoMod-Einstellungen und letzte Maßnahmen (Staff)"))
@@ -538,6 +541,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const message=await eventMessage(i.guild,row);
       const participants=participantsOf(id);
       if(message)await message.edit({embeds:[embed(sub==="absagen"?`❌ Event abgesagt · ${row.name}`:`✅ Event beendet · ${row.name}`.slice(0,256),`**${row.name}** ${sub==="beenden"?"wurde abgeschlossen":"findet nicht statt"}.${reason?`\n**Grund:** ${reason}`:""}\n**Teilnehmende:** ${participants.length}`)],components:[]}).catch(()=>{});
+      if(sub==="beenden")await postEventResult({db,client,config,event:row});
       if(sub==="absagen"&&participants.length&&message?.channel)await message.channel.send({content:`${participants.slice(0,50).map(p=>`<@${p.user_id}>`).join(" ")}`,embeds:[logEmbed("❌ Event abgesagt",`**${row.name}** am <t:${unix(row.starts_at)}:F> findet nicht statt.${reason?`\n**Grund:** ${reason}`:""}`,"warning")],allowedMentions:{users:participants.slice(0,50).map(p=>p.user_id)}}).catch(()=>{});
       return respond(i,`Event **${row.name}** wurde ${sub==="beenden"?"beendet":"abgesagt"}.`);
     }
@@ -614,18 +618,19 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if(sub==="erstellen"){
       const denied=guard(i,"staff","Staff-Rolle");if(denied)return respond(i,denied);
       const role=i.options.getRole("rolle");
+      const targetGiveawayChannel=await targetChannel(i.guild,config.CHANNEL_GIVEAWAYS)??i.channel;
       const row={id:randomUUID(),guild_id:g,prize:i.options.getString("preis"),ends_at:new Date(Date.now()+i.options.getInteger("minuten")*60_000).toISOString(),winner_count:i.options.getInteger("gewinner"),conditions:i.options.getString("bedingungen")??"Keine weiteren Bedingungen",required_role_id:role?.id??null,created_by:u};
       db.transaction(()=>{
-        db.prepare("INSERT INTO giveaways(id,guild_id,channel_id,prize,ends_at,winner_count,conditions,status,created_by,created_at,required_role_id) VALUES(?,?,?,?,?,?,?,'active',?,?,?)").run(row.id,g,i.channelId,row.prize,row.ends_at,row.winner_count,row.conditions,u,isoNow(),row.required_role_id);
+        db.prepare("INSERT INTO giveaways(id,guild_id,channel_id,prize,ends_at,winner_count,conditions,status,created_by,created_at,required_role_id) VALUES(?,?,?,?,?,?,?,'active',?,?,?)").run(row.id,g,targetGiveawayChannel.id,row.prize,row.ends_at,row.winner_count,row.conditions,u,isoNow(),row.required_role_id);
         audit(db,g,u,"giveaway.created",row.id,{prize:row.prize,endsAt:row.ends_at,winners:row.winner_count,channelId:i.channelId});
       })();
       let sent;
-      try{sent=await i.channel.send({embeds:[giveawayCard(row)],components:[giveawayButtons(row.id)]});}
+      try{sent=await targetGiveawayChannel.send({embeds:[giveawayCard(row)],components:[giveawayButtons(row.id)]});}
       catch(error){giveaways.cancel({guildId:g,giveawayId:row.id,actorId:u,reason:`Veröffentlichung fehlgeschlagen: ${error.message}`});throw new Error("Das Giveaway konnte nicht veröffentlicht werden und wurde abgebrochen. Prüfe die Bot-Berechtigungen in diesem Channel.");}
       db.prepare("UPDATE giveaways SET message_id=? WHERE id=?").run(sent.id,row.id);
       return answer(i,{...fieldsEmbed("🎉 Giveaway gestartet",[
         {name:"Preis",value:`**${row.prize}**`,inline:true},{name:"Endet",value:`<t:${unix(row.ends_at)}:R>`,inline:true},
-        {name:"Veröffentlicht in",value:`${i.channel}`,inline:true},{name:"Verwaltung",value:`Referenz: \`${row.id}\``},
+        {name:"Veröffentlicht in",value:`${targetGiveawayChannel}`,inline:true},{name:"Verwaltung",value:`Referenz: \`${row.id}\``},
       ],"Die Teilnahme ist ab sofort möglich."),ephemeral:true});
     }
     if(sub==="abbrechen"){
@@ -672,6 +677,15 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         {name:`Hinweise (${warnings.length})`,value:warnings.length?warnings.map(w=>`• ${w}`).join("\n").slice(0,1024):"Keine offenen Konfigurationspunkte."},
       ],"Rollen werden in der .env gepflegt. Funktions-Channels können mit `/einstellungen kanal` gesetzt werden."),ephemeral:true});
     }
+    if(sub==="pruefen"){
+      await i.deferReply({flags:MessageFlags.Ephemeral});
+      const report=await checkChannels({guild:i.guild,config});
+      const icon={ok:"✅",warn:"⚠️",error:"❌"};
+      const lines=report.channels.map(r=>`${icon[r.status]} **${r.label}**${r.channel?` → #${r.channel.name}`:""}${r.issues.filter(x=>x.level!=="info").map(x=>`\n　└ ${x.text}`).join("")}`);
+      const perms=report.guildPermissions.filter(p=>p.needed&&!p.has).map(p=>`❌ Bot fehlt **${p.label}** (${p.reason})`);
+      const text=`**${report.summary.ok} ok · ${report.summary.warn} Hinweise · ${report.summary.error} Fehler**\n\n${[...perms,...lines].join("\n")}${report.administrator?"\n\nℹ️ Der Bot hat Administrator-Rechte – empfohlen sind nur die nötigen Einzelrechte.":""}`;
+      return i.editReply(presentInteractionPayload({embeds:[embed("🔍 Channel-Prüfung",text.slice(0,4000))]}));
+    }
     if(sub==="kanal"){
       if(!config.DISCORD_GUILD_ID)return respond(i,"Channel-Einstellungen werden nur mit gesetzter DISCORD_GUILD_ID gespeichert.");
       const key=i.options.getString("schluessel"),channel=i.options.getChannel("kanal");
@@ -680,6 +694,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if(wantsCategory!==(channel.type===ChannelType.GuildCategory))return respond(i,wantsCategory?"Bitte eine Kategorie auswählen.":"Bitte einen Text-Channel auswählen.");
       if(settings)settings.update({key,value:channel.id,actorId:u,actorRoleIds:memberRoleIds(i),actorIsOwner:isOwner(i)});
       else{const previous=config[key]??null;setSetting(db,g,key,channel.id);config[key]=channel.id;audit(db,g,u,"config.changed",key,{setting:key,previous,value:channel.id});}
+      if(PANEL_CHANNEL_KEYS.includes(key))await ensurePanels({db,client,config,series,only:[key]}).catch(()=>{});
       return respond(i,`Einstellung ${key} wurde aktualisiert: ${channel}. Die Änderung gilt sofort und bleibt nach einem Neustart erhalten.`);
     }
   }
