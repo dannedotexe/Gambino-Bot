@@ -64,10 +64,49 @@ function renderSettings() {
 }
 
 loaders.settings = async () => {
-  const [data, roles, channels] = await Promise.all([api("/api/settings"), api("/api/roles"), api("/api/channels")]);
+  const [data, roles, channels, textData] = await Promise.all([api("/api/settings"), api("/api/roles"), api("/api/channels"), api("/api/texts").catch(() => ({ panels: [] }))]);
   Object.assign(settingsState, { settings: data.settings, roles: roles.roles, channels: channels.channels, categories: channels.categories ?? [] });
-  renderSettings();
+  textsState.panels = textData.panels;
+  renderSettings(); renderTexts();
 };
+
+// ------------------------------------------------------------------ Panel-Texte
+const textsState = { panels: [], current: "application" };
+const markdown = text => escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/__(.+?)__/g, "<u>$1</u>").replace(/\n/g, "<br>");
+function currentTexts() {
+  const panel = textsState.panels.find(p => p.id === textsState.current);
+  const values = { ...panel.values };
+  document.querySelectorAll("#texts-form [data-text]").forEach(input => { values[input.dataset.text] = input.value; });
+  return { panel, values };
+}
+function renderPreview() {
+  const { panel, values } = currentTexts();
+  const fields = [1, 2, 3].map(n => [values[`field${n}Name`], values[`field${n}Value`], n < 3]).filter(([name, value]) => name && value);
+  const extras = panel.id === "activityBoard" ? [[values.scheduledTitle, "**Bizwar** · täglich · 01:05, 19:05 Uhr · nächstes in 2 Stunden", false], [values.flexibleTitle, "**Ladenraub** · alle 3 Stunden möglich", false]].filter(([n]) => n)
+    : panel.id === "staffDashboard" ? [["🎫 Offene Tickets", "3 · davon 1 ohne Bearbeiter", true], ["📨 Offene Anträge", "2", true]] : [];
+  const buttons = panel.id === "application" ? `<div class="dc-buttons"><span class="dc-btn primary">${escapeHtml(values.buttonApply)}</span><span class="dc-btn">${escapeHtml(values.buttonRank)}</span></div>`
+    : panel.id === "ticket" ? `<div class="dc-select">${escapeHtml(values.placeholder)}<span>⌄</span></div>` : panel.id === "staffDashboard" ? '<div class="dc-select">📂 Ansicht wählen …<span>⌄</span></div>' : "";
+  $("texts-preview").innerHTML = `<div class="dc-head"><img src="/assets/gambinos-profile.gif" alt=""><b>Gambino Helper</b><span class="dc-app">APP</span></div><div class="dc-embed">${values.author ? `<div class="dc-author">${escapeHtml(values.author)}</div>` : ""}${values.title ? `<div class="dc-title">${escapeHtml(values.title)}</div>` : ""}${values.description ? `<div class="dc-desc">${markdown(values.description)}</div>` : ""}<div class="dc-fields">${[...fields, ...extras].map(([name, value, inline]) => `<div class="dc-field ${inline ? "inline" : ""}"><b>${escapeHtml(name)}</b><div>${markdown(value)}</div></div>`).join("")}</div>${values.footer ? `<div class="dc-footer">${escapeHtml(values.footer)}</div>` : ""}</div>${buttons}`;
+  const embed = $("texts-preview").querySelector(".dc-embed");
+  if (embed) embed.style.borderLeftColor = /^#[0-9a-f]{6}$/i.test(values.color ?? "") ? values.color : "#d4af37";
+  document.querySelectorAll("#texts-form [data-text]").forEach(input => { const counter = input.parentElement.querySelector(".counter"); if (counter && input.maxLength > 0) counter.textContent = `${input.value.length}/${input.maxLength}`; });
+}
+function renderTexts() {
+  if (!textsState.panels.length) { $("texts-form").innerHTML = '<p class="muted">Panel-Texte sind nicht verfügbar.</p>'; return; }
+  const panel = textsState.panels.find(p => p.id === textsState.current) ?? textsState.panels[0];
+  textsState.current = panel.id;
+  $("texts-tabs").innerHTML = textsState.panels.map(p => `<button type="button" class="chip ${p.id === panel.id ? "active" : ""}" data-action="texts-select" data-panel="${p.id}">${escapeHtml(p.label)}${p.custom ? " ✎" : ""}</button>`).join("");
+  $("texts-form").innerHTML = panel.fields.map(field => {
+    const value = escapeHtml(panel.values[field.key] ?? "");
+    const input = field.type === "color" ? `<input data-text="${field.key}" type="color" value="${value}">`
+      : field.multiline ? `<textarea data-text="${field.key}" rows="${field.max > 1100 ? 5 : 3}" maxlength="${field.max}">${value}</textarea>`
+      : `<input data-text="${field.key}" maxlength="${field.max}" value="${value}">`;
+    return `<label>${escapeHtml(field.label)}${field.type === "color" ? "" : ' <small class="counter"></small>'}${input}</label>`;
+  }).join("");
+  $("texts-hint").textContent = panel.channelSet ? "Dieses Panel wird automatisch in seinem Channel verwaltet." : "Für dieses Panel ist noch kein Channel eingestellt (Einstellungen → Channels). Ein bereits gepostetes Panel des Bots wird dort automatisch übernommen.";
+  renderPreview();
+}
+document.addEventListener("input", event => { if (event.target.closest?.("#texts-form")) renderPreview(); });
 
 function renderCheck(report) {
   const icon = { ok: "✅", warn: "⚠️", error: "❌", info: "ℹ️" };
@@ -77,6 +116,9 @@ function renderCheck(report) {
 }
 
 Object.assign(actions, {
+  "texts-select": ({ panel }) => { textsState.current = panel; renderTexts(); },
+  "texts-save": async () => { const { panel, values } = currentTexts(); const data = await post("/api/texts", { panel: panel.id, values }); textsState.panels = data.panels; notify(data.message); renderTexts(); },
+  "texts-reset": () => { const { panel } = currentTexts(); confirmAction(`${panel.label} zurücksetzen?`, "Alle Texte dieses Panels werden auf die Standardtexte zurückgesetzt und in Discord aktualisiert.", "Zurücksetzen", async () => { const data = await post("/api/texts/reset", { panel: panel.id }); textsState.panels = data.panels; renderTexts(); return data; }); },
   "channel-check": async () => { $("channel-check").innerHTML = '<p class="muted">Prüfe …</p>'; renderCheck(await api("/api/channel-check")); },
   "settings-focus": ({ key }) => { const el = document.querySelector(`.setting[data-key="${key}"]`); el?.scrollIntoView({ behavior: "smooth", block: "center" }); el?.classList.add("flash"); setTimeout(() => el?.classList.remove("flash"), 1600); },
   "setting-save": async ({ key }) => {

@@ -19,6 +19,7 @@ import { describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { buildActivityBoard, publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { checkChannels } from "./channel-check.js";
+import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 
 const isoNow=()=>new Date().toISOString();
 const unix=iso=>Math.floor(new Date(iso).getTime()/1000);
@@ -55,37 +56,38 @@ function applicationModal(kind) {
   return modal;
 }
 
-export function buildApplicationPanelPayload() {
-  const panel=new EmbedBuilder().setColor(0xd4af37)
-    .setAuthor({name:"GAMBINOS  •  FAMILIENBÜRO"})
-    .setTitle("📋  Bewerbungen & Rang-Anträge")
-    .setDescription("Wähle den passenden Antrag aus. Beide Formulare fragen gezielt die Informationen ab, die das Leitungsteam für die Entscheidung braucht.")
-    .addFields(
-      {name:"🤝  Familienbeitritt",value:"Erzähl uns etwas über dich, deine Grand-RP-Erfahrung und warum du zu Gambinos möchtest.",inline:true},
-      {name:"🏅  Rang-Antrag",value:"Nenne deinen aktuellen Rang, den gewünschten Rang und deine Begründung.",inline:true},
-      {name:"🔒  Vertrauliche Prüfung",value:"Deine Angaben werden an das zuständige Team zur Prüfung weitergeleitet.",inline:false},
-    )
-    .setFooter({text:"GAMBINOS  •  Danke für dein Interesse"})
-    .setTimestamp();
+/** Embed aus bearbeitbaren Texten; leere Teile werden weggelassen (Discord lehnt leere Felder ab). */
+function textEmbed(texts,fields=[]){
+  const panel=new EmbedBuilder().setColor(colorNumber(texts.color??"#d4af37")).setTimestamp();
+  if(texts.author)panel.setAuthor({name:texts.author});
+  if(texts.title)panel.setTitle(texts.title);
+  if(texts.description)panel.setDescription(texts.description);
+  const usable=fields.filter(field=>field.name&&field.value);
+  if(usable.length)panel.addFields(usable);
+  if(texts.footer)panel.setFooter({text:texts.footer});
+  return panel;
+}
+
+export function buildApplicationPanelPayload(texts=defaultsFor("application")) {
+  const panel=textEmbed(texts,[
+    {name:texts.field1Name,value:texts.field1Value,inline:true},
+    {name:texts.field2Name,value:texts.field2Value,inline:true},
+    {name:texts.field3Name,value:texts.field3Value,inline:false},
+  ]);
   const buttons=new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("application:open:bewerbung").setLabel("🤝  Bei Gambinos bewerben").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("application:open:rang").setLabel("🏅  Rang beantragen").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("application:open:bewerbung").setLabel(texts.buttonApply).setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("application:open:rang").setLabel(texts.buttonRank).setStyle(ButtonStyle.Secondary),
   );
   return {embeds:[panel],components:[buttons]};
 }
 
-export function buildTicketPanelPayload(config) {
+export function buildTicketPanelPayload(config,texts=defaultsFor("ticket")) {
   const options=config.TICKET_CATEGORIES_JSON.map(c=>{
     const presentation=ticketPresentation[c.id]??{emoji:"🎫",description:`Ein Ticket für ${c.label}`};
     return {label:c.label,value:c.id,description:c.description??presentation.description,emoji:{name:c.emoji??presentation.emoji}};
   });
-  const panel=new EmbedBuilder().setColor(0xd4af37)
-    .setAuthor({name:"GAMBINOS  •  SUPPORT CENTER"})
-    .setTitle("🎫  Wie können wir dir helfen?")
-    .setDescription("Wähle unten dein Anliegen. Der Bot öffnet einen privaten Channel für dich und das zuständige Team.\n\n🔒 Nur Beteiligte sehen dein Ticket.\n💬 Beschreibe dein Anliegen direkt im neuen Channel.")
-    .setFooter({text:"GAMBINOS  •  Wir helfen dir weiter"})
-    .setTimestamp();
-  const select=new StringSelectMenuBuilder().setCustomId("ticket:create").setPlaceholder("🎟️  Wähle dein Anliegen aus …").addOptions(options);
+  const panel=textEmbed(texts);
+  const select=new StringSelectMenuBuilder().setCustomId("ticket:create").setPlaceholder(texts.placeholder).addOptions(options);
   return {embeds:[panel],components:[new ActionRowBuilder().addComponents(select)]};
 }
 
@@ -270,7 +272,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="ticket") return await ticketCommand(i,sub,g,u);
       if (i.commandName==="event") return await eventCommand(i,sub,g,u);
       if (i.commandName==="antrag") return await applicationCommand(i,sub,g,u);
-      if (i.commandName==="bewerbung-panel") {const denied=guard(i,"reviewers","Reviewer-Rolle");if(denied)return respond(i,denied);await i.channel.send(buildApplicationPanelPayload());return respond(i,"Bewerbungs-Panel veröffentlicht.");}
+      if (i.commandName==="bewerbung-panel") {const denied=guard(i,"reviewers","Reviewer-Rolle");if(denied)return respond(i,denied);await postManagedPanel(i,"CHANNEL_APPLICATION_PANEL","PANEL_APPLICATION",buildApplicationPanelPayload(panelTexts(db,g,"application")));return respond(i,"Bewerbungs-Panel veröffentlicht.");}
       if (i.commandName==="giveaway") return await giveawayCommand(i,sub,g,u);
       if (i.commandName==="dashboard") return await dashboardCommand(i,sub,g,u);
       if (i.commandName==="statistik") {
@@ -409,7 +411,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   async function ticketCommand(i,sub,g,u){
     if(sub==="panel"){
       const denied=guard(i,"staff","Staff-Rolle");if(denied)return respond(i,denied);
-      await i.channel.send(buildTicketPanelPayload(config));
+      await postManagedPanel(i,"CHANNEL_TICKET_PANEL","PANEL_TICKET",buildTicketPanelPayload(config,panelTexts(db,g,"ticket")));
       return respond(i,"Das Support-Panel wurde veröffentlicht.");
     }
     const ticket=db.prepare("SELECT * FROM tickets WHERE channel_id=? AND guild_id=?").get(i.channelId,g);
@@ -647,14 +649,14 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   async function dashboardCommand(i,sub,g,u){
     if(sub==="panel"){
       const denied=guard(i,"staff","Staff-Rolle");if(denied)return respond(i,denied);
-      const sent=await i.channel.send(buildPanelPayload(db,g));
+      const sent=await i.channel.send(buildPanelPayload(db,g,panelTexts(db,g,"staffDashboard")));
       const previous=getSetting(db,g,PANEL_SETTING_KEY);
       setSetting(db,g,PANEL_SETTING_KEY,`${sent.channelId}:${sent.id}`);
       audit(db,g,u,"config.panel_published",sent.id,{channelId:sent.channelId,previous});
       return respond(i,"Das Dashboard-Panel wurde veröffentlicht. Es wird automatisch aktualisiert; Details sieht jede Person nur privat und nur mit passender Rolle.");
     }
     const view=i.options.getString("bereich");
-    if(!view){const denied=guard(i,"anyStaff","Staff-Rolle");if(denied)return respond(i,denied);const {components,...payload}=buildPanelPayload(db,g);return answer(i,{...payload,components,ephemeral:true});}
+    if(!view){const denied=guard(i,"anyStaff","Staff-Rolle");if(denied)return respond(i,denied);const {components,...payload}=buildPanelPayload(db,g,panelTexts(db,g,"staffDashboard"));return answer(i,{...payload,components,ephemeral:true});}
     return showView(i,view);
   }
   function showView(i,view){
@@ -697,6 +699,16 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if(PANEL_CHANNEL_KEYS.includes(key))await ensurePanels({db,client,config,series,only:[key]}).catch(()=>{});
       return respond(i,`Einstellung ${key} wurde aktualisiert: ${channel}. Die Änderung gilt sofort und bleibt nach einem Neustart erhalten.`);
     }
+  }
+
+  /** Postet ein Panel per Befehl. Ist für das Panel noch kein Channel eingestellt, wird es automatisch verwaltet. */
+  async function postManagedPanel(i,channelKey,settingKey,payload){
+    const sent=await i.channel.send(payload);
+    if(!config[channelKey]&&config.DISCORD_GUILD_ID){
+      setSetting(db,i.guildId,settingKey,`${sent.channelId}:${sent.id}`);
+      if(settings)settings.update({key:channelKey,value:sent.channelId,actorId:i.user.id,actorRoleIds:memberRoleIds(i),actorIsOwner:true});
+    }
+    return sent;
   }
 
   async function activityCommand(i,sub,g,u){

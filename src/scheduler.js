@@ -6,6 +6,7 @@ import { createTicketService } from "./services/tickets.js";
 import { collectStats } from "./services/stats.js";
 import { createSeriesEvents, endSeriesEvents, refreshActivityBoard } from "./activity-board.js";
 import { ensurePanels, postEventResult } from "./panels.js";
+import { panelTexts } from "./services/texts.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
 /**
@@ -122,7 +123,7 @@ export async function refreshStaffPanel(db,client,config){
   const [channelId,messageId]=stored.split(":");
   const channel=await client.channels.fetch(channelId).catch(()=>null);
   const message=channel?await channel.messages.fetch(messageId).catch(()=>null):null;
-  if(message)await message.edit(buildPanelPayload(db,guildId)).catch(error=>console.warn("Dashboard-Panel konnte nicht aktualisiert werden:",error.message));
+  if(message)await message.edit(buildPanelPayload(db,guildId,panelTexts(db,guildId,"staffDashboard"))).catch(error=>console.warn("Dashboard-Panel konnte nicht aktualisiert werden:",error.message));
 }
 
 async function refreshStatsChannel(db,client,config){

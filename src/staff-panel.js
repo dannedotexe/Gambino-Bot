@@ -23,9 +23,9 @@ const clip = (text, max = 1024) => (text.length > max ? `${text.slice(0, max - 1
 const count = (db, sql, ...params) => db.prepare(sql).get(...params)?.n ?? 0;
 
 /** Öffentliche Panel-Nachricht: nur Zählwerte, keine Namen oder Beträge. */
-export function buildPanelPayload(db, guildId) {
+export function buildPanelPayload(db, guildId, texts = {}) {
   const nowIso = new Date().toISOString();
-  const embed = panelEmbed("🧭 Gambinos Staff-Dashboard", "Wähle unten eine Ansicht. Details erscheinen nur privat für dich und nur, wenn deine Rolle sie freigibt.").addFields(
+  const embed = panelEmbed(texts.title || "🧭 Gambinos Staff-Dashboard", texts.description ?? "Wähle unten eine Ansicht. Details erscheinen nur privat für dich und nur, wenn deine Rolle sie freigibt.").addFields(
     { name: "🎫 Offene Tickets", value: `${count(db, "SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND status='open'", guildId)} · davon ${count(db, "SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND status='open' AND claimed_by IS NULL", guildId)} ohne Bearbeiter`, inline: true },
     { name: "📨 Offene Anträge", value: String(count(db, "SELECT COUNT(*) n FROM applications WHERE guild_id=? AND status IN ('open','review')", guildId)), inline: true },
     { name: "📅 Kommende Events", value: String(count(db, "SELECT COUNT(*) n FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>?", guildId, nowIso)), inline: true },

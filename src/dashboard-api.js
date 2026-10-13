@@ -13,6 +13,7 @@ import { createSeriesService, describeSchedule, nextOccurrence } from "./service
 import { publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { checkChannels } from "./channel-check.js";
+import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
 
 /** Fehler mit HTTP-Status und einer für Staff verständlichen Meldung. */
@@ -40,6 +41,7 @@ const nowIso = () => new Date().toISOString();
 export function createDashboardApi({ db, client, config, settings = null, series = null }) {
   const guildId = config.DISCORD_GUILD_ID;
   series = series ?? createSeriesService(db);
+  const texts = guildId ? createTextsService(db, guildId) : null;
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const finance = createFinance(db), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
@@ -213,6 +215,11 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");
       need(member, "leaders", "Leitungsrolle");
       return { settings: settings.describe() };
+    }],
+    [/^\/api\/texts$/, async member => {
+      if (!texts) throw new HttpError(409, "Panel-Texte brauchen DISCORD_GUILD_ID in der .env.");
+      need(member, "leaders", "Leitungsrolle");
+      return { panels: texts.describe().map(panel => ({ ...panel, channelSet: Boolean(config[panel.channelKey]) })) };
     }],
     [/^\/api\/channel-check$/, async member => {
       need(member, "leaders", "Leitungsrolle");
@@ -418,6 +425,21 @@ export function createDashboardApi({ db, client, config, settings = null, series
       try { settings.reset({ key: String(body.key ?? ""), actorId: member.id, actorRoleIds: member.roles, actorIsOwner: member.owner }); }
       catch (error) { throw new HttpError(400, error.message); }
       return { message: "Zurückgesetzt auf den Wert aus der .env bzw. den Standard.", settings: settings.describe() };
+    }],
+    [/^\/api\/texts(\/reset)?$/, async (member, body, [, reset]) => {
+      if (!texts) throw new HttpError(409, "Panel-Texte brauchen DISCORD_GUILD_ID in der .env.");
+      need(member, "leaders", "Leitungsrolle");
+      const panel = String(body.panel ?? "");
+      if (!PANEL_TEXTS[panel]) throw new HttpError(400, "Unbekanntes Panel.");
+      try { reset ? texts.reset({ panel, actorId: member.id }) : texts.update({ panel, values: body.values ?? {}, actorId: member.id }); }
+      catch (error) { throw new HttpError(400, error.message); }
+      const channelKey = PANEL_TEXTS[panel].channelKey;
+      let note = " Das Panel wird angepasst, sobald ein Channel dafür eingestellt ist.";
+      if (config[channelKey]) {
+        const [result] = await ensurePanels({ db, client, config, series, only: [channelKey] }).catch(() => []);
+        note = ["ok", "adopted"].includes(result?.status) ? " Das Panel in Discord wurde aktualisiert." : result?.status === "posted" ? " Das Panel wurde neu im Channel gepostet." : " Das Panel konnte in Discord nicht aktualisiert werden – bitte Channel-Prüfung ansehen.";
+      }
+      return { message: `${reset ? "Standardtexte wiederhergestellt." : "Texte gespeichert."}${note}`, panels: texts.describe().map(p => ({ ...p, channelSet: Boolean(config[p.channelKey]) })) };
     }],
     [/^\/api\/series$/, async (member, body) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");

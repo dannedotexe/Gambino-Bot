@@ -4,14 +4,15 @@ import { BRAND_COLOR } from "./presentation.js";
 import { buildApplicationPanelPayload, buildTicketPanelPayload } from "./commands.js";
 import { PANEL_SETTING_KEY, buildPanelPayload } from "./staff-panel.js";
 import { BOARD_SETTING_KEY, buildActivityBoard } from "./activity-board.js";
+import { panelTexts } from "./services/texts.js";
 
 /** Dauerhafte Panels: Channel-Einstellung -> gespeicherte Nachricht -> Inhalt. */
 // Erst beim Aufruf aufgebaut: vermeidet Probleme mit zirkulären Modul-Importen (commands <-> panels).
 const panelDefinitions = () => [
-  { channelKey: "CHANNEL_TICKET_PANEL", settingKey: "PANEL_TICKET", label: "Ticket-Panel", build: ctx => buildTicketPanelPayload(ctx.config) },
-  { channelKey: "CHANNEL_APPLICATION_PANEL", settingKey: "PANEL_APPLICATION", label: "Bewerbungs-Panel", build: () => buildApplicationPanelPayload() },
-  { channelKey: "CHANNEL_STAFF_DASHBOARD", settingKey: PANEL_SETTING_KEY, label: "Staff-Dashboard", build: ctx => buildPanelPayload(ctx.db, ctx.config.DISCORD_GUILD_ID), refresh: true },
-  { channelKey: "CHANNEL_ACTIVITY_BOARD", settingKey: BOARD_SETTING_KEY, label: "Aktivitäten-Übersicht", build: ctx => buildActivityBoard(ctx.series.list(ctx.config.DISCORD_GUILD_ID), ctx.config.TIMEZONE), refresh: true, needsSeries: true },
+  { channelKey: "CHANNEL_TICKET_PANEL", settingKey: "PANEL_TICKET", label: "Ticket-Panel", marker: "ticket:create", build: ctx => buildTicketPanelPayload(ctx.config, panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "ticket")) },
+  { channelKey: "CHANNEL_APPLICATION_PANEL", settingKey: "PANEL_APPLICATION", label: "Bewerbungs-Panel", marker: "application:open:bewerbung", build: ctx => buildApplicationPanelPayload(panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "application")) },
+  { channelKey: "CHANNEL_STAFF_DASHBOARD", settingKey: PANEL_SETTING_KEY, label: "Staff-Dashboard", marker: "staffpanel:view", build: ctx => buildPanelPayload(ctx.db, ctx.config.DISCORD_GUILD_ID, panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "staffDashboard")) },
+  { channelKey: "CHANNEL_ACTIVITY_BOARD", settingKey: BOARD_SETTING_KEY, label: "Aktivitäten-Übersicht", title: "AKTIVITÄTEN", build: ctx => buildActivityBoard(ctx.series.list(ctx.config.DISCORD_GUILD_ID), ctx.config.TIMEZONE, new Date(), panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "activityBoard")), needsSeries: true },
 ];
 export const PANEL_CHANNEL_KEYS = ["CHANNEL_TICKET_PANEL", "CHANNEL_APPLICATION_PANEL", "CHANNEL_STAFF_DASHBOARD", "CHANNEL_ACTIVITY_BOARD"];
 
@@ -43,11 +44,26 @@ export async function ensurePanels({ db, client, config, series, only = null }) 
       const old = await client.channels.fetch(storedChannel).then(ch => ch?.messages?.fetch(storedMessage)).catch(() => null);
       await old?.delete().catch(() => {});
     }
+    // Bereits vorhandenes Panel des Bots im Channel übernehmen (z. B. früher per Befehl gepostet) statt doppelt zu posten.
+    const adopted = await findExistingPanel(channel, client, panel);
+    if (adopted) {
+      const edited = await adopted.edit(payload).then(() => true).catch(() => false);
+      if (edited) { setSetting(db, guildId, panel.settingKey, `${channel.id}:${adopted.id}`); results.push({ panel: panel.label, status: "adopted" }); continue; }
+    }
     const sent = await channel.send(payload).catch(error => { console.warn(`${panel.label} konnte nicht gepostet werden:`, error.message); return null; });
     if (sent) { setSetting(db, guildId, panel.settingKey, `${channel.id}:${sent.id}`); results.push({ panel: panel.label, status: "posted" }); }
     else results.push({ panel: panel.label, status: "failed" });
   }
   return results;
+}
+
+async function findExistingPanel(channel, client, panel) {
+  const recent = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!recent?.values) return null;
+  return [...recent.values()].find(message => message.author?.id === client.user?.id && (
+    (panel.marker && message.components?.some(row => row.components?.some(component => component.customId === panel.marker)))
+    || (panel.title && message.embeds?.[0]?.author?.name?.includes(panel.title))
+  )) ?? null;
 }
 
 /** Ergebnis-Zusammenfassung eines beendeten Events im öffentlichen Ergebnis-Channel. */

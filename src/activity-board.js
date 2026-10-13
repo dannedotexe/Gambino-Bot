@@ -4,20 +4,22 @@ import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
 import { eventButtons, eventEmbed } from "./commands.js";
 import { describeSchedule, nextOccurrence } from "./services/event-series.js";
+import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 
 export const BOARD_SETTING_KEY = "PANEL_ACTIVITY_BOARD";
 const unix = date => Math.floor(new Date(date).getTime() / 1000);
 
 /** Öffentliche Übersicht aller aktiven Aktivitäten mit dem nächsten Termin. */
-export function buildActivityBoard(seriesList, timezone, reference = new Date()) {
+export function buildActivityBoard(seriesList, timezone, reference = new Date(), texts = defaultsFor("activityBoard")) {
   const active = seriesList.filter(item => item.active);
   const scheduled = active.filter(item => item.kind === "scheduled").map(item => ({ item, next: nextOccurrence(item, timezone, reference) })).sort((a, b) => (a.next ?? Infinity) - (b.next ?? Infinity));
   const flexible = active.filter(item => item.kind === "flexible");
-  const embed = new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  AKTIVITÄTEN" }).setTitle("📆 Familien-Aktivitäten")
-    .setDescription(active.length ? "Feste Termine werden automatisch als Event mit Anmeldung angekündigt." : "Zurzeit sind keine Aktivitäten aktiv.")
+  const embed = new EmbedBuilder().setColor(colorNumber(texts.color || "#d4af37")).setTitle(texts.title || "📆 Familien-Aktivitäten")
+    .setDescription((active.length ? texts.description : texts.emptyText) || null)
     .setFooter({ text: `GAMBINOS  •  Zeiten in ${timezone}` }).setTimestamp();
-  if (scheduled.length) embed.addFields({ name: "🕒 Feste Termine", value: scheduled.map(({ item, next }) => `**${item.name}** · ${describeSchedule(item)}${next ? ` · nächstes <t:${unix(next)}:R>` : ""}`).join("\n").slice(0, 1024) });
-  if (flexible.length) embed.addFields({ name: "🔁 Flexibel verfügbar", value: flexible.map(item => `**${item.name}** · ${describeSchedule(item)}`).join("\n").slice(0, 1024) });
+  if (texts.author) embed.setAuthor({ name: texts.author });
+  if (scheduled.length) embed.addFields({ name: texts.scheduledTitle || "🕒 Feste Termine", value: scheduled.map(({ item, next }) => `**${item.name}** · ${describeSchedule(item)}${next ? ` · nächstes <t:${unix(next)}:R>` : ""}`).join("\n").slice(0, 1024) });
+  if (flexible.length) embed.addFields({ name: texts.flexibleTitle || "🔁 Flexibel verfügbar", value: flexible.map(item => `**${item.name}** · ${describeSchedule(item)}`).join("\n").slice(0, 1024) });
   return { embeds: [embed] };
 }
 
@@ -29,11 +31,11 @@ export async function refreshActivityBoard({ db, client, config, series }) {
   const channel = await client.channels.fetch(channelId).catch(() => null);
   const message = channel ? await channel.messages.fetch(messageId).catch(() => null) : null;
   if (!message) return false;
-  return message.edit(buildActivityBoard(series.list(guildId), config.TIMEZONE)).then(() => true).catch(() => false);
+  return message.edit(buildActivityBoard(series.list(guildId), config.TIMEZONE, new Date(), panelTexts(db, guildId, "activityBoard"))).then(() => true).catch(() => false);
 }
 
 export async function publishActivityBoard({ db, channel, config, series, actorId }) {
-  const sent = await channel.send(buildActivityBoard(series.list(config.DISCORD_GUILD_ID), config.TIMEZONE));
+  const sent = await channel.send(buildActivityBoard(series.list(config.DISCORD_GUILD_ID), config.TIMEZONE, new Date(), panelTexts(db, config.DISCORD_GUILD_ID, "activityBoard")));
   setSetting(db, config.DISCORD_GUILD_ID, BOARD_SETTING_KEY, `${channel.id}:${sent.id}`);
   audit(db, config.DISCORD_GUILD_ID, actorId, "config.panel_published", sent.id, { channelId: channel.id, name: "Aktivitäten-Übersicht" });
   return sent;

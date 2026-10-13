@@ -83,6 +83,8 @@ Jede Funktion hat einen eigenen, einstellbaren Channel (Website → *Einstellung
 
 Audit-Einträge werden nach Bereich verteilt: Sanktionen ins Sanktions-Log, Finanzen ins Auszahlungs-Log, Events ins Event-Log, alles andere ins Audit-Log. Ist ein Bereichs-Channel leer, landet der Eintrag im Audit-Log. Panels werden in ihrem Channel automatisch genau einmal gepostet und aktualisiert; nach einem Channel-Wechsel wird das alte Panel entfernt. Ohne eigene Funktion bleiben `willkommen`, `regeln`, `sanktionsliste`, `ankündigungen`, `neue-spieler`, `chat`, `abstimmungen`, `marktplatz`, `kleidung` und `abmeldungen` (manuelle Inhalte).
 
+**Panel-Texte:** Website → *Einstellungen* → „Texte der Discord-Panels bearbeiten“. Für Bewerbungs-Panel, Ticket-Panel, Aktivitäten-Übersicht und Staff-Dashboard lassen sich Kopfzeile, Titel, Beschreibung, Felder, Fußzeile, Button-/Menütexte und Farbe einzeln ändern, mit Live-Vorschau. Die Texte werden geprüft (Discord-Längen, leere Pflichtfelder), gespeichert und die gepostete Nachricht wird sofort aktualisiert. Die Funktion der Buttons bleibt unverändert. Ein früher per Befehl gepostetes Panel des Bots wird im eingestellten Channel automatisch übernommen statt doppelt gepostet. `/bewerbung-panel` und `/ticket panel` stellen den Channel automatisch ein, wenn noch keiner gesetzt ist.
+
 **Live-Prüfung:** Website → *Einstellungen* → „Jetzt prüfen“ oder `/einstellungen pruefen`. Der Bot prüft für jede Funktion, ob der Channel existiert und den richtigen Typ hat, ob er die nötigen Rechte hat, ob Staff-Channels für @everyone unsichtbar und öffentliche für Mitglieder sichtbar sind und ob der Name zur Funktion passt. Außerdem prüft er die nötigen Server-Rechte. Dabei wird nichts verändert.
 
 ## Rollen und Berechtigungen
