@@ -23,6 +23,8 @@ import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
 import { buildVerification, createVerificationService } from "./services/verification.js";
 import { deleteEventPosts, publishEvent, refreshEventPosts } from "./event-posts.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
+import { WarningError, createWarningService, warnBlockReason } from "./services/warnings.js";
+import { deliverWarning, deliverySummary } from "./warn-actions.js";
 
 const isoNow=()=>new Date().toISOString();
 const unix=iso=>Math.floor(new Date(iso).getTime()/1000);
@@ -35,6 +37,8 @@ export const ticketClosedActions=id=>[new ActionRowBuilder().addComponents(new B
 const ticketCategoryLabel=(category,config)=>config.TICKET_CATEGORIES_JSON.find(item=>item.id===category)?.label??category;
 const transactionLabels={credit:"Gutschrift",payout:"Auszahlung",sanction_refund:"Sanktions-Rückerstattung",correction:"Korrektur",correction_credit:"Korrektur (+)",correction_debit:"Korrektur (−)"};
 const statusLabels={open:"Offen",partial:"Teilweise verrechnet",paid:"Beglichen",void:"Aufgehoben",review:"In Prüfung",accepted:"Angenommen",rejected:"Abgelehnt",scheduled:"Geplant",ended:"Beendet",cancelled:"Abgesagt",withdrawn:"Zurückgezogen"};
+const warningStateLabel={active:"Aktiv",expired:"Abgelaufen",revoked:"Zurückgenommen"};
+const warningStateIcon={active:"🟠",expired:"⚪",revoked:"↩️"};
 const err=(e)=>e instanceof Error?e.message:"Die Aktion ist fehlgeschlagen.";
 const ticketPresentation={
   support:{emoji:"🛠️",description:"Allgemeine Fragen und Hilfe"},
@@ -207,13 +211,22 @@ export function buildCommands() {
     .addSubcommand(s=>s.setName("liste").setDescription("Aktivitätenplan anzeigen"))
     .addSubcommand(s=>s.setName("status").setDescription("Aktivität aktivieren oder deaktivieren (Event-Team)").addStringOption(o=>o.setName("aktivitaet").setDescription("Aktivität auswählen").setRequired(true).setAutocomplete(true)).addBooleanOption(o=>o.setName("aktiv").setDescription("Aktiv = Termine werden automatisch angekündigt").setRequired(true)))
     .addSubcommand(s=>s.setName("board").setDescription("Dauerhafte Aktivitäten-Übersicht in diesem Channel posten (Event-Team)"));
+  const warn = new SlashCommandBuilder().setName("warn").setDescription("Mitglied verwarnen (ohne Geldabzug)")
+    .addUserOption(o=>o.setName("mitglied").setDescription("Wer verwarnt wird").setRequired(true))
+    .addStringOption(o=>o.setName("grund").setDescription("Grund – die Person bekommt ihn per DM").setRequired(true).setMinLength(3).setMaxLength(300))
+    .addStringOption(o=>o.setName("fall").setDescription("Optionale Fall-, Ticket- oder Event-ID").setMaxLength(100));
+  const warnings = new SlashCommandBuilder().setName("warnings").setDescription("Verwarnungen ansehen")
+    .addUserOption(o=>o.setName("mitglied").setDescription("Mitglied (nur Moderation; leer = du selbst)"));
+  const unwarn = new SlashCommandBuilder().setName("unwarn").setDescription("Verwarnung zurücknehmen (Moderation)")
+    .addStringOption(o=>o.setName("warnung").setDescription("Verwarnung auswählen").setRequired(true).setAutocomplete(true))
+    .addStringOption(o=>o.setName("grund").setDescription("Grund der Rücknahme").setRequired(true).setMinLength(3).setMaxLength(300));
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
     new SlashCommandBuilder().setName("help").setDescription("Befehlsübersicht"),
     new SlashCommandBuilder().setName("bewerbung-panel").setDescription("Bewerbungs-Panel senden (Reviewer)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen (Staff)").addIntegerOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices(...Object.entries(PERIODS).map(([days,label])=>({name:label,value:Number(days)})))),
   ];
-  return [money,sanction,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
+  return [money,sanction,warn,warnings,unwarn,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
 }
 
 export function createHandler({db,finance,config,client,settings=null,series=null}) {
@@ -221,7 +234,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   questionConfig=config;
   // Live berechnet: Rollenänderungen über Website/Discord gelten sofort.
   const groups=new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
-  const verifications=createVerificationService(db);
+  const verifications=createVerificationService(db),warningService=createWarningService(db);
   const events=createEventService(db),giveaways=createGiveawayService(db),tickets=createTicketService(db),applications=createApplicationService(db);
   const isOwner=i=>config.BOT_OWNER_IDS?.includes(i.user?.id)??false;
   const memberRoleIds=i=>[...(i.member?.roles?.cache?.keys?.()??i.member?.roles??[])];
@@ -264,6 +277,10 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         else if(sub==="korrigieren")rows=db.prepare("SELECT s.id,s.user_id,s.amount_cents AS cents,s.reason FROM sanctions s WHERE s.guild_id=? AND s.status<>'void' ORDER BY s.created_at DESC LIMIT 100").all(g);
         else if(sub==="rueckerstatten")rows=db.prepare("SELECT s.id,s.user_id,s.reason,COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)-COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) AS cents FROM sanctions s WHERE s.guild_id=? AND COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)>COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) ORDER BY s.created_at DESC LIMIT 100").all(g);
         choices=rows.map(r=>({name:`${r.reason.slice(0,55)} · Mitglied …${r.user_id.slice(-5)} · ${formatMoney(r.cents)}`.slice(0,100),value:r.id}));
+      }else if(i.commandName==="unwarn"&&can(i,"moderation")){
+        const memberName=id=>i.guild?.members?.cache?.get?.(id)?.displayName??`Mitglied …${id.slice(-5)}`;
+        choices=warningService.recent(g,{limit:100,activeOnly:true,expireDays:config.WARN_EXPIRE_DAYS}).filter(r=>r.user_id!==i.user.id)
+          .map(r=>({name:`${memberName(r.user_id)} · ${r.reason} · ${new Date(r.created_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="aktivitaeten"&&series&&can(i,"events")){
         choices=series.list(g).map(r=>({name:`${r.active?"🟢":"⚪"} ${r.name} · ${describeSchedule(r)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="giveaway"&&sub==="abbrechen"&&can(i,"staff")){
@@ -282,6 +299,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="ping") return respond(i,`Pong! ${client.ws.ping} ms`);
       if (i.commandName==="help") return answer(i,{...fieldsEmbed("📚 Gambinos Bot – Befehle",[
         {name:"💰 Konto & Sanktionen",value:"`/konto` Guthaben, Gutschriften, Auszahlungen, Korrekturen und Historie\n`/sanktion` Sanktionen und Verwarnungen eintragen, ansehen, korrigieren oder aufheben"},
+        {name:"📝 Verwarnungen",value:"`/warn` Mitglied verwarnen (DM, ohne Geldabzug)\n`/warnings` eigene bzw. fremde Verwarnungen ansehen\n`/unwarn` Verwarnung zurücknehmen"},
         {name:"🎫 Support",value:"`/ticket` Ticket-Panel, Übernahme, Schließen und Wiederöffnen"},
         {name:"📅 Familie",value:"`/event` Events verwalten und Teilnahme dokumentieren\n`/antrag` Bewerbung oder Rang-Antrag einreichen, kommentieren und entscheiden"},
         {name:"🎉 Community",value:"`/giveaway` Gewinnspiele verwalten"},
@@ -289,6 +307,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       ],"Die verfügbaren Aktionen richten sich nach deiner Rolle."),ephemeral:true});
       if (i.commandName==="konto") return await accountCommand(i,sub,g,u);
       if (i.commandName==="sanktion") return await sanctionCommand(i,sub,g,u);
+      if (i.commandName==="warn") return await issueWarning(i,g,u,{target:i.options.getUser("mitglied"),reason:i.options.getString("grund"),caseRef:i.options.getString("fall")});
+      if (i.commandName==="warnings") return await warningsCommand(i,g,u);
+      if (i.commandName==="unwarn") return await unwarnCommand(i,g,u);
       if (i.commandName==="ticket") return await ticketCommand(i,sub,g,u);
       if (i.commandName==="event") return await eventCommand(i,sub,g,u);
       if (i.commandName==="antrag") return await applicationCommand(i,sub,g,u);
@@ -305,7 +326,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="automod") return await automodCommand(i,sub,g,u);
       if (i.commandName==="aktivitaeten") return await activityCommand(i,sub,g,u);
       return respond(i,"Unbekannter Befehl.");
-    } catch(e) { if(!(e instanceof FinanceError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
+    } catch(e) { if(!(e instanceof FinanceError||e instanceof WarningError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
   }
 
   /** Kontoansichten, gemeinsam genutzt von Slash-Befehlen und dem „Mein Konto“-Panel. */
@@ -332,6 +353,44 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     const items=rows.map(r=>({name:`${statusLabels[r.status]??r.status} · ${formatMoney(r.remaining_cents)} offen${r.status==="partial"?` von ${formatMoney(r.amount_cents)}`:""}`,value:`**Grund:** ${r.reason}\n**Seit:** <t:${unix(r.created_at)}:d> · **Referenz:** \`${r.id.slice(0,8)}\``.slice(0,1024),inline:false}));
     const total=rows.reduce((n,r)=>n+r.remaining_cents,0);
     return {...fieldsEmbed("⚠️ Offene Sanktionen",items,rows.length?`Mitglied: <@${target}> · Summe offen: **${formatMoney(total)}**\nDiese Beträge werden erst bei Auszahlungen verrechnet.`:`Für <@${target}> gibt es keine offenen Sanktionen.`),ephemeral:true};
+  }
+
+  /** Gemeinsamer Ablauf für /warn und /sanktion verwarnung: Rechte, Schutzregeln, Speichern, DM und Eskalation. */
+  async function issueWarning(i,g,u,{target,reason,caseRef}){
+    const denied=guard(i,"moderation","Moderations- oder Staff-Rolle");if(denied)return respond(i,denied);
+    const targetMember=i.options.getMember?.("mitglied")??await i.guild?.members?.fetch?.(target.id).catch(()=>null)??null;
+    const targetRoleIds=targetMember?.roles?.cache?[...targetMember.roles.cache.keys()]:Array.isArray(targetMember?.roles)?targetMember.roles:[];
+    const blocked=warnBlockReason({actorId:u,targetId:target.id,targetIsBot:target.bot,targetRoleIds,staffRoleIds:groups.anyStaff,actorIsLeader:hasRole(i.member,groups.leaders),actorIsOwner:isOwner(i)});
+    if(blocked)return respond(i,blocked);
+    const warning=warningService.add({guildId:g,userId:target.id,actorId:u,reason,caseRef,expireDays:config.WARN_EXPIRE_DAYS});
+    const fields=[{name:"Mitglied",value:`<@${target.id}>`,inline:true},{name:"Aktive Verwarnungen",value:`**${warning.active}**`,inline:true},{name:"Referenz",value:`\`${warning.id.slice(0,8)}\``,inline:true},{name:"Grund",value:reason},...(caseRef?[{name:"Fallbezug",value:caseRef,inline:true}]:[])];
+    const note="Verwarnungen haben keinen Einfluss auf das Familienkonto oder Auszahlungen.";
+    await answer(i,{...fieldsEmbed("📝 Verwarnung eingetragen",fields,note),ephemeral:true});
+    const result=await deliverWarning({db,client,config,guildId:g,userId:target.id,actorId:u,reason,caseRef,warning});
+    const summary=deliverySummary(result,config);
+    if(summary&&typeof i.editReply==="function")await i.editReply(presentInteractionPayload({...fieldsEmbed("📝 Verwarnung eingetragen",[...fields,{name:"Folgen",value:summary}],note)})).catch(()=>{});
+    return result;
+  }
+
+  async function warningsCommand(i,g,u){
+    const target=i.options.getUser("mitglied")?.id??u;
+    if(target!==u&&!can(i,"moderation"))return respond(i,"Fremde Verwarnungen darf nur die Moderation ansehen.");
+    const rows=warningService.list(g,target,{limit:15,expireDays:config.WARN_EXPIRE_DAYS});
+    const active=warningService.activeCount(g,target,{expireDays:config.WARN_EXPIRE_DAYS});
+    const items=rows.map(r=>({name:`${warningStateIcon[r.state]} ${warningStateLabel[r.state]} · <t:${unix(r.created_at)}:d>`.slice(0,256),value:`**Grund:** ${r.reason}${r.case_ref?` · Fall: ${r.case_ref}`:""}\n**Von:** <@${r.actor_id}> · \`${r.id.slice(0,8)}\`${r.revoked_at?`\n**Zurückgenommen:** <@${r.revoked_by}> – ${r.revoke_reason}`:""}`.slice(0,1024)}));
+    const expiry=config.WARN_EXPIRE_DAYS>0?` Verwarnungen verfallen nach ${config.WARN_EXPIRE_DAYS} Tagen.`:"";
+    return answer(i,{...fieldsEmbed("📝 Verwarnungen",items,rows.length?`Mitglied: <@${target}> · **${active} aktiv** · letzte ${rows.length} Einträge.${expiry}`:`Für <@${target}> gibt es keine Verwarnungen.`),ephemeral:true});
+  }
+
+  async function unwarnCommand(i,g,u){
+    const denied=guard(i,"moderation","Moderations- oder Staff-Rolle");if(denied)return respond(i,denied);
+    // Reine Moderationsrollen nehmen nur eigene Verwarnungen zurück; Staff und Leitung alle.
+    const existing=warningService.get(g,i.options.getString("warnung"));
+    if(existing&&existing.actor_id!==u&&!can(i,"staff"))return respond(i,"Verwarnungen anderer Teammitglieder kann nur Staff oder die Leitung zurücknehmen.");
+    const row=warningService.revoke({guildId:g,warningId:i.options.getString("warnung"),actorId:u,reason:i.options.getString("grund")});
+    const active=warningService.activeCount(g,row.user_id,{expireDays:config.WARN_EXPIRE_DAYS});
+    if(config.WARN_DM_ENABLED)await client.users.fetch(row.user_id).then(user=>user.send({embeds:[embed("✅ Verwarnung zurückgenommen",`Deine Verwarnung vom <t:${unix(row.created_at)}:d> („${row.reason}“) wurde zurückgenommen.\n**Grund:** ${row.revoke_reason}\n**Aktive Verwarnungen:** ${active}`)]})).catch(()=>{});
+    return answer(i,{...fieldsEmbed("↩️ Verwarnung zurückgenommen",[{name:"Mitglied",value:`<@${row.user_id}>`,inline:true},{name:"Noch aktiv",value:String(active),inline:true},{name:"Ursprünglicher Grund",value:row.reason},{name:"Grund der Rücknahme",value:row.revoke_reason}],"Die Verwarnung bleibt in der Historie sichtbar, zählt aber nicht mehr."),ephemeral:true});
   }
 
   async function accountCommand(i,sub,g,u){
@@ -406,12 +465,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         {name:"Grund",value:reason},{name:"Sanktionsreferenz",value:`\`${id}\``,inline:true},...(caseRef?[{name:"Fallbezug",value:caseRef,inline:true}]:[]),
       ],"Der Betrag wird noch nicht abgezogen. Er wird bei der nächsten Auszahlung berücksichtigt."),ephemeral:true});
     }
-    if(sub==="verwarnung"){
-      const denied=guard(i,"staff","Staff-Rolle");if(denied)return respond(i,denied);
-      const target=i.options.getUser("mitglied"),reason=i.options.getString("grund"),caseRef=i.options.getString("fall");
-      const id=finance.warn({guildId:g,userId:target.id,actorId:u,reason,caseRef});
-      return answer(i,{...fieldsEmbed("📝 Verwarnung eingetragen",[{name:"Mitglied",value:`<@${target.id}>`,inline:true},{name:"Referenz",value:`\`${id.slice(0,8)}\``,inline:true},{name:"Grund",value:reason}],"Verwarnungen haben keinen Einfluss auf das Familienkonto oder Auszahlungen."),ephemeral:true});
-    }
+    if(sub==="verwarnung")return issueWarning(i,g,u,{target:i.options.getUser("mitglied"),reason:i.options.getString("grund"),caseRef:i.options.getString("fall")});
     if(sub==="offen"){
       const target=i.options.getUser("mitglied")?.id??u;
       if(target!==u&&!can(i,"staff")&&!can(i,"financeView"))return respond(i,"Fremde Sanktionen darf nur Staff ansehen.");
@@ -421,9 +475,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const target=i.options.getUser("mitglied")?.id??u;
       if(target!==u&&!can(i,"staff")&&!can(i,"financeView"))return respond(i,"Fremde Sanktionshistorien darf nur Staff ansehen.");
       const rows=finance.sanctionDetails(g,target,{limit:15});
-      const warnings=db.prepare("SELECT reason,created_at,actor_id FROM member_warnings WHERE guild_id=? AND user_id=? ORDER BY created_at DESC LIMIT 5").all(g,target);
+      const warnings=warningService.list(g,target,{limit:5,expireDays:config.WARN_EXPIRE_DAYS});
       const items=rows.map(r=>({name:`${statusLabels[r.status]??r.status} · ${formatMoney(r.amount_cents)} · <t:${unix(r.created_at)}:d>`.slice(0,256),value:`**Grund:** ${r.reason}\n**Verrechnet:** ${formatMoney(r.collected_cents)}${r.refunded_cents?` · **Erstattet:** ${formatMoney(r.refunded_cents)}`:""} · **Offen:** ${formatMoney(r.remaining_cents)}\n**Aussteller:** <@${r.actor_id}> · \`${r.id.slice(0,8)}\`${r.case_ref?` · Fall: ${r.case_ref}`:""}`.slice(0,1024)}));
-      if(warnings.length)items.push({name:`📝 Verwarnungen (${warnings.length} zuletzt)`,value:warnings.map(w=>`<t:${unix(w.created_at)}:d> · ${w.reason} · <@${w.actor_id}>`).join("\n").slice(0,1024)});
+      if(warnings.length)items.push({name:`📝 Verwarnungen (${warnings.length} zuletzt)`,value:warnings.map(w=>`${warningStateIcon[w.state]} <t:${unix(w.created_at)}:d> · ${w.reason} · <@${w.actor_id}>`).join("\n").slice(0,1024)});
       return answer(i,{...fieldsEmbed("📚 Sanktionshistorie",items.slice(0,25),rows.length||warnings.length?`Mitglied: <@${target}> · Letzte 15 Sanktionen`:`Für <@${target}> gibt es keine Sanktionen oder Verwarnungen.`),ephemeral:true});
     }
     if(sub==="korrigieren"){

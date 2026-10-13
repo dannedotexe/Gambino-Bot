@@ -16,7 +16,7 @@ const labels = {
   "ticket.created": "Ticket eröffnet", "ticket.claimed": "Ticket übernommen", "ticket.closed": "Ticket geschlossen", "ticket.reopened": "Ticket wieder geöffnet", "ticket.channel_missing": "Ticket-Channel gelöscht",
   "event.created": "Event veröffentlicht", "event.updated": "Event geändert", "event.ended": "Event beendet", "event.cancelled": "Event abgesagt", "event.attendance": "Anwesenheit erfasst", "event.participation": "Event-Teilnahme",
   "finance.credit": "Gutschrift verbucht", "finance.account_opened": "Familienkonto angelegt", "finance.payout": "Auszahlung gebucht", "finance.correction": "Korrekturbuchung", "finance.failed": "Buchung fehlgeschlagen",
-  "sanction.created": "Sanktion vorgemerkt", "sanction.applied": "Sanktion teilweise verrechnet", "sanction.settled": "Sanktion beglichen", "sanction.void": "Sanktion aufgehoben", "sanction.corrected": "Sanktion korrigiert", "sanction.refunded": "Sanktion erstattet", "sanction.warning": "Verwarnung",
+  "sanction.created": "Sanktion vorgemerkt", "sanction.applied": "Sanktion teilweise verrechnet", "sanction.settled": "Sanktion beglichen", "sanction.void": "Sanktion aufgehoben", "sanction.corrected": "Sanktion korrigiert", "sanction.refunded": "Sanktion erstattet", "sanction.warning": "Verwarnung", "sanction.warning_revoked": "Verwarnung zurückgenommen", "sanction.warning_timeout": "Timeout nach Verwarnungen", "sanction.warning_timeout_failed": "Timeout nach Verwarnungen fehlgeschlagen",
   "giveaway.created": "Giveaway gestartet", "giveaway.ended": "Giveaway ausgelost", "giveaway.cancelled": "Giveaway abgebrochen", "giveaway.draw_requested": "Giveaway vorzeitig ausgelost", "giveaway.entry": "Giveaway-Teilnahme",
   "automod.action": "AutoMod-Maßnahme", "admin.override": "Bot-Owner-Override", "config.changed": "Einstellung geändert", "config.panel_published": "Dashboard-Panel veröffentlicht", "config.automod_synced": "AutoMod synchronisiert",
 };
@@ -177,6 +177,7 @@ function renderTabs() {
   document.querySelectorAll(".needs-events").forEach(el => el.classList.toggle("hidden", !caps.events));
   document.querySelectorAll(".needs-finance").forEach(el => el.classList.toggle("hidden", !caps.finance));
   document.querySelectorAll(".needs-sanctions").forEach(el => el.classList.toggle("hidden", !caps.sanctions));
+  document.querySelectorAll(".needs-warnings").forEach(el => el.classList.toggle("hidden", !caps.warnings));
 }
 async function showTab(id) {
   state.tab = id; history.replaceState(null, "", `#${id}`); closeMenu(); renderTabs(); window.scrollTo({ top: 0 }); await refresh();
@@ -370,7 +371,14 @@ async function loadSanctions() {
     return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">⚖️ ${money(s.amount_cents)}</span><h3>${who(s.user_id)}</h3></div><span class="badge status-${s.status}">${statusLabels[s.status]}</span></div>
       <p class="manage-meta">${escapeHtml(s.reason)}${s.case_ref ? ` · Fall: ${escapeHtml(s.case_ref)}` : ""}<br>Offen <b>${money(s.remaining_cents)}</b> · verrechnet ${money(s.collected_cents)}${s.refunded_cents ? ` · erstattet ${money(s.refunded_cents)}` : ""} · von ${who(s.actor_id)} · ${date(s.created_at)}</p><div class="actions">${actions}</div></article>`;
   }).join("") || empty("Keine Sanktionen.");
-  $("warnings-list").innerHTML = data.warnings.map(w => row(`${state.names[w.user_id] ?? "Mitglied"}: ${w.reason}`, `${date(w.created_at)} · von ${state.names[w.actor_id] ?? "Staff"}${w.case_ref ? ` · Fall ${w.case_ref}` : ""}`)).join("") || empty("Keine Verwarnungen.");
+  const warnState = { active: ["🟠 Aktiv", "status-open"], expired: ["⚪ Abgelaufen", "status-void"], revoked: ["↩️ Zurückgenommen", "status-void"] };
+  $("warnings-list").innerHTML = data.warnings.map(w => {
+    const [label, cls] = warnState[w.state] ?? warnState.active;
+    const canRevoke = caps.warnings && w.state === "active" && w.user_id !== state.me.member.id && (caps.sanctions || w.actor_id === state.me.member.id);
+    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">📝 ${w.activeCount} aktiv</span><h3>${who(w.user_id)}</h3></div><span class="badge ${cls}">${label}</span></div>
+      <p class="manage-meta">${escapeHtml(w.reason)}${w.case_ref ? ` · Fall: ${escapeHtml(w.case_ref)}` : ""}<br>von ${who(w.actor_id)} · ${date(w.created_at)}${w.revoked_at ? `<br>Zurückgenommen von ${who(w.revoked_by)} · ${date(w.revoked_at)} · ${escapeHtml(w.revoke_reason ?? "")}` : ""}</p>
+      <div class="actions">${canRevoke ? btn("Zurücknehmen", "warning-revoke", { id: w.id }, "reject") : ""}</div></article>`;
+  }).join("") || empty("Keine Verwarnungen.");
 }
 
 // ------------------------------------------------------------------ Giveaways
@@ -443,7 +451,8 @@ const actions = {
   "payout": ({ user }) => startPayout(user),
   "account-details": ({ user }) => accountDetails(user),
   "sanction-create": () => openForm({ eyebrow: "SANKTION", title: "Sanktion eintragen", intro: "<p>Wird als offener Auszahlungsabzug gespeichert und belastet das Konto erst bei der nächsten Auszahlung.</p>", fields: [memberField(), { name: "amount", label: "Betrag ($)", type: "money", required: true }, { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Sanktion vormerken", danger: true, onSubmit: v => post("/api/sanctions", v) }),
-  "warning-create": () => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung eintragen", intro: "<p>Ohne Geldabzug; erscheint in der Sanktionshistorie.</p>", fields: [memberField(), { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Verwarnung eintragen", onSubmit: v => post("/api/warnings", v) }),
+  "warning-revoke": ({ id }) => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung zurücknehmen", intro: "<p>Die Verwarnung bleibt in der Historie sichtbar, zählt aber nicht mehr als aktiv. Die Person wird per DM informiert.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300 }], submit: "Zurücknehmen", danger: true, onSubmit: v => post(`/api/warnings/${id}/revoke`, v) }),
+  "warning-create": () => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung eintragen", intro: "<p>Ohne Geldabzug. Die Person bekommt den Grund per DM; ab den eingestellten Grenzen folgen automatisch Timeout bzw. Meldung an die Leitung.</p>", fields: [memberField(), { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Verwarnung eintragen", onSubmit: v => post("/api/warnings", v) }),
   "sanction-correct": ({ id }) => { const s = state.cache.sanctions[id]; openForm({ eyebrow: "LEITUNG", title: "Sanktion korrigieren", intro: `<p>Bisher ${money(s.amount_cents)}, bereits verrechnet ${money(s.collected_cents)}. Der neue Gesamtbetrag darf das Verrechnete nicht unterschreiten.</p>`, fields: [{ name: "amount", label: "Neuer Gesamtbetrag ($)", type: "money", required: true, value: String(s.amount_cents / 100).replace(".", ",") }, { name: "reason", label: "Korrekturgrund", required: true, max: 300 }], submit: "Korrigieren", onSubmit: v => post(`/api/sanctions/${id}/correct`, v) }); },
   "sanction-void": ({ id }) => openForm({ eyebrow: "LEITUNG", title: "Sanktion aufheben", intro: "<p>Die Sanktion wird nicht gelöscht, sondern als aufgehoben markiert und nie mehr verrechnet.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300 }], submit: "Aufheben", danger: true, onSubmit: v => post(`/api/sanctions/${id}/void`, v) }),
   "sanction-refund": ({ id }) => openForm({ eyebrow: "LEITUNG", title: "Sanktion erstatten", intro: "<p>Bereits abgezogene Beträge werden dem Familienkonto gutgeschrieben und die Sanktion aufgehoben.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300 }], submit: "Erstatten", danger: true, onSubmit: (rid => v => post(`/api/sanctions/${id}/refund`, { ...v, requestId: rid }))(uuid()) }),

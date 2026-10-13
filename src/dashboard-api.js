@@ -16,6 +16,8 @@ import { checkChannels } from "./channel-check.js";
 import { moveTicketToOpen } from "./ticket-channels.js";
 import { refreshEventPosts } from "./event-posts.js";
 import { createVerificationService } from "./services/verification.js";
+import { WarningError, createWarningService, warnBlockReason } from "./services/warnings.js";
+import { deliverWarning, deliverySummary } from "./warn-actions.js";
 import { currentVersion } from "./version.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -47,7 +49,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   series = series ?? createSeriesService(db);
   const texts = guildId ? createTextsService(db, guildId) : null;
   const version = currentVersion();
-  const verifications = createVerificationService(db);
+  const verifications = createVerificationService(db), warningService = createWarningService(db);
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const finance = createFinance(db), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
@@ -97,7 +99,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       capabilities: {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
-        sanctions: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
+        sanctions: can(member, "staff"), warnings: can(member, "moderation"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
         settings: Boolean(settings) && can(member, "leaders"),
       },
       settings: {
@@ -192,18 +194,18 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const plan = finance.previewPayout(guildId, userId);
       const transactions = db.prepare("SELECT id,type,amount_cents,gross_cents,deduction_cents,net_cents,reason,actor_id,created_at FROM transactions WHERE guild_id=? AND user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 50").all(guildId, userId);
       const sanctions = finance.sanctionDetails(guildId, userId, { limit: 50 });
-      const warnings = db.prepare("SELECT id,reason,case_ref,actor_id,created_at FROM member_warnings WHERE guild_id=? AND user_id=? ORDER BY created_at DESC LIMIT 20").all(guildId, userId);
+      const warnings = warningService.list(guildId, userId, { limit: 20, expireDays: config.WARN_EXPIRE_DAYS });
       return withNames({ userId, plan, transactions, sanctions, warnings }, [userId, ...transactions.map(t => t.actor_id), ...sanctions.map(s => s.actor_id), ...warnings.map(w => w.actor_id)]);
     }],
     [/^\/api\/sanctions$/, async (member, url) => {
-      if (!can(member, "staff") && !can(member, "financeView")) throw new HttpError(403, "Dafür brauchst du die Staff- oder Finanzrolle.");
+      if (!can(member, "staff") && !can(member, "financeView") && !can(member, "moderation")) throw new HttpError(403, "Dafür brauchst du die Staff-, Moderations- oder Finanzrolle.");
       const all = url.searchParams.get("status") === "all";
       const rows = db.prepare(`SELECT s.*, COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0) AS collected_cents,
         COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) AS refunded_cents
         FROM sanctions s WHERE s.guild_id=? ${all ? "" : "AND s.status IN ('open','partial')"} ORDER BY s.created_at DESC LIMIT 200`).all(guildId);
-      const warnings = db.prepare("SELECT id,user_id,reason,case_ref,actor_id,created_at FROM member_warnings WHERE guild_id=? ORDER BY created_at DESC LIMIT 30").all(guildId);
+      const warnings = warningService.recent(guildId, { limit: 50, expireDays: config.WARN_EXPIRE_DAYS }).map(w => ({ ...w, activeCount: warningService.activeCount(guildId, w.user_id, { expireDays: config.WARN_EXPIRE_DAYS }) }));
       const openTotal = db.prepare("SELECT COALESCE(SUM(remaining_cents),0) n FROM sanctions WHERE guild_id=? AND status IN ('open','partial')").get(guildId).n;
-      return withNames({ sanctions: rows, warnings, openTotal }, [...rows.flatMap(s => [s.user_id, s.actor_id]), ...warnings.flatMap(w => [w.user_id, w.actor_id])]);
+      return withNames({ sanctions: rows, warnings, openTotal }, [...rows.flatMap(s => [s.user_id, s.actor_id]), ...warnings.flatMap(w => [w.user_id, w.actor_id, w.revoked_by])]);
     }],
     [/^\/api\/giveaways$/, async member => {
       need(member, "staff", "Staff-Rolle");
@@ -374,11 +376,29 @@ export function createDashboardApi({ db, client, config, settings = null, series
       return { message: "Sanktion vorgemerkt. Sie wird erst bei der nächsten Auszahlung verrechnet.", id };
     }],
     [/^\/api\/warnings$/, async (member, body) => {
-      need(member, "staff", "Staff-Rolle");
+      need(member, "moderation", "Moderations- oder Staff-Rolle");
       const userId = snowflake(body.userId);
-      await requireGuildMember(userId);
-      finance.warn({ guildId, userId, actorId: member.id, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }), caseRef: text(body.caseRef, { max: 100, label: "Fallbezug" }) || null });
-      return { message: "Verwarnung eingetragen (ohne Geldabzug)." };
+      const target = await requireGuildMember(userId);
+      const blocked = warnBlockReason({ actorId: member.id, targetId: userId, targetRoleIds: [...(target.roles?.cache?.keys?.() ?? target.roles ?? [])], staffRoleIds: groups.anyStaff, actorIsLeader: (groups.leaders ?? []).some(id => member.roles.includes(id)), actorIsOwner: member.owner });
+      if (blocked) throw new HttpError(403, blocked);
+      const reason = text(body.reason, { min: 3, max: 300, label: "Grund" }), caseRef = text(body.caseRef, { max: 100, label: "Fallbezug" }) || null;
+      const warning = warningService.add({ guildId, userId, actorId: member.id, reason, caseRef, expireDays: config.WARN_EXPIRE_DAYS, source: "dashboard" });
+      const summary = deliverySummary(await deliverWarning({ db, client, config, guildId, userId, actorId: member.id, reason, caseRef, warning }), config);
+      return { message: `Verwarnung eingetragen – ${warning.active} aktiv${summary ? ` · ${summary}` : ""}.` };
+    }],
+    [/^\/api\/warnings\/([\w-]+)\/revoke$/, async (member, body, [, id]) => {
+      need(member, "moderation", "Moderations- oder Staff-Rolle");
+      const existing = warningService.get(guildId, id);
+      if (!existing) throw new HttpError(404, "Diese Verwarnung wurde nicht gefunden.");
+      if (existing.actor_id !== member.id && !can(member, "staff")) throw new HttpError(403, "Verwarnungen anderer Teammitglieder kann nur Staff oder die Leitung zurücknehmen.");
+      const row = warningService.revoke({ guildId, warningId: id, actorId: member.id, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }) });
+      const active = warningService.activeCount(guildId, row.user_id, { expireDays: config.WARN_EXPIRE_DAYS });
+      if (config.WARN_DM_ENABLED) {
+        const dm = new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  VERWARNUNG" }).setTitle("✅ Verwarnung zurückgenommen")
+          .setDescription(`Deine Verwarnung („${row.reason}“) wurde zurückgenommen.\n**Grund:** ${row.revoke_reason}\n**Aktive Verwarnungen:** ${active}`).setTimestamp();
+        await client.users.fetch(row.user_id).then(user => user.send({ embeds: [dm] })).catch(() => {});
+      }
+      return { message: `Verwarnung zurückgenommen. Noch aktiv: ${active}.` };
     }],
     [/^\/api\/sanctions\/([\w-]+)\/void$/, async (member, body, [, id]) => {
       need(member, "leaders", "Leitungsrolle");
@@ -523,6 +543,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       try { return { status: 200, body: await handler(member, ...args.slice(1), match) }; }
       catch (error) {
         if (error instanceof HttpError) return { status: error.status, body: { error: error.message } };
+        if (error instanceof WarningError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_REVOKED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof FinanceError) return { status: ["PREVIEW_MISMATCH", "CONCURRENT_CHANGE", "SANCTION_CONFLICT"].includes(error.code) ? 409 : 400, body: { error: error.message, code: error.code } };
         throw error;
       }

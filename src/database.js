@@ -107,6 +107,9 @@ const COLUMNS = [
   ["events", "series_id", "TEXT"],
   ["events", "announce_channel_id", "TEXT"],
   ["events", "announce_message_id", "TEXT"],
+  ["member_warnings", "revoked_at", "TEXT"],
+  ["member_warnings", "revoked_by", "TEXT"],
+  ["member_warnings", "revoke_reason", "TEXT"],
 ];
 
 export function initializeSchema(db) {

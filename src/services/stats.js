@@ -51,7 +51,7 @@ export function collectStats(db, guildId, { days = 30, includeFinance = false, r
   // Staff-Aktivität: Aktionen, die nur Staff ausführen kann (keine Selbstbedienung von Mitgliedern).
   const staffActions = db.prepare(`SELECT actor_id, COUNT(*) n FROM audit_logs WHERE guild_id=? AND created_at>=?
     AND action IN ('ticket.claimed','ticket.closed','ticket.reopened','application.claimed','application.accepted','application.rejected','application.commented',
-    'event.created','event.updated','event.ended','event.cancelled','event.attendance','sanction.created','sanction.warning','sanction.void','sanction.corrected','sanction.refunded',
+    'event.created','event.updated','event.ended','event.cancelled','event.attendance','sanction.created','sanction.warning','sanction.warning_revoked','sanction.void','sanction.corrected','sanction.refunded',
     'finance.credit','finance.payout','finance.correction','giveaway.created','giveaway.cancelled')
     GROUP BY actor_id ORDER BY n DESC LIMIT 5`).all(guildId, since);
 

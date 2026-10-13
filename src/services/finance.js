@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { WarningError, createWarningService } from "./warnings.js";
 import { audit } from "../database.js";
 
 /*
@@ -26,6 +27,7 @@ export class FinanceError extends Error {
 }
 
 export function createFinance(db) {
+  const warnings = createWarningService(db);
   const balance = (guildId, userId) =>
     db.prepare("SELECT balance_cents FROM accounts WHERE guild_id=? AND user_id=?").get(guildId, userId)?.balance_cents ?? 0;
   const openSanctionTotal = (guildId, userId) =>
@@ -192,14 +194,11 @@ export function createFinance(db) {
     return db.prepare("SELECT * FROM sanctions WHERE id=?").get(sanctionId);
   });
 
-  /** Nicht-monetäre Verwarnung. Wird getrennt gespeichert und beeinflusst die Geldverrechnung nie. */
-  const warn = db.transaction(({ guildId, userId, actorId, reason, caseRef = null }) => {
-    if (!reason?.trim()) throw new FinanceError("Für eine Verwarnung ist ein Grund erforderlich.", "INVALID_INPUT");
-    const id = randomUUID();
-    db.prepare("INSERT INTO member_warnings(id,guild_id,user_id,actor_id,reason,case_ref,created_at) VALUES(?,?,?,?,?,?,?)").run(id, guildId, userId, actorId, reason.trim(), caseRef, now());
-    audit(db, guildId, actorId, "sanction.warning", userId, { warningId: id, reason: reason.trim(), caseRef });
-    return id;
-  });
+  /** Nicht-monetäre Verwarnung (siehe services/warnings.js). Beeinflusst die Geldverrechnung nie. */
+  const warn = (input) => {
+    try { return warnings.add(input).id; }
+    catch (error) { throw error instanceof WarningError ? new FinanceError(error.message, error.code) : error; }
+  };
 
   /** Sanktionsübersicht mit offenen, verrechneten und erstatteten Beträgen. */
   function sanctionDetails(guildId, userId, { limit = 15 } = {}) {

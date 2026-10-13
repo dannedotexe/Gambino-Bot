@@ -34,7 +34,7 @@ const schema = z.object({
   PAYOUT_MINIMUM_CENTS: z.coerce.number().int().nonnegative().optional(),
   ROLE_LEADERS: idList.optional(), ROLE_STAFF: idList.optional(), ROLE_EVENT_TEAM: idList.optional(),
   ROLE_FINANCE: idList.optional(), ROLE_REVIEWERS: idList.optional(), ROLE_MEMBERS: idList.optional(),
-  ROLE_FINANCE_VIEWERS: idList.optional(), ROLE_VERIFIED: idList.optional(), EVENT_PING_ROLES: idList.optional(),
+  ROLE_FINANCE_VIEWERS: idList.optional(), ROLE_VERIFIED: idList.optional(), ROLE_MODERATORS: idList.optional(), EVENT_PING_ROLES: idList.optional(),
   BOT_OWNER_IDS: idList.optional(),
   CHANNEL_TICKET_CATEGORY: snowflake, CHANNEL_TICKET_LOG: snowflake,
   CHANNEL_APPLICATION_REVIEW: snowflake, CHANNEL_RANK_REVIEW: snowflake, CHANNEL_EVENT_ANNOUNCEMENTS: snowflake,
@@ -54,6 +54,11 @@ const schema = z.object({
   APPLICATION_QUESTIONS_JSON: jsonValue("{}").pipe(applicationQuestionsSchema),
   RANK_ROLE_ASSIGNMENT_ENABLED: bool("false"),
   RANK_ROLES_JSON: jsonValue("[]").pipe(z.array(z.object({ label: z.string().min(1).max(80), roleId: z.string().regex(SNOWFLAKE) })).max(25)),
+  WARN_DM_ENABLED: bool("true"),
+  WARN_EXPIRE_DAYS: z.coerce.number().int().min(0).max(3650).default(0),
+  WARN_TIMEOUT_AT: z.coerce.number().int().min(0).max(50).default(0),
+  WARN_TIMEOUT_MINUTES: z.coerce.number().int().min(1).max(40320).default(60),
+  WARN_ALERT_AT: z.coerce.number().int().min(0).max(50).default(0),
   AUTOMOD_ENABLED: bool("false"),
   AUTOMOD_BLOCKED_TERMS: z.string().default("").transform(csv),
   AUTOMOD_ALLOWED_DOMAINS: z.string().default("discord.com,discord.gg").transform(csv),
@@ -87,7 +92,7 @@ const schema = z.object({
 }).superRefine((cfg, ctx) => {
   try { new Intl.DateTimeFormat("de-AT", { timeZone: cfg.TIMEZONE }); }
   catch { ctx.addIssue({ code: "custom", path: ["TIMEZONE"], message: "Unbekannte IANA-Zeitzone" }); }
-  for (const [name, ids] of Object.entries({ leaders: cfg.ROLE_LEADERS, staff: cfg.ROLE_STAFF, event_team: cfg.ROLE_EVENT_TEAM, finance: cfg.ROLE_FINANCE, reviewers: cfg.ROLE_REVIEWERS })) {
+  for (const [name, ids] of Object.entries({ leaders: cfg.ROLE_LEADERS, staff: cfg.ROLE_STAFF, moderators: cfg.ROLE_MODERATORS, event_team: cfg.ROLE_EVENT_TEAM, finance: cfg.ROLE_FINANCE, reviewers: cfg.ROLE_REVIEWERS })) {
     if (ids?.length && new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", path: [`ROLE_${name.toUpperCase()}`], message: "Doppelte Rollen-ID" });
   }
   const categoryIds = cfg.TICKET_CATEGORIES_JSON.map(category => category.id);
@@ -108,7 +113,7 @@ const schema = z.object({
     if(!["127.0.0.1","::1","localhost"].includes(cfg.DASHBOARD_BIND))ctx.addIssue({code:"custom",path:["DASHBOARD_BIND"],message:"Aus Sicherheitsgründen muss das Dashboard an localhost gebunden sein"});
     if(!cfg.DISCORD_CLIENT_SECRET)ctx.addIssue({code:"custom",path:["DISCORD_CLIENT_SECRET"],message:"Für Discord-OAuth erforderlich"});
     if(!cfg.DASHBOARD_SESSION_SECRET||cfg.DASHBOARD_SESSION_SECRET.length<32)ctx.addIssue({code:"custom",path:["DASHBOARD_SESSION_SECRET"],message:"Mindestens 32 Zeichen erforderlich"});
-    const dashboardRoles=[...(cfg.ROLE_LEADERS??[]),...(cfg.ROLE_STAFF??[]),...(cfg.ROLE_FINANCE??[]),...(cfg.ROLE_EVENT_TEAM??[]),...(cfg.ROLE_REVIEWERS??[])];
+    const dashboardRoles=[...(cfg.ROLE_LEADERS??[]),...(cfg.ROLE_STAFF??[]),...(cfg.ROLE_MODERATORS??[]),...(cfg.ROLE_FINANCE??[]),...(cfg.ROLE_EVENT_TEAM??[]),...(cfg.ROLE_REVIEWERS??[])];
     if(!dashboardRoles.length&&!cfg.BOT_OWNER_IDS?.length)ctx.addIssue({code:"custom",path:["ROLE_*"] ,message:"Mindestens eine Staff-Rolle oder BOT_OWNER_IDS muss für den Dashboard-Zugriff gesetzt sein"});
   }
 });
@@ -136,7 +141,8 @@ export function accessGroups(config) {
     financeView: unique(L, config.ROLE_FINANCE ?? [], config.ROLE_FINANCE_VIEWERS ?? []),
     reviewers: unique(L, config.ROLE_REVIEWERS ?? []),
     events: unique(L, config.ROLE_EVENT_TEAM ?? []),
-    anyStaff: unique(L, config.ROLE_STAFF ?? [], config.ROLE_FINANCE ?? [], config.ROLE_REVIEWERS ?? [], config.ROLE_EVENT_TEAM ?? []),
+    moderation: unique(L, config.ROLE_STAFF ?? [], config.ROLE_MODERATORS ?? []),
+    anyStaff: unique(L, config.ROLE_STAFF ?? [], config.ROLE_FINANCE ?? [], config.ROLE_REVIEWERS ?? [], config.ROLE_EVENT_TEAM ?? [], config.ROLE_MODERATORS ?? []),
     members: unique(config.ROLE_MEMBERS ?? []),
   };
 }

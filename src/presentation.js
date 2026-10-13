@@ -134,6 +134,9 @@ const ACTIONS = {
   "sanction.settled": "Sanktion vollständig beglichen",
   "sanction.corrected": "Sanktion korrigiert",
   "sanction.warning": "Verwarnung eingetragen",
+  "sanction.warning_revoked": "Verwarnung zurückgenommen",
+  "sanction.warning_timeout": "Automatischer Timeout nach Verwarnungen",
+  "sanction.warning_timeout_failed": "Timeout nach Verwarnungen nicht möglich",
   "admin.override": "Bot-Owner-Override genutzt",
   "config.changed": "Einstellung geändert",
   "config.panel_published": "Dashboard-Panel veröffentlicht",
@@ -150,7 +153,7 @@ const ACTION_EMOJI = {
   "event.created": "📅", "event.updated": "📅", "event.attendance": "📝", "event.ended": "🏁", "event.cancelled": "❌", "giveaway.ended": "🎉",
   "finance.credit": "💰", "finance.payout": "💸", "sanction.created": "⚖️", "sanction.applied": "➖", "sanction.refunded": "↩️", "sanction.void": "🚫", "automod.action": "🛡️",
   "application.commented": "💬", "application.role_granted": "🏅", "application.role_failed": "⚠️", "event.participation": "🙋", "giveaway.created": "🎉", "giveaway.cancelled": "🚫",
-  "finance.correction": "🛠️", "finance.failed": "⛔", "sanction.settled": "✅", "sanction.corrected": "✏️", "sanction.warning": "📝", "admin.override": "🔑", "config.changed": "⚙️", "config.panel_published": "🧭", "config.automod_synced": "🛡️",
+  "finance.correction": "🛠️", "finance.failed": "⛔", "sanction.settled": "✅", "sanction.corrected": "✏️", "sanction.warning": "📝", "sanction.warning_revoked": "↩️", "sanction.warning_timeout": "🔇", "sanction.warning_timeout_failed": "⚠️", "admin.override": "🔑", "config.changed": "⚙️", "config.panel_published": "🧭", "config.automod_synced": "🛡️",
 };
 
 const DETAIL_NAMES = {
@@ -161,6 +164,7 @@ const DETAIL_NAMES = {
   direction: "Richtung", operation: "Vorgang", code: "Fehlercode", setting: "Einstellung", previous: "Vorher", value: "Neu", command: "Befehl", group: "Rollengruppe",
   oldAmountCents: "Alter Betrag", newAmountCents: "Neuer Betrag", previousSubmissions: "Frühere Anträge", prize: "Preis", endsAt: "Ende", winners: "Gewinnerzahl", changed: "Geändert", roleId: "Rolle", label: "Rang",
   transactionId: "Buchungsreferenz", sanctionId: "Sanktionsreferenz", applicationId: "Antragsreferenz", payoutId: "Auszahlungsreferenz", eventId: "Eventreferenz", ticketId: "Ticketreferenz",
+  warningId: "Verwarnungsreferenz", activeWarnings: "Aktive Verwarnungen", originalReason: "Ursprünglicher Grund", minutes: "Minuten", source: "Quelle",
 };
 
 function formatDetail(key, value) {
