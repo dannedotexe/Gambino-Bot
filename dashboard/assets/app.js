@@ -494,6 +494,7 @@ async function start() {
     if (response.status === 401) { login.classList.remove("hidden"); dashboard.classList.add("hidden"); return; }
     if (!response.ok) throw new Error("Dashboard konnte nicht geladen werden.");
     state.me = await response.json(); state.timezone = state.me.settings.timezone || state.timezone;
+    $("app-version").textContent = state.me.version ?? "–";
     login.classList.add("hidden"); dashboard.classList.remove("hidden");
     // Verifizierte Namen haben das Format „ID | Vorname Nachname“: Name groß, ID klein darunter.
     const fullName = String(state.me.member.name || "Staff").trim(), parts = /^(\d+)\s*\|\s*(.+)$/.exec(fullName);

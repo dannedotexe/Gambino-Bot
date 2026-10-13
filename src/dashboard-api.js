@@ -16,6 +16,7 @@ import { checkChannels } from "./channel-check.js";
 import { moveTicketToOpen } from "./ticket-channels.js";
 import { refreshEventPosts } from "./event-posts.js";
 import { createVerificationService } from "./services/verification.js";
+import { currentVersion } from "./version.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
 
@@ -45,6 +46,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const guildId = config.DISCORD_GUILD_ID;
   series = series ?? createSeriesService(db);
   const texts = guildId ? createTextsService(db, guildId) : null;
+  const version = currentVersion();
   const verifications = createVerificationService(db);
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const finance = createFinance(db), events = createEventService(db), giveaways = createGiveawayService(db);
@@ -90,6 +92,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   // ---------------------------------------------------------------- Lesen
   const getRoutes = [
     [/^\/api\/me$/, async member => ({
+      version,
       member: { id: member.id, name: member.displayName, owner: member.owner, avatar: /^https:\/\/cdn\.discordapp\.com\//.test(member.avatar ?? "") ? member.avatar : null },
       capabilities: {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),

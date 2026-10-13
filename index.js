@@ -8,6 +8,7 @@ import { startModeration } from "./src/moderation.js";
 import { createSettingsService } from "./src/services/settings.js";
 import { createSeriesService } from "./src/services/event-series.js";
 import { ensurePanels } from "./src/panels.js";
+import { currentVersion } from "./src/version.js";
 import { createDashboard } from "./src/dashboard.js";
 import { createTicketService } from "./src/services/tickets.js";
 
@@ -31,7 +32,7 @@ const handlers=createHandler({db,finance,config,client,settings,series});
 const dashboard=createDashboard({db,client,config,settings,series});
 
 client.once(Events.ClientReady,ready=>{
-  console.log(`Gambino Bot bereit als ${ready.user.tag}.`);
+  console.log(`Gambino Bot bereit als ${ready.user.tag} (Version ${currentVersion()}).`);
   startScheduler({db,client,config,series});
   void adoptLeadershipDefaults();
 });
