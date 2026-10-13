@@ -21,6 +21,7 @@ All-in-One-Discord-Bot für die Gambinos-Familie (Grand-RP), gebaut mit discord.
 | Tickets | `/ticket panel`, Auswahlmenü, Buttons *Übernehmen / Schließen / Wieder öffnen*, `/ticket uebernehmen \| schliessen \| wiedereroeffnen` | Private Channels je Ticket; Zugriff für Ersteller, Staff, Leitung und die zuständigen Rollen der Kategorie. Mehrere offene Tickets und schnelle Wiederholungen werden begrenzt. Vor dem Schließen kommt eine Bestätigung. Beim Schließen wird ein Transkript mit bis zu `TICKET_TRANSCRIPT_LIMIT` Nachrichten in der DB gespeichert und als `.txt` in den Ticket-Log gesendet; lässt sich der Verlauf nicht laden, bleibt das Ticket offen. Gelöschte Channels werden erkannt: Das Ticket wird geschlossen und protokolliert, die Daten bleiben erhalten. |
 | Events | `/event erstellen \| bearbeiten \| liste \| historie \| teilnehmer \| anwesenheit \| beenden \| absagen`, Buttons *Teilnehmen / Abmelden* | Persistente Events mit Name, Beschreibung, Zeit, Treffpunkt, Veranstalter, Ausrüstung, Hinweisen und Teilnehmerlimit. Die Anmeldung läuft atomar, doppelte Klicks sind wirkungslos. Erinnerungen (`EVENT_REMINDER_MINUTES`) erwähnen die Angemeldeten und überstehen Neustarts. Bei einer Absage werden die Teilnehmenden benachrichtigt. Anwesenheit lässt sich auch ohne vorherige Anmeldung erfassen. |
 | Wiederkehrende Aktivitäten | Website (Tab *Events*), `/aktivitaeten liste \| status \| board` | Die 13 Gambinos-Aktivitäten (Cayo Perico, Flugzeugträger, Gefängnis, Ladenraub, RP Fabrik, Banküberfall, Hotel, Waffenfabrik, Drogenlabor, Razzia, Gießerei, Bizwar, Kampf um die Rangfolge) sind vorangelegt und standardmäßig **inaktiv**. Für aktive Aktivitäten mit festen Zeiten legt der Bot jeden Termin automatisch als Event mit Anmeldung und Erinnerungen an: standardmäßig 120 Minuten vorher im Event-Channel, genau einmal je Termin, nach `EVENT_SERIES_AUTO_END_MINUTES` automatisch beendet. Flexible Aktivitäten (z. B. „alle 3 Stunden“) erscheinen nur auf der dauerhaften Aktivitäten-Übersicht. Zeiten gelten in `TIMEZONE`; Termine, die es wegen der Zeitumstellung nicht gibt, werden übersprungen. |
+| Verifizierung | Panel mit Button *Verifizieren*, Website-Bereich *Mitglieder* | Mitglieder geben Ingame-ID, Vor- und Nachnamen ein; der Discord-Name wird zu `ID \| Vorname Nachname` (max. 32 Zeichen, Namen werden geprüft und großgeschrieben). Eine Ingame-ID gehört nur einem Konto. Optional vergibt der Bot `ROLE_VERIFIED`. Gespeichert wird erst, wenn Discord den Namen übernommen hat; beim Server-Inhaber (von Discord gesperrt) bekommt die Person den Namen als Hinweis. Die Leitung kann eine Verifizierung auf der Website zurücksetzen. Benötigt die Bot-Berechtigung „Spitznamen verwalten“, und die Bot-Rolle muss über den Mitgliederrollen stehen. |
 | Bewerbungen & Rang-Anträge | `/bewerbung-panel`, `/antrag bewerben \| liste \| kommentieren \| entscheiden \| status`, Reviewer-Buttons *Übernehmen / Annehmen / Ablehnen / Notiz* | Modal-Formulare mit konfigurierbaren Fragen. Status: offen → in Prüfung → angenommen/abgelehnt/zurückgezogen. Interne Notizen; Ablehnungen nur mit Grund. Antragsteller bekommen private Rückmeldungen. Pro Typ ist nur ein offener Antrag möglich, neue Einreichungen sind als solche gekennzeichnet. Rollen werden **nie** automatisch vergeben (siehe `RANK_ROLE_ASSIGNMENT_ENABLED`). |
 | Familienkonto | `/konto stand \| ansehen \| gutschrift \| auszahlen \| korrektur \| liste \| historie` | Siehe unten. |
 | Sanktionen | `/sanktion erstellen \| verwarnung \| offen \| historie \| korrigieren \| aufheben \| rueckerstatten` | Offene Auszahlungsabzüge mit Status, Historie und Rückerstattung. Verwarnungen ohne Geldwirkung. |
@@ -63,7 +64,9 @@ Jede Funktion hat einen eigenen, einstellbaren Channel (Website → *Einstellung
 
 | Funktion | Einstellung | Empfohlen | Sichtbarkeit |
 | --- | --- | --- | --- |
+| Verifizierungs-Panel (automatisch gepostet) | `CHANNEL_VERIFICATION_PANEL` | INFORMATION・neue-spieler | öffentlich |
 | Ticket-Panel (automatisch gepostet) | `CHANNEL_TICKET_PANEL` | SUPPORT・ticket | öffentlich |
+| Geschlossene Tickets | `CHANNEL_TICKET_CLOSED_CATEGORY` | Kategorie closed tickets | Staff |
 | Private Ticket-Channels | `CHANNEL_TICKET_CATEGORY` | Kategorie SUPPORT | Tickets privat |
 | Ticket-Log + Transkripte | `CHANNEL_TICKET_LOG` | STAFF・ticket-logs | Staff |
 | Bewerbungs-Panel (automatisch gepostet) | `CHANNEL_APPLICATION_PANEL` | SUPPORT・bewerbungen | öffentlich |
@@ -142,6 +145,8 @@ Vollständige Liste mit Kommentaren: [`.env.example`](.env.example). Die wichtig
 - **Logs:** `AUDIT_CHANNEL_IGNORE_ACTIONS` hält häufige Ereignisse (Event-/Giveaway-Teilnahmen) aus dem Audit-Channel heraus; in der Datenbank bleiben sie trotzdem.
 
 ### Staff-Webdashboard (optional)
+
+Aufbau: Navigation in Gruppen mit Zählern für offene Arbeit (am Handy über das Menü-Symbol), Übersicht mit „Zu erledigen“, Schnellaktionen und anklickbaren Kennzahlen, Ladebalken und automatische Aktualisierung jede Minute.
 
 Responsive Staff-Website mit Discord-Login. Man kann dort alles nicht nur ansehen, sondern auch bearbeiten. Jeder Tab erscheint nur mit passender Rolle; jede Aktion prüft serverseitig die aktuelle Discord-Rolle, nutzt dieselben Services wie der Bot und wird protokolliert.
 

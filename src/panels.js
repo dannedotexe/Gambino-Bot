@@ -1,7 +1,7 @@
 import { EmbedBuilder } from "discord.js";
 import { getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
-import { buildApplicationPanelPayload, buildTicketPanelPayload } from "./commands.js";
+import { buildApplicationPanelPayload, buildTicketPanelPayload, buildVerificationPanelPayload } from "./commands.js";
 import { PANEL_SETTING_KEY, buildPanelPayload } from "./staff-panel.js";
 import { BOARD_SETTING_KEY, buildActivityBoard } from "./activity-board.js";
 import { panelTexts } from "./services/texts.js";
@@ -9,12 +9,13 @@ import { panelTexts } from "./services/texts.js";
 /** Dauerhafte Panels: Channel-Einstellung -> gespeicherte Nachricht -> Inhalt. */
 // Erst beim Aufruf aufgebaut: vermeidet Probleme mit zirkulären Modul-Importen (commands <-> panels).
 const panelDefinitions = () => [
+  { channelKey: "CHANNEL_VERIFICATION_PANEL", settingKey: "PANEL_VERIFICATION", label: "Verifizierungs-Panel", marker: "verify:open", build: ctx => buildVerificationPanelPayload(panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "verification")) },
   { channelKey: "CHANNEL_TICKET_PANEL", settingKey: "PANEL_TICKET", label: "Ticket-Panel", marker: "ticket:create", build: ctx => buildTicketPanelPayload(ctx.config, panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "ticket")) },
   { channelKey: "CHANNEL_APPLICATION_PANEL", settingKey: "PANEL_APPLICATION", label: "Bewerbungs-Panel", marker: "application:open:bewerbung", build: ctx => buildApplicationPanelPayload(panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "application")) },
   { channelKey: "CHANNEL_STAFF_DASHBOARD", settingKey: PANEL_SETTING_KEY, label: "Staff-Dashboard", marker: "staffpanel:view", build: ctx => buildPanelPayload(ctx.db, ctx.config.DISCORD_GUILD_ID, panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "staffDashboard")) },
   { channelKey: "CHANNEL_ACTIVITY_BOARD", settingKey: BOARD_SETTING_KEY, label: "Aktivitäten-Übersicht", title: "AKTIVITÄTEN", build: ctx => buildActivityBoard(ctx.series.list(ctx.config.DISCORD_GUILD_ID), ctx.config.TIMEZONE, new Date(), panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "activityBoard")), needsSeries: true },
 ];
-export const PANEL_CHANNEL_KEYS = ["CHANNEL_TICKET_PANEL", "CHANNEL_APPLICATION_PANEL", "CHANNEL_STAFF_DASHBOARD", "CHANNEL_ACTIVITY_BOARD"];
+export const PANEL_CHANNEL_KEYS = ["CHANNEL_VERIFICATION_PANEL", "CHANNEL_TICKET_PANEL", "CHANNEL_APPLICATION_PANEL", "CHANNEL_STAFF_DASHBOARD", "CHANNEL_ACTIVITY_BOARD"];
 
 /**
  * Stellt sicher, dass jedes Panel genau einmal im eingestellten Channel steht. Gepostet wird nur, wenn noch keines

@@ -6,24 +6,37 @@
   <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script>
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar"><a class="brand" href="/"><img class="brand-mark" src="/assets/gambinos-profile.gif" alt="Gambinos"><span><b>GAMBINOS</b><small>FAMILIENVERWALTUNG</small></span></a><div class="profile"><span id="staff-name">Staff-Dashboard</span><button id="logout" class="quiet hidden">Abmelden</button></div></header>
-    <section id="login" class="login-card"><img class="login-banner" src="/assets/gambinos-banner.gif" alt="Gambinos"><div class="login-content"><div class="eyebrow">STAFF PORTAL · GRAND-RP</div><h1>Das Familienbüro.</h1><p>Melde dich mit Discord an. Zugriff erhalten nur konfigurierte Gambinos-Staffrollen. Anträge, Tickets, Events, Familienkonto, Sanktionen und Giveaways lassen sich direkt hier verwalten.</p><a class="primary" href="/login">Mit Discord anmelden <span>↗</span></a><p id="message" class="message"></p></div></section>
-    <section id="dashboard" class="hidden">
-      <nav id="tabs" class="tabs" aria-label="Bereiche"></nav>
+  <div id="progress" class="progress" aria-hidden="true"></div>
+  <section id="login" class="login-screen">
+    <div class="login-card"><img class="login-banner" src="/assets/gambinos-banner.gif" alt="Gambinos"><div class="login-content"><div class="eyebrow">STAFF PORTAL · GRAND-RP</div><h1>Das Familienbüro.</h1><p>Melde dich mit Discord an. Zugriff erhalten nur konfigurierte Gambinos-Staffrollen. Anträge, Tickets, Events, Familienkonto, Sanktionen, Giveaways und Einstellungen lassen sich hier verwalten.</p><a class="primary" href="/login">Mit Discord anmelden <span>↗</span></a><p id="message" class="message"></p></div></div>
+  </section>
+  <div id="dashboard" class="app hidden">
+    <aside id="sidebar" class="sidebar" aria-label="Navigation">
+      <a class="brand" href="/"><img class="brand-mark" src="/assets/gambinos-profile.gif" alt=""><span><b>GAMBINOS</b><small>FAMILIENBÜRO</small></span></a>
+      <nav id="tabs" class="nav"></nav>
+      <div class="sidebar-foot"><div class="me"><span id="staff-avatar" class="avatar">G</span><div><b id="staff-name">Staff</b><small id="staff-role">Staff-Dashboard</small></div></div><button id="logout" class="quiet" type="button">Abmelden</button></div>
+    </aside>
+    <div id="scrim" class="scrim"></div>
+    <main class="content">
+      <header class="topbar"><button id="menu-toggle" class="icon-btn" type="button" aria-label="Menü öffnen" aria-controls="sidebar" aria-expanded="false"><span></span><span></span><span></span></button><div class="crumb"><small>GAMBINOS · Familienbüro</small><b id="page-title">Übersicht</b></div><div class="live"><i></i>Live<span id="updated-at"></span></div></header>
 
       <section id="tab-overview" class="tab-panel">
-        <div class="welcome"><div><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1>Übersicht</h1><p>Dein aktueller Serverstand auf einen Blick.</p></div><div class="live"><i></i> Live-Daten <span id="updated-at"></span></div></div>
+        <div class="hero"><div><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1 id="greeting">Willkommen</h1><p>Das Wichtigste auf einen Blick – klicke auf eine Kachel, um direkt dorthin zu springen.</p></div><div id="quick-actions" class="quick"></div></div>
         <div id="stats" class="stats"></div>
-        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">ALS NÄCHSTES</div><h2>Anstehende Events</h2></div><span class="icon">◷</span></div><div id="events" class="rows"></div></section>
-          <section class="panel"><div class="panel-head"><div><div class="eyebrow">REVIEW</div><h2>Offene Anträge</h2></div><span class="icon">✳</span></div><div id="applications" class="rows"></div></section></div>
-        <div class="columns lower"><section class="panel"><div class="panel-head"><div><div class="eyebrow">AKTIVITÄT</div><h2>Letzte Aktionen</h2></div><span class="icon">↗</span></div><div id="activity" class="rows"></div></section>
-          <section id="finance-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">LEITUNG & FINANZEN</div><h2>Familienkonto</h2></div><span class="icon gold">$</span></div><div id="finance" class="finance"></div><p class="subtle">Persönliche Guthaben und Sanktionsdetails bleiben rollenbeschränkt.</p></section></div>
+        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">ZU ERLEDIGEN</div><h2>Was jetzt ansteht</h2></div></div><div id="todo" class="todo"></div></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">ALS NÄCHSTES</div><h2>Anstehende Events</h2></div><button type="button" class="link-btn" data-tab="events">Alle Events →</button></div><div id="events" class="rows"></div></section></div>
+        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">AKTIVITÄT</div><h2>Letzte Aktionen</h2></div><button type="button" class="link-btn needs-staff" data-tab="audit">Protokoll →</button></div><div id="activity" class="rows"></div></section>
+          <section id="finance-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">LEITUNG & FINANZEN</div><h2>Familienkonto</h2></div><button type="button" class="link-btn" data-tab="finance">Zum Konto →</button></div><div id="finance" class="finance"></div><p class="subtle">Persönliche Guthaben und Sanktionsdetails bleiben rollenbeschränkt.</p></section></div>
       </section>
 
       <section id="tab-applications" class="tab-panel hidden">
         <div class="section-intro"><div><div class="eyebrow">FAMILIENBÜRO</div><h2>Bewerbungen & Rang-Anträge</h2><p>Übernehmen, kommentieren und entscheiden. Antragsteller werden privat benachrichtigt.</p></div><div class="section-tools"><select id="applications-filter" aria-label="Filter"><option value="open">Offen & in Prüfung</option><option value="closed">Abgeschlossen</option></select><input class="search" data-target="applications-list" type="search" placeholder="Suchen …" aria-label="Suchen"></div></div>
         <div id="applications-list" class="queue"></div>
+      </section>
+
+      <section id="tab-members" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">VERIFIZIERUNG</div><h2>Verifizierte Mitglieder</h2><p id="members-info">Mitglieder verifizieren sich im Verifizierungs-Panel mit Ingame-ID, Vor- und Nachname. Der Discord-Name wird zu „ID | Vorname Nachname“.</p></div><div class="section-tools"><input class="search" data-target="members-list" type="search" placeholder="Name oder ID suchen …" aria-label="Suchen"></div></div>
+        <div id="members-list" class="table"></div>
       </section>
 
       <section id="tab-tickets" class="tab-panel hidden">
@@ -81,8 +94,8 @@
       </section>
 
       <footer>GAMBINOS <span>·</span> Nur für autorisierte Staffmitglieder <span>·</span> Jede Aktion wird mit deinem Discord-Konto protokolliert</footer>
-    </section>
-  </main>
+    </main>
+  </div>
   <dialog id="dialog" class="dialog"><form id="dialog-form" method="dialog" novalidate><div id="dialog-eyebrow" class="eyebrow"></div><h2 id="dialog-title"></h2><div id="dialog-intro" class="dialog-intro"></div><div id="dialog-fields" class="event-form"></div><p id="dialog-error" class="form-error" role="alert"></p><div class="dialog-actions"><button value="cancel" class="secondary" id="dialog-cancel">Abbrechen</button><button id="dialog-submit" value="ok" class="primary-btn">OK</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>

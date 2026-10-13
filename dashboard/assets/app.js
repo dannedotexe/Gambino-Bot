@@ -25,9 +25,25 @@ const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP
 const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit: "Korrektur (+)", correction_debit: "Korrektur (−)", sanction_refund: "Sanktions-Erstattung" };
 const TABS = [
   ["overview", "Übersicht", () => true], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
-  ["events", "Events", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
+  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
   ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["settings", "Einstellungen", c => c.settings],
 ];
+
+const ICONS = {
+  overview: "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z",
+  applications: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8",
+  tickets: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z M13 5v2 M13 17v2 M13 11v2",
+  events: "M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M16 2v4 M8 2v4 M3 10h18",
+  finance: "M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+  sanctions: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M12 8v4 M12 16h.01",
+  giveaways: "M20 12v10H4V12 M2 7h20v5H2z M12 22V7 M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z",
+  stats: "M3 3v18h18 M18 17V9 M13 17V5 M8 17v-3",
+  audit: "M12 8v4l3 3 M3.05 11a9 9 0 1 1 .5 4 M3 4v5h5",
+  members: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 .01 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+  settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
+};
+const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
+const NAV_GROUPS = [["", ["overview"]], ["Familie", ["members", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["settings"]]];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });
@@ -114,30 +130,74 @@ const memberField = (value = "", label = "Mitglied") => ({ name: "userId", label
 
 // ------------------------------------------------------------------ Tabs
 function renderTabs() {
-  const caps = state.me.capabilities;
-  $("tabs").innerHTML = TABS.filter(([, , allowed]) => allowed(caps)).map(([id, label]) => `<button class="tab ${state.tab === id ? "active" : ""}" data-tab="${id}">${escapeHtml(label)}</button>`).join("");
+  const caps = state.me.capabilities, allowed = new Map(TABS.filter(([, , ok]) => ok(caps)).map(([id, label]) => [id, label]));
+  const badge = id => { const n = state.badges?.[id]; return n ? `<span class="nav-badge">${n > 99 ? "99+" : n}</span>` : ""; };
+  $("tabs").innerHTML = NAV_GROUPS.map(([group, ids]) => {
+    const items = ids.filter(id => allowed.has(id));
+    if (!items.length) return "";
+    return `${group ? `<div class="nav-group">${escapeHtml(group)}</div>` : ""}${items.map(id => `<button type="button" class="nav-item ${state.tab === id ? "active" : ""}" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ""}>${icon(id)}<span>${escapeHtml(allowed.get(id))}</span>${badge(id)}</button>`).join("")}`;
+  }).join("");
+  $("page-title").textContent = allowed.get(state.tab) ?? "Übersicht";
+  document.title = `${allowed.get(state.tab) ?? "Übersicht"} · Gambinos Familienbüro`;
   for (const [id] of TABS) $(`tab-${id}`).classList.toggle("hidden", id !== state.tab);
+  document.querySelectorAll(".needs-staff").forEach(el => el.classList.toggle("hidden", !caps.staff));
   document.querySelectorAll(".needs-events").forEach(el => el.classList.toggle("hidden", !caps.events));
   document.querySelectorAll(".needs-finance").forEach(el => el.classList.toggle("hidden", !caps.finance));
   document.querySelectorAll(".needs-sanctions").forEach(el => el.classList.toggle("hidden", !caps.sanctions));
 }
 async function showTab(id) {
-  state.tab = id; history.replaceState(null, "", `#${id}`); renderTabs(); await refresh();
+  state.tab = id; history.replaceState(null, "", `#${id}`); closeMenu(); renderTabs(); window.scrollTo({ top: 0 }); await refresh();
 }
+let loadingCount = 0;
 async function refresh() {
+  loadingCount++; document.body.classList.add("is-loading");
   try { await (loaders[state.tab] ?? loadOverview)(); }
   catch (error) { notify(error.message, "error"); }
+  finally { if (--loadingCount === 0) document.body.classList.remove("is-loading"); }
+}
+function openMenu() { document.body.classList.add("menu-open"); $("menu-toggle").setAttribute("aria-expanded", "true"); }
+function closeMenu() { document.body.classList.remove("menu-open"); $("menu-toggle").setAttribute("aria-expanded", "false"); }
+/** Zähler offener Arbeit in der Navigation. */
+function applyBadges(data) {
+  state.badges = { tickets: data.stats.tickets, applications: data.stats.applications, finance: data.todo?.payoutsDue ?? 0 };
+  renderTabs();
 }
 
 // ------------------------------------------------------------------ Übersicht
 async function loadOverview() {
-  const data = await api("/api/overview");
-  const cards = [["Mitglieder", data.stats.members ?? "—", "♙"], ["Offene Tickets", data.stats.tickets, "▣"], ["Offene Anträge", data.stats.applications, "✳"], ["Kommende Events", data.stats.events, "◷"], ["Giveaways", data.stats.giveaways, "✦"], ...(data.stats.sanctions == null ? [] : [["Offene Sanktionen", data.stats.sanctions, "⚑"]])];
-  $("stats").innerHTML = cards.map(([label, value, symbol]) => `<div class="stat"><span class="symbol">${symbol}</span><div class="label">${label}</div><div class="value">${escapeHtml(value)}</div></div>`).join("");
-  $("events").innerHTML = data.events.map(event => row(event.name, `${date(event.starts_at)} · ${event.location}`, "Geplant")).join("") || empty();
-  $("applications").innerHTML = data.applications.map(item => row(item.kind === "rang" ? "Rang-Antrag" : "Familienbewerbung", `Eingang ${date(item.created_at)}`, item.status === "review" ? "In Prüfung" : "Offen")).join("") || empty();
-  $("activity").innerHTML = data.activity.map(item => row(labels[item.action] || item.action, `${date(item.created_at)} · Staff-Aktion`)).join("") || empty();
-  $("updated-at").textContent = `· ${new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit" }).format(new Date())}`;
+  const data = await api("/api/overview"), caps = state.me.capabilities, todo = data.todo ?? {};
+  applyBadges(data);
+  const hour = Number(new Intl.DateTimeFormat("de-AT", { hour: "numeric", hourCycle: "h23", timeZone: state.timezone }).format(new Date()));
+  $("greeting").textContent = `${hour < 11 ? "Guten Morgen" : hour < 18 ? "Hallo" : "Guten Abend"}, ${state.me.member.name}`;
+  const quick = [
+    caps.events && ["event-create", "Event planen", "events"], caps.finance && ["credit", "Gutschrift", "finance"],
+    caps.sanctions && ["sanction-create", "Sanktion", "sanctions"], caps.giveaways && ["giveaway-create", "Giveaway", "giveaways"],
+  ].filter(Boolean);
+  $("quick-actions").innerHTML = quick.map(([action, label, ic]) => `<button type="button" class="quick-btn" data-action="${action}">${icon(ic)}<span>${escapeHtml(label)}</span></button>`).join("");
+  const cards = [
+    ["Mitglieder", data.stats.members ?? "—", "overview", null], ["Offene Tickets", data.stats.tickets, "tickets", caps.tickets && "tickets"],
+    ["Offene Anträge", data.stats.applications, "applications", caps.applications && "applications"], ["Kommende Events", data.stats.events, "events", caps.staff && "events"],
+    ["Aktive Giveaways", data.stats.giveaways, "giveaways", caps.giveaways && "giveaways"], ...(data.stats.sanctions == null ? [] : [["Offene Sanktionen", data.stats.sanctions, "sanctions", caps.sanctionsView && "sanctions"]]),
+  ];
+  $("stats").innerHTML = cards.map(([label, value, ic, tab]) => `<${tab ? `button type="button" data-tab="${tab}"` : "div"} class="stat ${tab ? "clickable" : ""}"><span class="symbol">${icon(ic)}</span><div class="label">${label}</div><div class="value">${escapeHtml(value)}</div></${tab ? "button" : "div"}>`).join("");
+  const todoItems = [
+    [todo.unclaimedTickets, "Tickets ohne Bearbeiter", "Jemand wartet auf eine Antwort.", "tickets", caps.tickets],
+    [todo.openApplications, "Neue Anträge", "Noch von niemandem übernommen.", "applications", caps.applications],
+    [todo.reviewApplications, "Anträge in Prüfung", "Warten auf eine Entscheidung.", "applications", caps.applications],
+    [todo.overdueEvents, "Events nicht beendet", "Startzeit ist über 3 Stunden vorbei – beenden und Anwesenheit eintragen.", "events", caps.events],
+    [todo.payoutsDue, "Auszahlungen möglich", "Mitglieder mit auszahlbarem Familienguthaben.", "finance", caps.financeView],
+    [todo.eventsNext24h, "Events in den nächsten 24 Std.", "Teilnehmerliste prüfen.", "events", caps.staff],
+  ].filter(([n, , , , ok]) => ok && n > 0);
+  $("todo").innerHTML = todoItems.length ? todoItems.map(([n, title, sub, tab]) => `<button type="button" class="todo-item" data-tab="${tab}"><span class="todo-count">${n}</span><span><b>${escapeHtml(title)}</b><small>${escapeHtml(sub)}</small></span><span class="todo-arrow">→</span></button>`).join("")
+    : '<div class="all-done"><b>Alles erledigt</b><small>Gerade wartet nichts auf dich.</small></div>';
+  $("events").innerHTML = data.events.map(event => row(event.name, `${date(event.starts_at)}${event.location ? ` · ${event.location}` : ""}`)).join("") || empty("Keine anstehenden Events.");
+  let activity = data.activity.map(item => row(labels[item.action] || item.action, date(item.created_at)));
+  if (caps.staff) {
+    const audit = await api("/api/audit").catch(() => null);
+    if (audit) activity = audit.entries.slice(0, 7).map(e => row(labels[e.action] ?? e.action, `${state.names[e.actor_id] ?? "Bot"} · ${date(e.created_at)}`));
+  }
+  $("activity").innerHTML = activity.join("") || empty("Noch keine Aktionen.");
+  $("updated-at").textContent = new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit", timeZone: state.timezone }).format(new Date());
   if (data.finance) { $("finance-panel").classList.remove("hidden"); $("finance").innerHTML = `<div class="finance-item"><span>Familienkonten</span><b>${data.finance.balances}</b></div><div class="finance-item"><span>Offene Sanktionsreste</span><b>${money(data.finance.openSanctions)}</b></div>`; }
 }
 
@@ -314,7 +374,14 @@ async function loadAudit() {
   $("audit-list").innerHTML = data.entries.map(e => row(`${labels[e.action] ?? e.action} · ${state.names[e.actor_id] ?? (e.actor_id?.length > 15 ? "Bot/Staff" : e.actor_id)}${e.details.applicantId || state.names[e.target_id] ? ` → ${state.names[e.details.applicantId ?? e.target_id] ?? ""}` : ""}`, `${date(e.created_at)} · ${detailText(e.details)}`)).join("") || empty("Keine Einträge.");
 }
 
-const loaders = { overview: loadOverview, applications: loadApplications, tickets: loadTickets, events: loadEvents, finance: loadFinance, sanctions: loadSanctions, giveaways: loadGiveaways, stats: loadStats, audit: loadAudit };
+async function loadMembers() {
+  const data = await api("/api/verifications"), caps = state.me.capabilities;
+  $("members-info").textContent = `${data.total} verifizierte Mitglieder.${data.panelChannel ? "" : " ⚠️ Noch kein Verifizierungs-Channel eingestellt (Einstellungen → Channels)."}${data.roleConfigured ? "" : " Ohne „Rolle nach Verifizierung“ wird nur der Name geändert."}`;
+  $("members-list").innerHTML = data.verifications.length ? `<div class="table-row table-head members-row"><span>Discord</span><span>Ingame-ID</span><span>Name (Ingame)</span><span>Verifiziert</span><span></span></div>` + data.verifications.map(v => `<div class="table-row members-row"><span><b>${escapeHtml(v.nickname)}</b><small class="block">${who(v.user_id)}</small></span><span data-label="Ingame-ID">${escapeHtml(v.ingame_id)}</span><span data-label="Name">${escapeHtml(`${v.first_name} ${v.last_name}`)}</span><span data-label="Verifiziert">${date(v.verified_at)}${v.updated_at !== v.verified_at ? `<small class="block">geändert ${date(v.updated_at)}</small>` : ""}</span><span class="actions tight">${caps.leaders ? btn("Zurücksetzen", "verification-reset", { user: v.user_id, name: v.nickname }) : ""}</span></div>`).join("") : empty("Noch niemand verifiziert.");
+  document.querySelectorAll("#tab-members .search").forEach(filterList);
+}
+
+const loaders = { members: loadMembers, overview: loadOverview, applications: loadApplications, tickets: loadTickets, events: loadEvents, finance: loadFinance, sanctions: loadSanctions, giveaways: loadGiveaways, stats: loadStats, audit: loadAudit };
 
 // ------------------------------------------------------------------ Aktionen
 const actions = {
@@ -361,6 +428,7 @@ const actions = {
   "series-edit": ({ id }) => { const s = state.cache.series[id]; openForm({ eyebrow: "AKTIVITÄT", title: s.name, intro: "<p>Änderungen gelten für künftige Termine. Bereits angekündigte Termine bleiben bestehen.</p>", fields: seriesFields(s), submit: "Speichern", onSubmit: v => post(`/api/series/${id}/update`, v) }); },
   "series-delete": ({ id }) => confirmAction(`${state.cache.series[id].name} löschen?`, "Es werden keine neuen Termine mehr angelegt. Bereits erstellte Events bleiben in der Historie. Zum Pausieren reicht der Schalter.", "Löschen", () => post(`/api/series/${id}/delete`)),
   "series-board": async () => { const data = await api("/api/channels"); openForm({ eyebrow: "DISCORD", title: "Aktivitäten-Übersicht posten", intro: "<p>Eine dauerhafte Nachricht mit allen aktiven Aktivitäten und dem nächsten Termin. Sie aktualisiert sich automatisch.</p>", fields: [{ name: "channelId", label: "Channel", type: "select", required: true, options: data.channels.map(c => [c.id, `#${c.name}${c.parent ? ` · ${c.parent}` : ""}`]) }], submit: "Posten", onSubmit: v => post("/api/series/board", v) }); },
+  "verification-reset": ({ user, name }) => confirmAction(`Verifizierung von ${name} zurücksetzen?`, "Die gespeicherte Ingame-ID wird freigegeben und das Mitglied kann sich neu verifizieren. Name und Rollen in Discord werden nicht verändert.", "Zurücksetzen", () => post(`/api/verifications/${user}/reset`)),
   "giveaway-draw": ({ id }) => confirmAction("Jetzt auslosen?", "Das Giveaway endet sofort; die Gewinner werden in Discord verkündet.", "Auslosen", () => post(`/api/giveaways/${id}/draw`), false),
   "giveaway-cancel": ({ id }) => openForm({ eyebrow: "GIVEAWAY", title: "Giveaway abbrechen", intro: "<p>Es wird kein Gewinner gezogen.</p>", fields: [{ name: "reason", label: "Grund", hint: "(optional)", max: 300 }], submit: "Abbrechen", danger: true, onSubmit: v => post(`/api/giveaways/${id}/cancel`, v) }),
 };
@@ -378,6 +446,9 @@ document.addEventListener("click", async event => {
   finally { busy = false; button.disabled = false; }
 });
 for (const [id, tab] of [["applications-filter", "applications"], ["tickets-filter", "tickets"], ["events-filter", "events"], ["sanctions-filter", "sanctions"], ["stats-filter", "stats"], ["audit-filter", "audit"]]) $(id).addEventListener("change", () => state.tab === tab && refresh());
+$("menu-toggle").addEventListener("click", () => (document.body.classList.contains("menu-open") ? closeMenu() : openMenu()));
+$("scrim").addEventListener("click", closeMenu);
+document.addEventListener("keydown", event => { if (event.key === "Escape") closeMenu(); });
 $("logout").addEventListener("click", async () => { await fetch("/logout", { method: "POST", credentials: "same-origin" }); location.reload(); });
 
 async function start() {
@@ -388,12 +459,17 @@ async function start() {
     if (response.status === 401) { login.classList.remove("hidden"); dashboard.classList.add("hidden"); return; }
     if (!response.ok) throw new Error("Dashboard konnte nicht geladen werden.");
     state.me = await response.json(); state.timezone = state.me.settings.timezone || state.timezone;
-    login.classList.add("hidden"); dashboard.classList.remove("hidden"); $("logout").classList.remove("hidden"); $("staff-name").textContent = state.me.member.name;
+    login.classList.add("hidden"); dashboard.classList.remove("hidden"); $("staff-name").textContent = state.me.member.name;
+    $("staff-avatar").textContent = (state.me.member.name || "G").trim().charAt(0).toUpperCase();
+    const caps = state.me.capabilities;
+    $("staff-role").textContent = state.me.member.owner ? "Bot-Owner" : caps.leaders ? "Leitung" : caps.finance ? "Finanzen" : caps.applications ? "Reviewer" : caps.events ? "Event-Team" : "Staff";
     const wanted = location.hash.slice(1);
     state.tab = TABS.some(([id, , allowed]) => id === wanted && allowed(state.me.capabilities)) ? wanted : "overview";
     renderTabs(); await refresh();
     // Automatische Aktualisierung, solange kein Dialog offen ist.
     setInterval(() => { if (!$("dialog").open && document.visibilityState === "visible") refresh(); }, 60_000);
+    if (state.tab !== "overview") api("/api/overview").then(applyBadges).catch(() => {});
+    setInterval(() => { if (state.tab !== "overview" && document.visibilityState === "visible") api("/api/overview").then(applyBadges).catch(() => {}); }, 60_000);
   } catch (error) { login.classList.remove("hidden"); message.textContent = error.message; }
 }
 document.addEventListener("DOMContentLoaded", start);

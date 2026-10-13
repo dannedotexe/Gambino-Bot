@@ -7,6 +7,7 @@ import { CHANNEL_BINDINGS } from "./channel-setup.js";
  * expect: Namensbestandteile, die zur Funktion passen; avoid: Namen, die auf eine andere Funktion hindeuten.
  */
 export const CHANNEL_FUNCTIONS = [
+  { key: "CHANNEL_VERIFICATION_PANEL", label: "Verifizierungs-Panel", audience: "public", expect: ["neu", "verif", "willkommen", "spieler"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_TICKET_PANEL", label: "Ticket-Panel", audience: "public", expect: ["ticket", "support"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_TICKET_CATEGORY", label: "Ticket-Kategorie", type: "category", audience: "any", perms: ["ManageChannels"], important: true },
   { key: "CHANNEL_TICKET_CLOSED_CATEGORY", label: "Kategorie geschlossene Tickets", type: "category", audience: "staff", expect: ["closed", "geschlossen", "archiv"], perms: ["ManageChannels"] },
@@ -26,7 +27,7 @@ export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_AUDIT_LOG", label: "Allgemeines Audit-Log", audience: "staff", expect: ["log", "audit", "protokoll"], avoid: ["sanktion", "ticket", "auszahl", "event"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_AUTOMOD_LOG", label: "AutoMod-/Raid-Log", audience: "staff", expect: ["log", "mod", "raid", "sicher"], avoid: ["ticket", "auszahl", "event"], perms: ["SendMessages", "EmbedLinks"] },
 ];
-const PERMISSION_LABELS = { ViewChannel: "Kanal ansehen", SendMessages: "Nachrichten senden", EmbedLinks: "Links einbetten", AttachFiles: "Dateien anhängen", ReadMessageHistory: "Nachrichtenverlauf lesen", ManageChannels: "Kanäle verwalten", MentionEveryone: "Erwähnungen (für Teilnehmer-Pings)", ManageMessages: "Nachrichten verwalten", ModerateMembers: "Mitglieder moderieren (Timeout)", ManageRoles: "Rollen verwalten", ManageGuild: "Server verwalten" };
+const PERMISSION_LABELS = { ViewChannel: "Kanal ansehen", SendMessages: "Nachrichten senden", EmbedLinks: "Links einbetten", AttachFiles: "Dateien anhängen", ReadMessageHistory: "Nachrichtenverlauf lesen", ManageChannels: "Kanäle verwalten", MentionEveryone: "Erwähnungen (für Teilnehmer-Pings)", ManageMessages: "Nachrichten verwalten", ModerateMembers: "Mitglieder moderieren (Timeout)", ManageRoles: "Rollen verwalten", ManageGuild: "Server verwalten", ManageNicknames: "Spitznamen verwalten" };
 const plainName = name => String(name ?? "").toLocaleLowerCase("de-AT").replace(/^[^a-z0-9äöüß]+/i, "");
 const recommended = key => { const [category, channel] = CHANNEL_BINDINGS[key] ?? []; return category ? `${category}${channel ? `・${channel}` : ""}` : null; };
 
@@ -78,7 +79,8 @@ export async function checkChannels({ guild, config }) {
     { flag: "ManageChannels", reason: "Ticket-Channels anlegen", needed: true },
     { flag: "ManageMessages", reason: "AutoMod löscht Nachrichten", needed: config.AUTOMOD_ENABLED && actions.includes("delete") },
     { flag: "ModerateMembers", reason: "Timeouts durch AutoMod/Raid-Schutz", needed: (config.AUTOMOD_ENABLED && actions.includes("timeout")) || config.RAID_ACTIONS.includes("timeout") || config.AUTOMOD_ESCALATION_COUNT > 0 },
-    { flag: "ManageRoles", reason: "Rang-Rollen vergeben", needed: config.RANK_ROLE_ASSIGNMENT_ENABLED },
+    { flag: "ManageNicknames", reason: "Namen bei der Verifizierung setzen", needed: Boolean(config.CHANNEL_VERIFICATION_PANEL) },
+    { flag: "ManageRoles", reason: "Rang-Rollen bzw. Verifiziert-Rolle vergeben", needed: config.RANK_ROLE_ASSIGNMENT_ENABLED || Boolean(config.ROLE_VERIFIED?.length) },
     { flag: "ManageGuild", reason: "Native Discord-AutoMod-Regel (/automod sync)", needed: false },
   ].map(item => ({ ...item, label: PERMISSION_LABELS[item.flag], has: me.permissions.has(P[item.flag]) }));
   const administrator = me.permissions.has(P.Administrator);

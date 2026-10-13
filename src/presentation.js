@@ -137,6 +137,10 @@ const ACTIONS = {
   "config.changed": "Einstellung geändert",
   "config.panel_published": "Dashboard-Panel veröffentlicht",
   "config.automod_synced": "Native AutoMod-Regel synchronisiert",
+  "member.verified": "Mitglied verifiziert",
+  "member.verification_updated": "Verifizierung aktualisiert",
+  "member.verification_failed": "Verifizierung fehlgeschlagen",
+  "member.verification_reset": "Verifizierung zurückgesetzt",
 };
 
 const ACTION_EMOJI = {

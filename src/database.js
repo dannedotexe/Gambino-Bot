@@ -87,6 +87,14 @@ export const MIGRATIONS = [
       `);
     },
   },
+  {
+    version: 4,
+    name: "verifizierung",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS member_verifications (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, ingame_id TEXT NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL, nickname TEXT NOT NULL, verified_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(guild_id,user_id));
+      CREATE UNIQUE INDEX IF NOT EXISTS member_verifications_ingame ON member_verifications(guild_id,ingame_id);
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

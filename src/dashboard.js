@@ -79,8 +79,8 @@ export function createDashboard({ db, client, config, settings = null, series = 
     if (session.exp < Date.now()) return null;
     return memberFor(session.sub);
   };
+  const count = (sql, ...params) => db.prepare(sql).get(...params)?.n ?? 0;
   const summary = (includeFinance = false) => {
-    const count = (sql, ...params) => db.prepare(sql).get(...params)?.n ?? 0;
     return {
       members: client.guilds.cache.get(config.DISCORD_GUILD_ID)?.memberCount ?? null,
       tickets: count("SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND status='open'", config.DISCORD_GUILD_ID),
@@ -251,6 +251,17 @@ export function createDashboard({ db, client, config, settings = null, series = 
           const activity = db.prepare("SELECT action,target_id,actor_id,created_at FROM audit_logs WHERE guild_id=? ORDER BY created_at DESC LIMIT 8").all(config.DISCORD_GUILD_ID);
           const canSeeFinance = member.owner || member.roles.some(id => (config.ROLE_FINANCE ?? []).includes(id) || (config.ROLE_LEADERS ?? []).includes(id));
           const data = { member: { name: member.displayName, roles: member.roles.length, owner: member.owner }, stats: summary(canSeeFinance), events, applications, activity };
+          const nowIso = new Date().toISOString(), in24h = new Date(Date.now() + 86_400_000).toISOString();
+          const g = config.DISCORD_GUILD_ID;
+          data.todo = {
+            unclaimedTickets: count("SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND status='open' AND claimed_by IS NULL", g),
+            openApplications: count("SELECT COUNT(*) n FROM applications WHERE guild_id=? AND status='open'", g),
+            reviewApplications: count("SELECT COUNT(*) n FROM applications WHERE guild_id=? AND status='review'", g),
+            eventsNext24h: count("SELECT COUNT(*) n FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>? AND starts_at<=?", g, nowIso, in24h),
+            overdueEvents: count("SELECT COUNT(*) n FROM events WHERE guild_id=? AND status='scheduled' AND series_id IS NULL AND starts_at<?", g, new Date(Date.now() - 3 * 3_600_000).toISOString()),
+            activeSeries: count("SELECT COUNT(*) n FROM event_series WHERE guild_id=? AND active=1", g),
+            ...(canSeeFinance ? { payoutsDue: count("SELECT COUNT(*) n FROM accounts WHERE guild_id=? AND balance_cents>0 AND balance_cents>=?", g, config.PAYOUT_MINIMUM_CENTS ?? 1) } : {}),
+          };
           if (canSeeFinance) {
             data.finance = { balances: db.prepare("SELECT COUNT(*) n FROM accounts WHERE guild_id=?").get(config.DISCORD_GUILD_ID).n, openSanctions: db.prepare("SELECT COALESCE(SUM(remaining_cents),0) cents FROM sanctions WHERE guild_id=? AND status IN ('open','partial')").get(config.DISCORD_GUILD_ID).cents };
           }

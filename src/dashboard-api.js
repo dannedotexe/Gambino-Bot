@@ -14,6 +14,7 @@ import { publishActivityBoard, refreshActivityBoard } from "./activity-board.js"
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToOpen } from "./ticket-channels.js";
+import { createVerificationService } from "./services/verification.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
 
@@ -43,6 +44,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const guildId = config.DISCORD_GUILD_ID;
   series = series ?? createSeriesService(db);
   const texts = guildId ? createTextsService(db, guildId) : null;
+  const verifications = createVerificationService(db);
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const finance = createFinance(db), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
@@ -221,6 +223,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (!texts) throw new HttpError(409, "Panel-Texte brauchen DISCORD_GUILD_ID in der .env.");
       need(member, "leaders", "Leitungsrolle");
       return { panels: texts.describe().map(panel => ({ ...panel, channelSet: Boolean(config[panel.channelKey]) })) };
+    }],
+    [/^\/api\/verifications$/, async member => {
+      need(member, "anyStaff", "Staff-Rolle");
+      const rows = verifications.list(guildId, 500);
+      const total = db.prepare("SELECT COUNT(*) n FROM member_verifications WHERE guild_id=?").get(guildId).n;
+      return withNames({ verifications: rows, total, roleConfigured: Boolean(config.ROLE_VERIFIED?.length), panelChannel: config.CHANNEL_VERIFICATION_PANEL ?? null }, rows.map(r => r.user_id));
     }],
     [/^\/api\/channel-check$/, async member => {
       need(member, "leaders", "Leitungsrolle");
@@ -442,6 +450,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
         note = ["ok", "adopted"].includes(result?.status) ? " Das Panel in Discord wurde aktualisiert." : result?.status === "posted" ? " Das Panel wurde neu im Channel gepostet." : " Das Panel konnte in Discord nicht aktualisiert werden – bitte Channel-Prüfung ansehen.";
       }
       return { message: `${reset ? "Standardtexte wiederhergestellt." : "Texte gespeichert."}${note}`, panels: texts.describe().map(p => ({ ...p, channelSet: Boolean(config[p.channelKey]) })) };
+    }],
+    [/^\/api\/verifications\/(\d{17,20})\/reset$/, async (member, body, [, userId]) => {
+      need(member, "leaders", "Leitungsrolle");
+      const row = verifications.remove({ guildId, userId, actorId: member.id });
+      if (!row) throw new HttpError(404, "Keine Verifizierung für dieses Mitglied gespeichert.");
+      return { message: `Verifizierung von ${row.nickname} zurückgesetzt. Das Mitglied kann sich neu verifizieren; Name und Rolle in Discord bleiben unverändert.` };
     }],
     [/^\/api\/series$/, async (member, body) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");

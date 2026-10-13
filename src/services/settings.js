@@ -15,6 +15,8 @@ export const SETTINGS = [
   { key: "ROLE_REVIEWERS", group: "Rollen", label: "Reviewer", type: "roles", help: "Bewerbungen und Rang-Anträge prüfen." },
   { key: "ROLE_EVENT_TEAM", group: "Rollen", label: "Event-Team", type: "roles", help: "Events und Aktivitäten verwalten." },
   { key: "ROLE_MEMBERS", group: "Rollen", label: "Familienmitglieder", type: "roles", help: "Wenn gesetzt: nur diese (und Staff) dürfen sich für Events anmelden und Rang-Anträge stellen." },
+  { key: "ROLE_VERIFIED", group: "Rollen", label: "Rolle nach Verifizierung", type: "roles", help: "Optional: wird nach erfolgreicher Verifizierung vergeben. Die Bot-Rolle muss darüber stehen." },
+  { key: "CHANNEL_VERIFICATION_PANEL", group: "Channels", label: "Verifizierungs-Panel (öffentlich)", type: "channel", help: "Button „Verifizieren“; Name wird zu „ID | Vorname Nachname“. Empfohlen: INFORMATION・neue-spieler." },
   { key: "CHANNEL_TICKET_PANEL", group: "Channels", label: "Ticket-Panel (öffentlich)", type: "channel", help: "Hier steht das Auswahlmenü zum Ticket-Öffnen; wird automatisch gepostet. Empfohlen: SUPPORT・ticket." },
   { key: "CHANNEL_TICKET_CATEGORY", group: "Channels", label: "Ticket-Kategorie", type: "category", help: "Unter dieser Kategorie entstehen die privaten Ticket-Channels." },
   { key: "CHANNEL_TICKET_CLOSED_CATEGORY", group: "Channels", label: "Kategorie für geschlossene Tickets", type: "category", help: "Geschlossene Tickets werden hierher verschoben, beim Wiederöffnen zurück. Discord erlaubt max. 50 Channels pro Kategorie." },

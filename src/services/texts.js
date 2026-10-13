@@ -23,6 +23,17 @@ export const PANEL_TEXTS = {
       buttonRank: { label: "Button: Rang-Antrag", max: 80, required: true, default: "🏅  Rang beantragen" },
     },
   },
+  verification: {
+    label: "Verifizierungs-Panel", channelKey: "CHANNEL_VERIFICATION_PANEL",
+    fields: {
+      color: { label: "Farbe", type: "color", default: "#d4af37" },
+      author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  VERIFIZIERUNG" },
+      title: { label: "Titel", max: 256, default: "✅  Willkommen bei den Gambinos!" },
+      description: { label: "Beschreibung", max: 4000, multiline: true, default: "Bitte verifiziere dich, bevor es losgeht.\n\nKlicke auf **Verifizieren** und gib deine **Ingame-ID**, deinen **Vornamen** und **Nachnamen** aus Grand-RP an. Dein Discord-Name wird automatisch zu `ID | Vorname Nachname` geändert." },
+      footer: { label: "Fußzeile", max: 2048, default: "GAMBINOS  •  Deine Angaben sieht nur das Team" },
+      button: { label: "Button", max: 80, required: true, default: "✅  Verifizieren" },
+    },
+  },
   ticket: {
     label: "Ticket-Panel", channelKey: "CHANNEL_TICKET_PANEL",
     fields: {

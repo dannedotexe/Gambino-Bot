@@ -7,6 +7,7 @@ import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
 import { createSettingsService } from "./src/services/settings.js";
 import { createSeriesService } from "./src/services/event-series.js";
+import { ensurePanels } from "./src/panels.js";
 import { createDashboard } from "./src/dashboard.js";
 import { createTicketService } from "./src/services/tickets.js";
 
@@ -32,18 +33,22 @@ const dashboard=createDashboard({db,client,config,settings,series});
 client.once(Events.ClientReady,ready=>{
   console.log(`Gambino Bot bereit als ${ready.user.tag}.`);
   startScheduler({db,client,config,series});
-  void adoptClosedTicketCategory();
+  void adoptLeadershipDefaults();
 });
-// Von der Leitung genannte Kategorie für geschlossene Tickets einmalig übernehmen, falls noch keine eingestellt ist.
-// Wird nur gesetzt, wenn die Kategorie wirklich auf dem konfigurierten Server existiert.
-const CLOSED_TICKETS_CATEGORY_HINT="1559680452980113479";
-async function adoptClosedTicketCategory(){
-  if(!settings||config.CHANNEL_TICKET_CLOSED_CATEGORY)return;
+// Von der Leitung genannte IDs einmalig übernehmen, falls noch nichts eingestellt ist. Gesetzt wird nur, was
+// auf dem konfigurierten Server wirklich existiert und den richtigen Typ hat; jede Übernahme wird protokolliert.
+const ADOPT_HINTS={CHANNEL_TICKET_CLOSED_CATEGORY:"1559680452980113479",ROLE_VERIFIED:"1559685681465397289"};
+async function adoptLeadershipDefaults(){
+  if(!settings)return;
   const guild=await client.guilds.fetch(config.DISCORD_GUILD_ID).catch(()=>null);
-  const category=guild?await guild.channels.fetch(CLOSED_TICKETS_CATEGORY_HINT).catch(()=>null):null;
-  if(category?.type!==4)return;
-  try{settings.update({key:"CHANNEL_TICKET_CLOSED_CATEGORY",value:category.id,actorId:client.user.id,actorIsOwner:true});console.log(`Kategorie für geschlossene Tickets eingestellt: ${category.name}`);}
-  catch(error){console.warn("Kategorie für geschlossene Tickets konnte nicht eingestellt werden:",error.message);}
+  if(!guild)return;
+  const adopt=(key,value,label)=>{try{settings.update({key,value,actorId:client.user.id,actorIsOwner:true});console.log(`${label} eingestellt.`);return true;}catch(error){console.warn(`${label} konnte nicht eingestellt werden:`,error.message);return false;}};
+  if(!config.CHANNEL_TICKET_CLOSED_CATEGORY){const category=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_TICKET_CLOSED_CATEGORY).catch(()=>null);if(category?.type===4)adopt("CHANNEL_TICKET_CLOSED_CATEGORY",category.id,`Kategorie für geschlossene Tickets (${category.name})`);}
+  if(!config.ROLE_VERIFIED?.length){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_VERIFIED).catch(()=>null);if(role)adopt("ROLE_VERIFIED",[role.id],`Verifiziert-Rolle (${role.name})`);}
+  if(!config.CHANNEL_VERIFICATION_PANEL){
+    const matches=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.isTextBased?.()&&/neue-spieler/i.test(ch.name));
+    if(matches.length===1&&adopt("CHANNEL_VERIFICATION_PANEL",matches[0].id,`Verifizierungs-Panel-Channel (#${matches[0].name})`))await ensurePanels({db,client,config,series,only:["CHANNEL_VERIFICATION_PANEL"]}).catch(()=>{});
+  }
 }
 client.on(Events.InteractionCreate,async interaction=>{
   try {
