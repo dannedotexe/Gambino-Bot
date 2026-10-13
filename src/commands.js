@@ -21,6 +21,7 @@ import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
 import { buildVerification, createVerificationService } from "./services/verification.js";
+import { deleteEventPosts, publishEvent, refreshEventPosts } from "./event-posts.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 
 const isoNow=()=>new Date().toISOString();
@@ -83,6 +84,14 @@ export function buildApplicationPanelPayload(texts=defaultsFor("application")) {
   return {embeds:[panel],components:[buttons]};
 }
 
+export function buildAccountPanelPayload(texts=defaultsFor("account")) {
+  return {embeds:[textEmbed(texts)],components:[new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("account:balance").setLabel(texts.buttonBalance).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("account:history").setLabel(texts.buttonHistory).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("account:sanctions").setLabel(texts.buttonSanctions).setStyle(ButtonStyle.Secondary),
+  )]};
+}
+
 export function buildVerificationPanelPayload(texts=defaultsFor("verification")) {
   return {embeds:[textEmbed(texts)],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("verify:open").setLabel(texts.button).setStyle(ButtonStyle.Success))]};
 }
@@ -143,6 +152,7 @@ export function giveawayCard(row,entries=0){
 export function buildCommands() {
   const money = new SlashCommandBuilder().setName("konto").setDescription("Gambinos-Familienkonto")
     .addSubcommand(s=>s.setName("stand").setDescription("Eigenen Kontostand sehen"))
+    .addSubcommand(s=>s.setName("anlegen").setDescription("Familienkonto für ein Mitglied anlegen (Finanzrolle)").addUserOption(o=>o.setName("mitglied").setDescription("Mitglied").setRequired(true)).addStringOption(o=>o.setName("notiz").setDescription("Optionale Notiz, z. B. neues Familienmitglied").setMaxLength(300)))
     .addSubcommand(s=>s.setName("ansehen").setDescription("Kontostand eines Mitglieds (Finanzrolle)").addUserOption(o=>o.setName("mitglied").setDescription("Mitglied").setRequired(true)))
     .addSubcommand(s=>s.setName("gutschrift").setDescription("Geld gutschreiben (Finanzrolle)").addUserOption(o=>o.setName("mitglied").setDescription("Empfänger").setRequired(true)).addStringOption(o=>o.setName("betrag").setDescription("Betrag in Dollar").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Buchungsgrund").setRequired(true).setMaxLength(300)))
     .addSubcommand(s=>s.setName("auszahlen").setDescription("Guthaben auszahlen und Sanktionen verrechnen").addUserOption(o=>o.setName("mitglied").setDescription("Empfänger").setRequired(true)))
@@ -295,18 +305,46 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     } catch(e) { if(!(e instanceof FinanceError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
   }
 
-  async function accountCommand(i,sub,g,u){
-    if (sub==="stand"||sub==="ansehen") {
-      const id=sub==="stand"?u:i.options.getUser("mitglied").id;
-      if (id!==u&&!can(i,"financeView")) return respond(i,"Fremde Konten darf nur die Finanzrolle ansehen.");
-      const plan=finance.previewPayout(g,id);
-      return answer(i,{...fieldsEmbed("💰 Familienkonto",[
+  /** Kontoansichten, gemeinsam genutzt von Slash-Befehlen und dem „Mein Konto“-Panel. */
+  function balanceView(g,id){
+    const plan=finance.previewPayout(g,id);
+    const exists=Boolean(db.prepare("SELECT 1 FROM accounts WHERE guild_id=? AND user_id=?").get(g,id));
+    return {...fieldsEmbed("💰 Familienkonto",[
         {name:"Mitglied",value:`<@${id}>`,inline:true},
         {name:"Familienguthaben (brutto)",value:`**${formatMoney(plan.gross)}**`,inline:true},
         {name:"Offene Sanktionen",value:formatMoney(plan.openCents),inline:true},
         {name:"Voraussichtliche Auszahlung",value:`**${formatMoney(plan.net)}**`,inline:true},
         ...(plan.remainingAfter?[{name:"Danach noch offene Sanktionen",value:formatMoney(plan.remainingAfter),inline:true}]:[]),
-      ],"Gambinos-Familienguthaben für Grand-RP-Events und Familienaktivitäten. Sanktionen werden erst bei der Auszahlung verrechnet."),ephemeral:true});
+      ],exists?"Gambinos-Familienguthaben für Grand-RP-Events und Familienaktivitäten. Sanktionen werden erst bei der Auszahlung verrechnet.":"Für dieses Mitglied wurde noch kein Familienkonto angelegt. Es entsteht mit der ersten Gutschrift oder über /konto anlegen."),ephemeral:true};
+  }
+  function historyView(g,target,page=1){
+    const pageSize=10,total=db.prepare("SELECT COUNT(*) n FROM transactions WHERE guild_id=? AND user_id=?").get(g,target).n;
+    const rows=db.prepare("SELECT type,amount_cents,gross_cents,deduction_cents,net_cents,reason,created_at,id,actor_id FROM transactions WHERE guild_id=? AND user_id=? ORDER BY created_at DESC,id LIMIT ? OFFSET ?").all(g,target,pageSize,(page-1)*pageSize);
+    const sign=type=>["payout","correction_debit"].includes(type)?"−":"+";
+    const items=rows.map(r=>({name:`${transactionLabels[r.type]??"Buchung"} · ${new Date(r.created_at).toLocaleString("de-AT",{timeZone:config.TIMEZONE})}`.slice(0,256),value:`${r.type==="payout"?`**Brutto:** ${formatMoney(r.gross_cents)} · **Abzug:** ${formatMoney(r.deduction_cents)} · **Netto:** ${formatMoney(r.net_cents)}`:`**Betrag:** ${sign(r.type)}${formatMoney(r.amount_cents)}`}\n**Grund:** ${r.reason}\n**Durch:** <@${r.actor_id}> · \`${r.id.slice(0,8)}\``.slice(0,1024),inline:false}));
+    return {...fieldsEmbed("🧾 Buchungshistorie",items,total?`Mitglied: <@${target}> · Seite ${page} von ${Math.max(1,Math.ceil(total/pageSize))} · ${total} Buchungen`:"Noch keine Buchungen vorhanden."),ephemeral:true};
+  }
+  function sanctionsView(g,target){
+    const rows=db.prepare("SELECT id,amount_cents,remaining_cents,reason,status,created_at FROM sanctions WHERE guild_id=? AND user_id=? AND status IN ('open','partial') ORDER BY created_at").all(g,target);
+    const items=rows.map(r=>({name:`${statusLabels[r.status]??r.status} · ${formatMoney(r.remaining_cents)} offen${r.status==="partial"?` von ${formatMoney(r.amount_cents)}`:""}`,value:`**Grund:** ${r.reason}\n**Seit:** <t:${unix(r.created_at)}:d> · **Referenz:** \`${r.id.slice(0,8)}\``.slice(0,1024),inline:false}));
+    const total=rows.reduce((n,r)=>n+r.remaining_cents,0);
+    return {...fieldsEmbed("⚠️ Offene Sanktionen",items,rows.length?`Mitglied: <@${target}> · Summe offen: **${formatMoney(total)}**\nDiese Beträge werden erst bei Auszahlungen verrechnet.`:`Für <@${target}> gibt es keine offenen Sanktionen.`),ephemeral:true};
+  }
+
+  async function accountCommand(i,sub,g,u){
+    if (sub==="stand"||sub==="ansehen") {
+      const id=sub==="stand"?u:i.options.getUser("mitglied").id;
+      if (id!==u&&!can(i,"financeView")) return respond(i,"Fremde Konten darf nur die Finanzrolle ansehen.");
+      return answer(i,balanceView(g,id));
+    }
+    if (sub==="anlegen") {
+      const denied=guard(i,"finance","Finanzrolle"); if(denied)return respond(i,denied);
+      const target=i.options.getUser("mitglied");
+      if(target.bot)return respond(i,"Bots können kein Familienkonto besitzen.");
+      const result=finance.openAccount({guildId:g,userId:target.id,actorId:u,note:i.options.getString("notiz")??""});
+      return answer(i,{...fieldsEmbed(result.created?"🏦 Familienkonto angelegt":"ℹ️ Konto existiert bereits",[
+        {name:"Mitglied",value:`<@${target.id}>`,inline:true},{name:"Kontostand",value:formatMoney(result.balance),inline:true},
+      ],result.created?"Das Konto erscheint jetzt in der Auszahlungsliste und kann Gutschriften erhalten.":"Für dieses Mitglied gibt es schon ein Familienkonto; es wurde nichts verändert."),ephemeral:true});
     }
     if (sub==="gutschrift") {
       const denied=guard(i,"finance","Finanzrolle"); if(denied)return respond(i,denied);
@@ -350,12 +388,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if (sub==="historie") {
       const target=i.options.getUser("mitglied")?.id??u;
       if(target!==u&&!can(i,"financeView"))return respond(i,"Fremde Kontohistorien darf nur die Finanzrolle ansehen.");
-      const page=Math.max(1,i.options.getInteger("seite")??1),pageSize=10;
-      const total=db.prepare("SELECT COUNT(*) n FROM transactions WHERE guild_id=? AND user_id=?").get(g,target).n;
-      const rows=db.prepare("SELECT type,amount_cents,gross_cents,deduction_cents,net_cents,reason,created_at,id,actor_id FROM transactions WHERE guild_id=? AND user_id=? ORDER BY created_at DESC,id LIMIT ? OFFSET ?").all(g,target,pageSize,(page-1)*pageSize);
-      const sign=type=>["payout","correction_debit"].includes(type)?"−":"+";
-      const items=rows.map(r=>({name:`${transactionLabels[r.type]??"Buchung"} · ${new Date(r.created_at).toLocaleString("de-AT",{timeZone:config.TIMEZONE})}`.slice(0,256),value:`${r.type==="payout"?`**Brutto:** ${formatMoney(r.gross_cents)} · **Abzug:** ${formatMoney(r.deduction_cents)} · **Netto:** ${formatMoney(r.net_cents)}`:`**Betrag:** ${sign(r.type)}${formatMoney(r.amount_cents)}`}\n**Grund:** ${r.reason}\n**Durch:** <@${r.actor_id}> · \`${r.id.slice(0,8)}\``.slice(0,1024),inline:false}));
-      return answer(i,{...fieldsEmbed("🧾 Buchungshistorie",items,`Mitglied: <@${target}> · Seite ${page} von ${Math.max(1,Math.ceil(total/pageSize))} · ${total} Buchungen`),ephemeral:true});
+      return answer(i,historyView(g,target,Math.max(1,i.options.getInteger("seite")??1)));
     }
   }
 
@@ -379,10 +412,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if(sub==="offen"){
       const target=i.options.getUser("mitglied")?.id??u;
       if(target!==u&&!can(i,"staff")&&!can(i,"financeView"))return respond(i,"Fremde Sanktionen darf nur Staff ansehen.");
-      const rows=db.prepare("SELECT id,amount_cents,remaining_cents,reason,status,created_at FROM sanctions WHERE guild_id=? AND user_id=? AND status IN ('open','partial') ORDER BY created_at").all(g,target);
-      const items=rows.map(r=>({name:`${statusLabels[r.status]??r.status} · ${formatMoney(r.remaining_cents)} offen${r.status==="partial"?` von ${formatMoney(r.amount_cents)}`:""}`,value:`**Grund:** ${r.reason}\n**Seit:** <t:${unix(r.created_at)}:d> · **Referenz:** \`${r.id}\``.slice(0,1024),inline:false}));
-      const total=rows.reduce((n,r)=>n+r.remaining_cents,0);
-      return answer(i,{...fieldsEmbed("⚠️ Offene Sanktionen",items,rows.length?`Mitglied: <@${target}> · Summe offen: **${formatMoney(total)}**\nDiese Beträge werden erst bei Auszahlungen verrechnet.`:`Für <@${target}> gibt es keine offenen Sanktionen.`),ephemeral:true});
+      return answer(i,sanctionsView(g,target));
     }
     if(sub==="historie"){
       const target=i.options.getUser("mitglied")?.id??u;
@@ -475,18 +505,18 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const denied=guard(i,"events","Event-Team");if(denied)return respond(i,denied);
       const start=parseEventDate(i.options.getString("start"),config.TIMEZONE);
       if(!start||start.getTime()<Date.now()+60_000)return invalidDate();
-      const id=randomUUID(),ch=await targetChannel(i.guild,config.CHANNEL_EVENT_ANNOUNCEMENTS)??i.channel;
+      const id=randomUUID();
       const item={id,guild_id:g,name:i.options.getString("name"),description:i.options.getString("beschreibung"),starts_at:start.toISOString(),location:i.options.getString("treffpunkt"),host_id:u,equipment:i.options.getString("ausruestung")??"",notes:i.options.getString("hinweise")??"",max_participants:i.options.getInteger("maximum")};
-      const sent=await ch.send({embeds:[eventEmbed(item,0)],components:[eventButtons(id)]});
+      const posted=await publishEvent({db,client,config,event:{...item,status:"scheduled"},fallbackChannel:i.channel});
       try{
         db.transaction(()=>{
-          db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)").run(id,g,ch.id,sent.id,item.name,item.description,item.starts_at,item.location,u,item.equipment,item.notes,item.max_participants,isoNow());
-          audit(db,g,u,"event.created",id,{name:item.name,startsAt:item.starts_at,channelId:ch.id});
+          db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,announce_channel_id,announce_message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)").run(id,g,posted.channelId,posted.messageId,posted.announceChannelId,posted.announceMessageId,item.name,item.description,item.starts_at,item.location,u,item.equipment,item.notes,item.max_participants,isoNow());
+          audit(db,g,u,"event.created",id,{name:item.name,startsAt:item.starts_at,channelId:posted.channelId});
         })();
-      }catch(error){await sent.delete().catch(()=>{});throw error;}
+      }catch(error){await deleteEventPosts({client,posted});throw error;}
       return answer(i,{...fieldsEmbed("📅 Event veröffentlicht",[
         {name:"Event",value:`**${item.name}**`,inline:true},{name:"Beginn",value:`<t:${unix(item.starts_at)}:F>`,inline:true},
-        {name:"Ankündigung",value:`${ch}`,inline:true},{name:"Teilnahme",value:"Mitglieder können sich direkt über die Schaltfläche unter der Ankündigung anmelden."},
+        {name:"Anmeldung",value:`<#${posted.channelId}>`,inline:true},...(posted.announceChannelId?[{name:"Ankündigung",value:`<#${posted.announceChannelId}>`,inline:true}]:[]),
         {name:"Erinnerungen",value:config.EVENT_REMINDER_MINUTES.length?config.EVENT_REMINDER_MINUTES.map(m=>`${m} Min.`).join(", ")+" vorher":"deaktiviert",inline:true},
       ],"Das Event ist jetzt für die Familie sichtbar."),ephemeral:true});
     }
@@ -522,8 +552,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         audit(db,g,u,"event.updated",id,{name:next.name,startsAt:next.starts_at,changed:Object.keys(changes).join(", ")});
       })();
       const updated=db.prepare("SELECT * FROM events WHERE id=?").get(id);
-      const message=await eventMessage(i.guild,updated);
-      if(message){const participants=participantsOf(id);await message.edit({embeds:[eventEmbed(updated,participants.length,participants)]}).catch(()=>{});}
+      const message=await refreshEventPosts({db,client,config,event:updated});
       return answer(i,{...fieldsEmbed("✏️ Event aktualisiert",[
         {name:"Event",value:`**${updated.name}**`,inline:true},{name:"Beginn",value:`<t:${unix(updated.starts_at)}:F>`,inline:true},
         {name:"Geändert",value:Object.keys(changes).join(", ")},
@@ -548,11 +577,11 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         return changed;
       })();
       if(!row)return respond(i,"Geplantes Event nicht gefunden.");
-      const message=await eventMessage(i.guild,row);
       const participants=participantsOf(id);
-      if(message)await message.edit({embeds:[embed(sub==="absagen"?`❌ Event abgesagt · ${row.name}`:`✅ Event beendet · ${row.name}`.slice(0,256),`**${row.name}** ${sub==="beenden"?"wurde abgeschlossen":"findet nicht statt"}.${reason?`\n**Grund:** ${reason}`:""}\n**Teilnehmende:** ${participants.length}`)],components:[]}).catch(()=>{});
+      const message=await eventMessage(i.guild,row);
+      await refreshEventPosts({db,client,config,event:row,state:status});
       if(sub==="beenden")await postEventResult({db,client,config,event:row});
-      if(sub==="absagen"&&participants.length&&message?.channel)await message.channel.send({content:`${participants.slice(0,50).map(p=>`<@${p.user_id}>`).join(" ")}`,embeds:[logEmbed("❌ Event abgesagt",`**${row.name}** am <t:${unix(row.starts_at)}:F> findet nicht statt.${reason?`\n**Grund:** ${reason}`:""}`,"warning")],allowedMentions:{users:participants.slice(0,50).map(p=>p.user_id)}}).catch(()=>{});
+      if(sub==="absagen"&&participants.length&&message?.channel&&!(row.series_id&&config.EVENT_SERIES_DELETE_ENDED))await message.channel.send({content:`${participants.slice(0,50).map(p=>`<@${p.user_id}>`).join(" ")}`,embeds:[logEmbed("❌ Event abgesagt",`**${row.name}** am <t:${unix(row.starts_at)}:F> findet nicht statt.${reason?`\n**Grund:** ${reason}`:""}`,"warning")],allowedMentions:{users:participants.slice(0,50).map(p=>p.user_id)}}).catch(()=>{});
       return respond(i,`Event **${row.name}** wurde ${sub==="beenden"?"beendet":"abgesagt"}.`);
     }
   }
@@ -565,6 +594,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       return changed;
     })();
     if(!row)return null;
+    if(status==="accepted"&&row.kind==="bewerbung"&&config.ACCOUNT_AUTO_OPEN_FOR_MEMBERS)finance.openAccount({guildId:i.guildId,userId:row.user_id,actorId:i.user.id,note:"Familienbewerbung angenommen"});
     const channel=await applicationReviewChannel(i.guild,config,row.kind);
     if(channel&&row.message_id){const msg=await channel.messages.fetch(row.message_id).catch(()=>null);if(msg&&msg.id!==i.message?.id)await msg.edit({...buildApplicationReviewPayload(row.kind,row.user_id,JSON.parse(row.answers),status,note),components:[]}).catch(()=>{});}
     const dmSent=await client.users.fetch(row.user_id).then(user=>user.send(applicationDecisionDm({kind:row.kind,status,applicationId:id,reason:note}))).then(()=>true).catch(()=>false);
@@ -765,6 +795,12 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const [kind,action,id,extra,expectedDeduction]=i.customId.split(":");const g=i.guildId,u=i.user.id;
       if(kind==="setup")return answer(i,{content:"Dieser Channel-Einrichtungsbefehl wurde entfernt.",ephemeral:true});
       if(kind==="verify"&&action==="open")return openVerification(i);
+      if(kind==="account"){
+        const gate=memberGate(i);if(gate)return answer(i,{content:"Das Familienkonto gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});
+        if(action==="balance")return answer(i,balanceView(g,u));
+        if(action==="history")return answer(i,historyView(g,u));
+        if(action==="sanctions")return answer(i,sanctionsView(g,u));
+      }
       if(kind==="cancel")return updateMessage(i,{content:"Aktion abgebrochen.",embeds:[],components:[]});
       if(kind==="staffpanel"&&action==="refresh"){
         if(!can(i,"anyStaff"))return answer(i,{content:"Das Dashboard ist nur für Staff.",ephemeral:true});
@@ -811,7 +847,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         const result=action==="join"?events.join({guildId:g,eventId:id,userId:u}):events.leave({guildId:g,eventId:id,userId:u});
         if(result.status==="closed")return answer(i,{content:"Dieses Event ist nicht mehr offen.",ephemeral:true});
         if(result.status==="full")return answer(i,{content:"Das Event ist bereits voll.",ephemeral:true});
-        if(["joined","left"].includes(result.status))await refreshEvent(i.message,db,result.event);
+        if(["joined","left"].includes(result.status))await refreshEventPosts({db,client,config,event:result.event,cardOnly:true});
         const titles={joined:"✅ Anmeldung bestätigt",already:"ℹ️ Bereits angemeldet",left:"↩️ Abmeldung bestätigt",not_joined:"ℹ️ Keine aktive Anmeldung"};
         const texts={joined:"Du stehst jetzt auf der Teilnehmerliste.",already:"Deine Anmeldung ist bereits gespeichert.",left:"Du wurdest von der Teilnehmerliste entfernt.",not_joined:"Du warst für dieses Event nicht angemeldet."};
         return answer(i,{...fieldsEmbed(titles[result.status],[
@@ -854,7 +890,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     for(const roleId of roleIds){if(member.roles.cache.has(roleId))continue;await member.roles.add(roleId,"Gambinos Verifizierung").catch(error=>{failedRoles.push(roleId);console.warn("Verifizierungsrolle nicht vergeben:",error.message);});}
     try{verifications.save({guildId:i.guildId,userId:i.user.id,data,roleResult:roleIds.length?(failedRoles.length?"teilweise fehlgeschlagen":"vergeben"):null});}
     catch(error){return i.editReply(presentInteractionPayload({content:error.message}));}
-    return i.editReply(presentInteractionPayload({embeds:[embed("✅ Verifizierung abgeschlossen",`Willkommen, **${data.firstName} ${data.lastName}**!\nDein Name lautet jetzt **${data.nickname}**.${roleIds.length&&!failedRoles.length?"\nDu hast jetzt Zugriff auf die Familienbereiche.":""}${failedRoles.length?"\n\n⚠️ Eine Rolle konnte nicht vergeben werden – das Team wurde im Protokoll informiert.":""}${nicknameNote}`)]}));
+    return i.editReply(presentInteractionPayload({embeds:[embed("✅ Verifizierung abgeschlossen",`Willkommen, **${data.firstName} ${data.lastName}**!\nDein Name lautet jetzt **${data.nickname}**.${roleIds.length&&!failedRoles.length?"\nDu kannst jetzt im öffentlichen Chat schreiben.":""}${failedRoles.length?"\n\n⚠️ Eine Rolle konnte nicht vergeben werden – das Team wurde im Protokoll informiert.":""}${nicknameNote}`)]}));
   }
 
   async function confirmPayout(i,{previewId,userId,gross,deduction}){
@@ -1119,7 +1155,6 @@ export function eventEmbed(e,count,participants=[]){
     {name:`🙋 Teilnehmende (${count}${e.max_participants?`/${e.max_participants}`:""})`,value:list.slice(0,1024),inline:false},
   );
 }
-async function refreshEvent(message,db,event){const participants=db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(event.id);await message?.edit({embeds:[eventEmbed(event,participants.length,participants)]}).catch(()=>{});}
 async function targetChannel(guild,id){return id?guild.channels.fetch(id).catch(()=>null):null;}
 export function applicationReviewChannelKey(kind){return kind==="rang"?"CHANNEL_RANK_REVIEW":"CHANNEL_APPLICATION_REVIEW";}
 async function applicationReviewChannel(guild,config,kind){

@@ -105,6 +105,8 @@ const COLUMNS = [
   ["giveaways", "required_role_id", "TEXT"],
   ["automod_actions", "details", "TEXT NOT NULL DEFAULT '{}'"],
   ["events", "series_id", "TEXT"],
+  ["events", "announce_channel_id", "TEXT"],
+  ["events", "announce_message_id", "TEXT"],
 ];
 
 export function initializeSchema(db) {

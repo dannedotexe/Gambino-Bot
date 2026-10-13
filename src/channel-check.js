@@ -8,6 +8,7 @@ import { CHANNEL_BINDINGS } from "./channel-setup.js";
  */
 export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_VERIFICATION_PANEL", label: "Verifizierungs-Panel", audience: "public", expect: ["neu", "verif", "willkommen", "spieler"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"], important: true },
+  { key: "CHANNEL_ACCOUNT_PANEL", label: "„Mein Konto“-Panel", audience: "public", expect: ["konto", "geld", "bank", "auszahl"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_TICKET_PANEL", label: "Ticket-Panel", audience: "public", expect: ["ticket", "support"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_TICKET_CATEGORY", label: "Ticket-Kategorie", type: "category", audience: "any", perms: ["ManageChannels"], important: true },
   { key: "CHANNEL_TICKET_CLOSED_CATEGORY", label: "Kategorie geschlossene Tickets", type: "category", audience: "staff", expect: ["closed", "geschlossen", "archiv"], perms: ["ManageChannels"] },
@@ -16,6 +17,7 @@ export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_APPLICATION_REVIEW", label: "Bewerbungen prüfen", audience: "staff", expect: ["bewerb"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_RANK_REVIEW", label: "Rang-Anträge prüfen", audience: "staff", expect: ["rang"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_EVENT_ANNOUNCEMENTS", label: "Event-Ankündigungen", audience: "public", expect: ["event", "ankünd", "anmeld"], avoid: ["log", "ergebnis"], perms: ["SendMessages", "EmbedLinks"], important: true },
+  { key: "CHANNEL_EVENT_SIGNUP", label: "Event-Anmeldung", audience: "public", expect: ["anmeld", "event", "signup"], avoid: ["log", "ergebnis"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
   { key: "CHANNEL_ACTIVITY_BOARD", label: "Aktivitäten-Übersicht", audience: "public", expect: ["event", "info", "aktiv", "plan"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_EVENT_RESULTS", label: "Event-Ergebnisse", audience: "public", expect: ["ergebnis", "result"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_EVENT_LOG", label: "Event-Log", audience: "any", expect: ["log"], perms: ["SendMessages", "EmbedLinks"] },

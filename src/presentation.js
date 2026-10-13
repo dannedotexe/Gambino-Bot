@@ -129,6 +129,7 @@ const ACTIONS = {
   "giveaway.cancelled": "Giveaway abgebrochen",
   "giveaway.entry": "Giveaway-Teilnahme geändert",
   "finance.correction": "Korrekturbuchung",
+  "finance.account_opened": "Familienkonto angelegt",
   "finance.failed": "Buchung fehlgeschlagen",
   "sanction.settled": "Sanktion vollständig beglichen",
   "sanction.corrected": "Sanktion korrigiert",

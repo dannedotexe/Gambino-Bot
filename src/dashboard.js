@@ -11,7 +11,9 @@ import { applicationDecisionDm, applicationInReviewDm, logEmbed } from "./presen
 import { accessGroups } from "./config.js";
 import { canHandleTicket, createTicketService } from "./services/tickets.js";
 import { createDashboardApi } from "./dashboard-api.js";
+import { createFinance } from "./services/finance.js";
 import { moveTicketToClosed } from "./ticket-channels.js";
+import { deleteEventPosts, publishEvent, refreshEventPosts } from "./event-posts.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dashboard");
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".gif": "image/gif" };
@@ -167,6 +169,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
               return application;
             })();
             if (!changed) return send(res, 409, { error: "Der Antrag wurde parallel bereits bearbeitet." });
+            if (status === "accepted" && changed.kind === "bewerbung" && config.ACCOUNT_AUTO_OPEN_FOR_MEMBERS) createFinance(db).openAccount({ guildId: config.DISCORD_GUILD_ID, userId: changed.user_id, actorId: member.id, note: "Familienbewerbung angenommen" });
             await refreshApplication(changed);
             const dmSent = await client.users.fetch(changed.user_id).then(user => user.send(applicationDecisionDm({ kind: changed.kind, status, applicationId: id, reason })).then(() => true)).catch(() => false);
             return send(res, 200, { ok: true, message: status === "accepted" ? (dmSent ? "Antrag angenommen und Antragsteller privat benachrichtigt." : "Antrag angenommen. Eine private Nachricht konnte nicht zugestellt werden.") : (dmSent ? "Antrag mit Begründung abgelehnt; die Rückmeldung wurde privat gesendet." : "Antrag mit Begründung abgelehnt. Eine private Nachricht konnte nicht zugestellt werden.") });
@@ -211,17 +214,17 @@ export function createDashboard({ db, client, config, settings = null, series = 
             const starts = parseEventDate(body.startsAt, config.TIMEZONE);
             const maximum = body.maximum == null || body.maximum === "" ? null : Number(body.maximum);
             if (name.length < 3 || name.length > 100 || description.length > 1000 || location.length < 2 || location.length > 100 || !starts || starts.getTime() < Date.now() + 60_000 || (maximum !== null && (!Number.isInteger(maximum) || maximum < 1 || maximum > 500))) return send(res, 400, { error: `Bitte Name, Treffpunkt, ein gültiges zukünftiges Datum${maximum !== null ? " sowie ein Teilnehmerlimit zwischen 1 und 500" : ""} eintragen (${config.TIMEZONE}).` });
-            const target = await ensureGuildChannel(config.CHANNEL_EVENT_ANNOUNCEMENTS);
-            if (!target?.isTextBased()) return send(res, 409, { error: "Der Ankündigungskanal ist nicht konfiguriert oder nicht erreichbar." });
+            const target = await ensureGuildChannel(config.CHANNEL_EVENT_SIGNUP || config.CHANNEL_EVENT_ANNOUNCEMENTS);
+            if (!target?.isTextBased()) return send(res, 409, { error: "Kein Event-Channel eingestellt oder erreichbar (Einstellungen → Channels → Event-Anmeldung / Event-Ankündigungen)." });
             const id = randomUUID();
             const event = { id, guild_id: config.DISCORD_GUILD_ID, name, description, starts_at: starts.toISOString(), location, host_id: member.id, equipment: String(body.equipment ?? "").slice(0, 500), notes: String(body.notes ?? "").slice(0, 500), max_participants: maximum };
-            const message = await target.send({ embeds: [eventEmbed(event, 0)], components: [eventButtons(id)] });
+            const posted = await publishEvent({ db, client, config, event: { ...event, status: "scheduled" }, fallbackChannel: target });
             try {
               db.transaction(() => {
-                db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'scheduled',?)").run(id, event.guild_id, target.id, message.id, event.name, event.description, event.starts_at, event.location, event.host_id, event.equipment, event.notes, event.max_participants, now);
-                audit(db, config.DISCORD_GUILD_ID, member.id, "event.created", id, { name, startsAt: event.starts_at, channelId: target.id });
+                db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,announce_channel_id,announce_message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'scheduled',?)").run(id, event.guild_id, posted.channelId, posted.messageId, posted.announceChannelId, posted.announceMessageId, event.name, event.description, event.starts_at, event.location, event.host_id, event.equipment, event.notes, event.max_participants, now);
+                audit(db, config.DISCORD_GUILD_ID, member.id, "event.created", id, { name, startsAt: event.starts_at, channelId: posted.channelId });
               })();
-            } catch (error) { await message.delete().catch(() => {}); throw error; }
+            } catch (error) { await deleteEventPosts({ client, posted }); throw error; }
             return send(res, 201, { ok: true, message: "Event veröffentlicht und zur Übersicht hinzugefügt." });
           }
           if ((match = /^\/api\/events\/([\w-]+)\/cancel$/.exec(url.pathname))) {
@@ -234,11 +237,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
               return changed.changes;
             })();
             if (!cancelled) return send(res, 409, { error: "Das Event wurde parallel geändert." });
-            const channel = await ensureGuildChannel(event.channel_id), message = channel && event.message_id ? await channel.messages.fetch(event.message_id).catch(() => null) : null;
-            if (message) {
-              const participants = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(id);
-              await message.edit({ embeds: [eventEmbed({ ...event, name: `ABGESAGT · ${event.name}` }, participants.length, participants)], components: [] }).catch(() => {});
-            }
+            await refreshEventPosts({ db, client, config, event: { ...event, status: "cancelled" }, state: "cancelled" });
             return send(res, 200, { ok: true, message: "Event abgesagt und Anmeldung geschlossen." });
           }
           const extended = await extendedApi.post(member, url, body);

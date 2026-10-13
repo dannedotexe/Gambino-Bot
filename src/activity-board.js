@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { EmbedBuilder } from "discord.js";
 import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
-import { eventButtons, eventEmbed } from "./commands.js";
+import { publishEvent, refreshEventPosts } from "./event-posts.js";
 import { describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 
@@ -48,9 +48,10 @@ export async function createSeriesEvents({ db, client, config, series, reference
   if (!guildId) return 0;
   const due = series.dueOccurrences(guildId, config.TIMEZONE, reference);
   if (!due.length) return 0;
-  const channel = config.CHANNEL_EVENT_ANNOUNCEMENTS ? await client.channels.fetch(config.CHANNEL_EVENT_ANNOUNCEMENTS).catch(() => null) : null;
+  const channelId = config.CHANNEL_EVENT_SIGNUP || config.CHANNEL_EVENT_ANNOUNCEMENTS;
+  const channel = channelId ? await client.channels.fetch(channelId).catch(() => null) : null;
   if (!channel) {
-    if (!missingChannelWarned) console.warn("Aktivitäten fällig, aber CHANNEL_EVENT_ANNOUNCEMENTS ist nicht gesetzt oder nicht erreichbar. Bitte in den Einstellungen festlegen.");
+    if (!missingChannelWarned) console.warn("Aktivitäten fällig, aber weder Event-Anmeldung noch Event-Ankündigungen sind eingestellt/erreichbar. Bitte in den Einstellungen festlegen.");
     missingChannelWarned = true;
     return 0;
   }
@@ -58,16 +59,16 @@ export async function createSeriesEvents({ db, client, config, series, reference
   let created = 0;
   for (const { series: item, startsAt } of due) {
     const id = randomUUID(), createdAt = new Date().toISOString();
-    const event = { id, guild_id: guildId, name: item.name, description: item.description || `Wiederkehrende Familienaktivität · ${describeSchedule(item)}`, starts_at: startsAt.toISOString(), location: item.location, host_id: client.user.id, equipment: "", notes: "Automatisch aus dem Aktivitätenplan erstellt.", max_participants: item.max_participants };
+    const event = { id, guild_id: guildId, name: item.name, description: item.description || "", starts_at: startsAt.toISOString(), location: item.location, host_id: client.user.id, equipment: "", notes: "", max_participants: item.max_participants, series_id: item.id, status: "scheduled" };
     // Reservierung über den Unique-Index (series_id, starts_at): parallele Ticks oder Neustarts erzeugen kein Duplikat.
     const reserved = db.prepare("INSERT OR IGNORE INTO events(id,guild_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at,series_id) VALUES(?,?,?,?,?,?,?,?,?,?,'scheduled',?,?)")
       .run(id, guildId, event.name, event.description, event.starts_at, event.location, event.host_id, event.equipment, event.notes, event.max_participants, createdAt, item.id).changes;
     if (!reserved) continue;
     try {
-      const sent = await channel.send({ embeds: [eventEmbed(event, 0)], components: [eventButtons(id)] });
+      const posted = await publishEvent({ db, client, config, event, fallbackChannel: channel });
       db.transaction(() => {
-        db.prepare("UPDATE events SET channel_id=?,message_id=? WHERE id=?").run(channel.id, sent.id, id);
-        audit(db, guildId, client.user.id, "event.created", id, { name: event.name, startsAt: event.starts_at, channelId: channel.id, seriesId: item.id });
+        db.prepare("UPDATE events SET channel_id=?,message_id=?,announce_channel_id=?,announce_message_id=? WHERE id=?").run(posted.channelId, posted.messageId, posted.announceChannelId, posted.announceMessageId, id);
+        audit(db, guildId, client.user.id, "event.created", id, { name: event.name, startsAt: event.starts_at, channelId: posted.channelId, seriesId: item.id });
       })();
       created++;
     } catch (error) {
@@ -92,10 +93,7 @@ export async function endSeriesEvents({ db, client, config, reference = new Date
     if (!changed) continue;
     if (onEnded) await Promise.resolve(onEnded(row)).catch(() => {});
     if (!row.channel_id || !row.message_id) continue;
-    const channel = await client.channels.fetch(row.channel_id).catch(() => null);
-    const message = channel ? await channel.messages.fetch(row.message_id).catch(() => null) : null;
-    const participants = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(row.id);
-    await message?.edit({ embeds: [eventEmbed({ ...row, name: `BEENDET · ${row.name}` }, participants.length, participants)], components: [] }).catch(() => {});
+    await refreshEventPosts({ db, client, config, event: { ...row, status: "ended" }, state: "ended" });
   }
   return rows.length;
 }

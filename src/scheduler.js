@@ -6,6 +6,7 @@ import { createTicketService } from "./services/tickets.js";
 import { collectStats } from "./services/stats.js";
 import { createSeriesEvents, endSeriesEvents, refreshActivityBoard } from "./activity-board.js";
 import { ensurePanels, postEventResult } from "./panels.js";
+import { sendEventReminder } from "./event-posts.js";
 import { panelTexts } from "./services/texts.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
@@ -86,11 +87,7 @@ async function sendReminders(db,client,config,now){
       return inserted;
     })();
     if(!claimed)continue;
-    const channel=await client.channels.fetch(event.channel_id).catch(()=>null);
-    if(!channel){console.warn(`Event-Erinnerung ${event.id}: Channel nicht erreichbar.`);continue;}
-    const participants=db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at LIMIT 50").all(event.id).map(r=>r.user_id);
-    const start=Math.floor(new Date(event.starts_at).getTime()/1000);
-    await channel.send({content:participants.length?participants.map(id=>`<@${id}>`).join(" "):undefined,embeds:[logEmbed("⏰ Event-Erinnerung",`**${event.name}** beginnt <t:${start}:R>.\n**Start:** <t:${start}:F>\n**Treffpunkt:** ${event.location||"Noch nicht angegeben"}${event.equipment?`\n**Ausrüstung:** ${event.equipment}`:""}`)],allowedMentions:{users:participants}}).catch(error=>console.warn(`Event-Erinnerung ${event.id} fehlgeschlagen:`,error.message));
+    await sendEventReminder({db,client,config,event});
   }
 }
 

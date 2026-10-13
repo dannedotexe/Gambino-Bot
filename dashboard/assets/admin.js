@@ -84,11 +84,22 @@ function renderPreview() {
   const fields = [1, 2, 3].map(n => [values[`field${n}Name`], values[`field${n}Value`], n < 3]).filter(([name, value]) => name && value);
   const extras = panel.id === "activityBoard" ? [[values.scheduledTitle, "**Bizwar** · täglich · 01:05, 19:05 Uhr · nächstes in 2 Stunden", false], [values.flexibleTitle, "**Ladenraub** · alle 3 Stunden möglich", false]].filter(([n]) => n)
     : panel.id === "staffDashboard" ? [["🎫 Offene Tickets", "3 · davon 1 ohne Bearbeiter", true], ["📨 Offene Anträge", "2", true]] : [];
+  if (panel.id === "events") return renderEventPreview(values);
   const buttons = panel.id === "application" ? `<div class="dc-buttons"><span class="dc-btn primary">${escapeHtml(values.buttonApply)}</span><span class="dc-btn">${escapeHtml(values.buttonRank)}</span></div>`
     : panel.id === "ticket" ? `<div class="dc-select">${escapeHtml(values.placeholder)}<span>⌄</span></div>` : panel.id === "staffDashboard" ? '<div class="dc-select">📂 Ansicht wählen …<span>⌄</span></div>' : "";
   $("texts-preview").innerHTML = `<div class="dc-head"><img src="/assets/gambinos-profile.gif" alt=""><b>Gambino Helper</b><span class="dc-app">APP</span></div><div class="dc-embed">${values.author ? `<div class="dc-author">${escapeHtml(values.author)}</div>` : ""}${values.title ? `<div class="dc-title">${escapeHtml(values.title)}</div>` : ""}${values.description ? `<div class="dc-desc">${markdown(values.description)}</div>` : ""}<div class="dc-fields">${[...fields, ...extras].map(([name, value, inline]) => `<div class="dc-field ${inline ? "inline" : ""}"><b>${escapeHtml(name)}</b><div>${markdown(value)}</div></div>`).join("")}</div>${values.footer ? `<div class="dc-footer">${escapeHtml(values.footer)}</div>` : ""}</div>${buttons}`;
   const embed = $("texts-preview").querySelector(".dc-embed");
   if (embed) embed.style.borderLeftColor = /^#[0-9a-f]{6}$/i.test(values.color ?? "") ? values.color : "#d4af37";
+  document.querySelectorAll("#texts-form [data-text]").forEach(input => { const counter = input.parentElement.querySelector(".counter"); if (counter && input.maxLength > 0) counter.textContent = `${input.value.length}/${input.maxLength}`; });
+}
+function renderEventPreview(values) {
+  const fill = text => markdown(String(text ?? "").replaceAll("{name}", "Bizwar").replaceAll("{zeit}", "Mittwoch, 14. Oktober 2026 19:05").replaceAll("{uhrzeit}", "19:05").replaceAll("{relativ}", "in 2 Stunden").replaceAll("{treffpunkt}", "Hauptquartier").replaceAll("{anmeldung}", "#event-anmeldung"));
+  const head = '<div class="dc-head"><img src="/assets/gambinos-profile.gif" alt=""><b>Gambino Helper</b><span class="dc-app">APP</span></div>';
+  const author = values.author ? `<div class="dc-author">${escapeHtml(values.author)}</div>` : "";
+  $("texts-preview").innerHTML = `<div class="sub-label">#event-ankündigungen</div>${head}<div class="dc-embed">${author}<div class="dc-desc">${fill(values.announceText)}</div></div><div class="dc-buttons"><span class="dc-btn">${escapeHtml(values.announceButton)} ↗</span></div>
+    <div class="sub-label spaced">#event-anmeldung</div>${head}<div class="dc-embed">${author}<div class="dc-title">📅 Bizwar</div><div class="dc-fields"><div class="dc-field inline"><b>🕒 Beginn</b><div>Mittwoch, 14. Oktober 2026 19:05<br>in 2 Stunden</div></div><div class="dc-field"><b>🙋 ${escapeHtml(values.participantsLabel)} (0)</b><div>${escapeHtml(values.emptyParticipants)}</div></div></div><div class="dc-footer">${escapeHtml(values.seriesFooter)} · täglich · 01:05, 19:05 Uhr</div></div><div class="dc-buttons"><span class="dc-btn ok">${escapeHtml(values.joinButton)}</span><span class="dc-btn">${escapeHtml(values.leaveButton)}</span></div>
+    <div class="sub-label spaced">Erinnerung (Antwort auf die Karte)</div>${head}<div class="dc-embed"><div class="dc-desc">${fill(values.reminderText)}</div></div>`;
+  $("texts-preview").querySelectorAll(".dc-embed").forEach(embed => { embed.style.borderLeftColor = /^#[0-9a-f]{6}$/i.test(values.color ?? "") ? values.color : "#d4af37"; });
   document.querySelectorAll("#texts-form [data-text]").forEach(input => { const counter = input.parentElement.querySelector(".counter"); if (counter && input.maxLength > 0) counter.textContent = `${input.value.length}/${input.maxLength}`; });
 }
 function renderTexts() {
@@ -103,7 +114,7 @@ function renderTexts() {
       : `<input data-text="${field.key}" maxlength="${field.max}" value="${value}">`;
     return `<label>${escapeHtml(field.label)}${field.type === "color" ? "" : ' <small class="counter"></small>'}${input}</label>`;
   }).join("");
-  $("texts-hint").textContent = panel.channelSet ? "Dieses Panel wird automatisch in seinem Channel verwaltet." : "Für dieses Panel ist noch kein Channel eingestellt (Einstellungen → Channels). Ein bereits gepostetes Panel des Bots wird dort automatisch übernommen.";
+  $("texts-hint").textContent = panel.id === "events" ? "Platzhalter: {name} {zeit} {uhrzeit} {relativ} {treffpunkt}. Gilt für alle neuen Events; laufende Event-Posts werden beim Speichern aktualisiert." : panel.channelSet ? "Dieses Panel wird automatisch in seinem Channel verwaltet." : "Für dieses Panel ist noch kein Channel eingestellt (Einstellungen → Channels). Ein bereits gepostetes Panel des Bots wird dort automatisch übernommen.";
   renderPreview();
 }
 document.addEventListener("input", event => { if (event.target.closest?.("#texts-form")) renderPreview(); });

@@ -14,6 +14,7 @@ import { publishActivityBoard, refreshActivityBoard } from "./activity-board.js"
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToOpen } from "./ticket-channels.js";
+import { refreshEventPosts } from "./event-posts.js";
 import { createVerificationService } from "./services/verification.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -70,7 +71,9 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const fetched = await g.members.fetch({ user: missing.slice(0, 100) }).catch(() => null);
       if (fetched?.forEach) fetched.forEach(m => names.set(m.id, m.displayName ?? m.user?.username));
     }
-    return Object.fromEntries(unique.map(id => [id, g?.members?.cache?.get?.(id)?.displayName ?? names.get(id) ?? client.users?.cache?.get?.(id)?.username ?? null]));
+    // Verifizierte Mitglieder erscheinen mit „ID | Vorname Nachname“, auch wenn Discord den Namen nicht ändern konnte.
+    const verified = new Map(unique.length ? db.prepare(`SELECT user_id,nickname FROM member_verifications WHERE guild_id=? AND user_id IN (${unique.map(() => "?").join(",")})`).all(guildId, ...unique).map(r => [r.user_id, r.nickname]) : []);
+    return Object.fromEntries(unique.map(id => [id, verified.get(id) ?? g?.members?.cache?.get?.(id)?.displayName ?? names.get(id) ?? client.users?.cache?.get?.(id)?.username ?? null]));
   }
   const withNames = async (payload, ids) => ({ ...payload, names: await resolveNames(ids) });
 
@@ -81,16 +84,8 @@ export function createDashboardApi({ db, client, config, settings = null, series
     if (target.user?.bot) throw new HttpError(400, "Bots können kein Familienkonto oder Sanktionen haben.");
     return target;
   }
-  async function refreshEventMessage(event, { closedTitle = null } = {}) {
-    const ch = await channel(event.channel_id);
-    const message = ch && event.message_id ? await ch.messages.fetch(event.message_id).catch(() => null) : null;
-    if (!message) return false;
-    const participants = events.participants(event.id);
-    const payload = closedTitle
-      ? { embeds: [eventEmbed({ ...event, name: `${closedTitle} · ${event.name}` }, participants.length, participants)], components: [] }
-      : { embeds: [eventEmbed(event, participants.length, participants)], components: [eventButtons(event.id)] };
-    return message.edit(payload).then(() => true).catch(() => false);
-  }
+  const refreshEventMessage = (event, { closedTitle = null } = {}) => refreshEventPosts({ db, client, config, event, state: closedTitle ? "ended" : event.status });
+
 
   // ---------------------------------------------------------------- Lesen
   const getRoutes = [
@@ -315,6 +310,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (!result) throw new HttpError(404, "Event nicht gefunden oder abgesagt.");
       return { message: body.status === "present" ? "Als anwesend dokumentiert." : "Als abwesend dokumentiert." };
     }],
+    [/^\/api\/accounts\/(\d{17,20})\/open$/, async (member, body, [, userId]) => {
+      need(member, "finance", "Finanzrolle");
+      await requireGuildMember(userId);
+      const result = finance.openAccount({ guildId, userId, actorId: member.id, note: text(body.note, { max: 300, label: "Notiz" }) });
+      return { message: result.created ? "Familienkonto angelegt." : "Für dieses Mitglied gibt es bereits ein Familienkonto." };
+    }],
     [/^\/api\/accounts\/(\d{17,20})\/credit$/, async (member, body, [, userId]) => {
       need(member, "finance", "Finanzrolle");
       await requireGuildMember(userId);
@@ -445,7 +446,11 @@ export function createDashboardApi({ db, client, config, settings = null, series
       catch (error) { throw new HttpError(400, error.message); }
       const channelKey = PANEL_TEXTS[panel].channelKey;
       let note = " Das Panel wird angepasst, sobald ein Channel dafür eingestellt ist.";
-      if (config[channelKey]) {
+      if (panel === "events") {
+        const open = db.prepare("SELECT * FROM events WHERE guild_id=? AND status='scheduled' AND message_id IS NOT NULL ORDER BY starts_at LIMIT 25").all(guildId);
+        for (const event of open) await refreshEventPosts({ db, client, config, event }).catch(() => {});
+        note = open.length ? ` ${open.length} laufende Event-Posts wurden aktualisiert; neue Events nutzen die Texte automatisch.` : " Neue Events nutzen die Texte automatisch.";
+      } else if (config[channelKey]) {
         const [result] = await ensurePanels({ db, client, config, series, only: [channelKey] }).catch(() => []);
         note = ["ok", "adopted"].includes(result?.status) ? " Das Panel in Discord wurde aktualisiert." : result?.status === "posted" ? " Das Panel wurde neu im Channel gepostet." : " Das Panel konnte in Discord nicht aktualisiert werden – bitte Channel-Prüfung ansehen.";
       }

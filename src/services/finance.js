@@ -94,6 +94,13 @@ export function createFinance(db) {
     return db.prepare("SELECT * FROM transactions WHERE id=?").get(txId);
   });
 
+  /** Legt ein leeres Familienkonto an (Guthaben 0). Bereits vorhandene Konten bleiben unverändert. */
+  const openAccount = db.transaction(({ guildId, userId, actorId, note = "" }) => {
+    const created = db.prepare("INSERT INTO accounts(guild_id,user_id,balance_cents,updated_at) VALUES(?,?,0,?) ON CONFLICT(guild_id,user_id) DO NOTHING").run(guildId, userId, now()).changes === 1;
+    if (created) audit(db, guildId, actorId, "finance.account_opened", userId, { reason: String(note).trim().slice(0, 300) });
+    return { created, balance: balance(guildId, userId) };
+  });
+
   const sanction = db.transaction(({ guildId, userId, actorId, cents, reason, caseRef = null }) => {
     if (!amount(cents) || !reason?.trim()) throw new FinanceError("Sanktionsbetrag und Grund sind erforderlich.", "INVALID_INPUT");
     const ts = now(), id = randomUUID();
@@ -202,7 +209,7 @@ export function createFinance(db) {
   }
 
   return {
-    balance, openSanctionTotal, previewPayout, sanctionDetails,
+    balance, openSanctionTotal, previewPayout, sanctionDetails, openAccount,
     credit: withFailureAudit("credit", credit),
     correction: withFailureAudit("correction", correction),
     sanction, warn,

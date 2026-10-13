@@ -60,6 +60,15 @@ client.on(Events.InteractionCreate,async interaction=>{
     if(interaction.isRepliable()&&!interaction.replied&&!interaction.deferred)await interaction.reply({content:"Die Aktion ist fehlgeschlagen. Bitte versuche es später erneut.",flags:MessageFlags.Ephemeral}).catch(()=>{});
   }
 });
+// Neue Familienmitglieder (Mitglieder-Rolle erhalten) bekommen automatisch ein Familienkonto.
+client.on(Events.GuildMemberUpdate,(_old,member)=>{
+  try{
+    if(!config.ACCOUNT_AUTO_OPEN_FOR_MEMBERS||member.user?.bot)return;
+    if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+    if(!(config.ROLE_MEMBERS??[]).some(id=>member.roles.cache.has(id)))return;
+    finance.openAccount({guildId:member.guild.id,userId:member.id,actorId:client.user?.id??"system",note:"Familienmitglieder-Rolle erhalten"});
+  }catch(error){console.error("Familienkonto konnte nicht automatisch angelegt werden:",error.message);}
+});
 // Gelöschte Ticket-Channels: Ticket wird geschlossen und protokolliert, Daten und Transkript bleiben erhalten.
 const ticketService=createTicketService(db);
 client.on(Events.ChannelDelete,channel=>{

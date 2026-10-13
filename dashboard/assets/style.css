@@ -177,3 +177,4 @@ footer{text-align:center;color:var(--faint);font-size:10px;letter-spacing:.14em;
   .live{display:none}.finance{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+.dc-btn.ok{background:#248046}.sub-label.spaced{margin-top:16px}.texts-grid .sub-label{margin-bottom:6px}
