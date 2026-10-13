@@ -33,7 +33,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
   const sign = value => createHmac("sha256", secret).update(value).digest("base64url");
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
   const send = (res, status, body, type = "application/json; charset=utf-8", headers = {}) => {
-    res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "Content-Security-Policy": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:", ...headers });
+    res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "Content-Security-Policy": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data: https://cdn.discordapp.com", ...headers });
     res.end(type.startsWith("application/json") ? JSON.stringify(body) : body);
   };
   const memberFor = async userId => {
@@ -42,7 +42,9 @@ export function createDashboard({ db, client, config, settings = null, series = 
     if (!member) return null;
     const roles = staffRoleIds().filter(id => member.roles.cache.has(id));
     const owner = config.BOT_OWNER_IDS?.includes(userId) ?? false;
-    return roles.length || owner ? { id: member.id, tag: member.user.tag, displayName: member.displayName, roles, owner } : null;
+    // Server-Profilbild bevorzugt, sonst globales Discord-Profilbild (nur Bilder von cdn.discordapp.com).
+    const avatar = typeof member.displayAvatarURL === "function" ? member.displayAvatarURL({ size: 64, extension: "png" }) : null;
+    return roles.length || owner ? { id: member.id, tag: member.user.tag, displayName: member.displayName, roles, owner, avatar } : null;
   };
   const can = (member, group) => member.owner || (config[group] ?? []).some(id => member.roles.includes(id));
   const readBody = req => new Promise((resolve, reject) => {

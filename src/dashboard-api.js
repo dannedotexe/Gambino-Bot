@@ -90,7 +90,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   // ---------------------------------------------------------------- Lesen
   const getRoutes = [
     [/^\/api\/me$/, async member => ({
-      member: { id: member.id, name: member.displayName, owner: member.owner },
+      member: { id: member.id, name: member.displayName, owner: member.owner, avatar: /^https:\/\/cdn\.discordapp\.com\//.test(member.avatar ?? "") ? member.avatar : null },
       capabilities: {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),

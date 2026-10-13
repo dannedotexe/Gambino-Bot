@@ -34,8 +34,9 @@ button{font:inherit;color:inherit}a{color:inherit}
 .nav-item span:first-of-type{flex:1}
 .nav-badge{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--red);color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center}
 .sidebar-foot{border-top:1px solid var(--line);padding-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.me{display:flex;align-items:center;gap:9px;min-width:0}.me b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}.me small{color:var(--muted);font-size:11px}
-.avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:linear-gradient(135deg,#e22c3b,#6d1019);font-weight:800}
+.me{display:flex;align-items:center;gap:10px;min-width:0;flex:1}.me>div{min-width:0;flex:1}.me b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.me small{display:block;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.logout-btn{flex:none;width:34px;height:34px;display:grid;place-items:center;border-radius:9px;border:1px solid #ffffff14;background:#ffffff08;color:var(--muted);cursor:pointer}.logout-btn:hover{color:#fff;background:#d927362a;border-color:#d9273666}.logout-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;overflow:hidden;background:linear-gradient(135deg,#e22c3b,#6d1019);font-weight:800}.avatar.has-image{background:none;box-shadow:0 0 0 2px #d9273655}.avatar img{width:100%;height:100%;object-fit:cover;display:block}
 .quiet{background:#ffffff08;border:1px solid #ffffff14;border-radius:8px;color:var(--muted);cursor:pointer;padding:7px 10px;font-size:12px}.quiet:hover{color:#fff;background:#ffffff14}
 .content{min-width:0;padding:0 32px 24px}
 .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;height:64px;margin:0 -32px 8px;padding:0 32px;background:#0c0b0ecc;backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}

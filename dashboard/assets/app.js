@@ -460,10 +460,20 @@ async function start() {
     if (response.status === 401) { login.classList.remove("hidden"); dashboard.classList.add("hidden"); return; }
     if (!response.ok) throw new Error("Dashboard konnte nicht geladen werden.");
     state.me = await response.json(); state.timezone = state.me.settings.timezone || state.timezone;
-    login.classList.add("hidden"); dashboard.classList.remove("hidden"); $("staff-name").textContent = state.me.member.name;
-    $("staff-avatar").textContent = (state.me.member.name || "G").trim().charAt(0).toUpperCase();
+    login.classList.add("hidden"); dashboard.classList.remove("hidden");
+    // Verifizierte Namen haben das Format „ID | Vorname Nachname“: Name groß, ID klein darunter.
+    const fullName = String(state.me.member.name || "Staff").trim(), parts = /^(\d+)\s*\|\s*(.+)$/.exec(fullName);
+    const displayName = parts ? parts[2] : fullName;
+    $("staff-name").textContent = displayName; $("staff-name").title = fullName;
+    $("staff-avatar").textContent = (displayName.match(/\p{L}/u)?.[0] ?? displayName.charAt(0) ?? "G").toUpperCase();
+    if (state.me.member.avatar) {
+      const img = new Image(); img.alt = ""; img.referrerPolicy = "no-referrer";
+      img.onload = () => { $("staff-avatar").textContent = ""; $("staff-avatar").appendChild(img); $("staff-avatar").classList.add("has-image"); };
+      img.src = state.me.member.avatar;
+    }
     const caps = state.me.capabilities;
-    $("staff-role").textContent = state.me.member.owner ? "Bot-Owner" : caps.leaders ? "Leitung" : caps.finance ? "Finanzen" : caps.applications ? "Reviewer" : caps.events ? "Event-Team" : "Staff";
+    const roleLabel = state.me.member.owner ? "Bot-Owner" : caps.leaders ? "Leitung" : caps.finance ? "Finanzen" : caps.applications ? "Reviewer" : caps.events ? "Event-Team" : "Staff";
+    $("staff-role").textContent = parts ? `${roleLabel} · ID ${parts[1]}` : roleLabel;
     const wanted = location.hash.slice(1);
     state.tab = TABS.some(([id, , allowed]) => id === wanted && allowed(state.me.capabilities)) ? wanted : "overview";
     renderTabs(); await refresh();
