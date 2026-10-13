@@ -14,7 +14,7 @@ test("Name wird als „ID | Vorname Nachname“ gebaut und geprüft", () => {
   assert.throws(() => buildVerification({ ingameId: "12a", firstName: "Tony", lastName: "Gambino" }), /Ziffern/);
   assert.throws(() => buildVerification({ ingameId: "1", firstName: "T0ny", lastName: "Gambino" }), /Vornamen/);
   assert.throws(() => buildVerification({ ingameId: "1234567890", firstName: "Maximilianaaaa", lastName: "Mustermannnnnn" }), /zu lang/);
-  assert.equal(buildVerificationPanelPayload().components[0].components[0].data.custom_id, "verify:open");
+  assert.deepEqual(buildVerificationPanelPayload().components[0].components.map(b => b.data.custom_id), ["verify:open", "verify:rename"]);
 });
 
 test("eine Ingame-ID gehört nur einem Discord-Konto; Neu-Verifizierung aktualisiert", () => {
@@ -70,4 +70,27 @@ test("Server-Inhaber wird verifiziert und bekommt den Namen als Hinweis", async 
   assert.equal(x.member.nickname, null);
   assert.match(text(x.replies.at(-1)), /Server-Inhaber/);
   assert.ok(x.member.roles.cache.has(VERIFIED));
+});
+
+test("Name ändern: nur für Verifizierte, aktualisiert Namen und protokolliert den alten", async () => {
+  const x = setup();
+  const notVerified = [];
+  await x.handler.button({ customId: "verify:rename", guildId: G, user: { id: "30000000000000001" }, inGuild: () => true, reply: async p => notVerified.push(p) });
+  assert.match(text(notVerified[0]), /noch nicht verifiziert/);
+  await x.handler.modal(x.modal("30000000000000001", { ingame_id: "4711", first_name: "Paulie", last_name: "Walnuts" }));
+  let shown = null;
+  await x.handler.button({ customId: "verify:rename", guildId: G, user: { id: "30000000000000001" }, inGuild: () => true, showModal: async m => { shown = m; } });
+  assert.equal(shown.data.title, "Namen ändern (ID 4711)");
+  assert.deepEqual(shown.components.map(row => row.components[0].data.custom_id), ["first_name", "last_name"], "ID ist nicht änderbar");
+  assert.equal(shown.components[0].components[0].data.value, "Paulie", "bisherige Angaben vorausgefüllt");
+  const again = [];
+  await x.handler.button({ customId: "verify:open", guildId: G, user: { id: "30000000000000001" }, inGuild: () => true, reply: async p => again.push(p) });
+  assert.match(text(again[0]), /bereits verifiziert/);
+  const rename = x.modal("30000000000000001", { ingame_id: "9999", first_name: "Paul", last_name: "Gualtieri" });
+  rename.customId = "verify:rename-submit";
+  await x.handler.modal(rename);
+  assert.equal(x.member.nickname, "4711 | Paul Gualtieri");
+  assert.match(text(x.replies.at(-1)), /Name geändert[\s\S]*Vorher: 4711 \| Paulie Walnuts/);
+  const log = x.db.prepare("SELECT details FROM audit_logs WHERE action='member.verification_updated'").get();
+  assert.match(log.details, /Paulie Walnuts/);
 });

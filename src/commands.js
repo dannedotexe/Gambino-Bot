@@ -93,7 +93,10 @@ export function buildAccountPanelPayload(texts=defaultsFor("account")) {
 }
 
 export function buildVerificationPanelPayload(texts=defaultsFor("verification")) {
-  return {embeds:[textEmbed(texts)],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("verify:open").setLabel(texts.button).setStyle(ButtonStyle.Success))]};
+  return {embeds:[textEmbed(texts)],components:[new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("verify:open").setLabel(texts.button).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("verify:rename").setLabel(texts.buttonRename||"✏️  Name ändern").setStyle(ButtonStyle.Secondary),
+  )]};
 }
 
 export function buildTicketPanelPayload(config,texts=defaultsFor("ticket")) {
@@ -794,7 +797,15 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if(wrongGuild(i))return answer(i,{content:"Der Bot ist für diesen Server nicht freigeschaltet.",ephemeral:true});
       const [kind,action,id,extra,expectedDeduction]=i.customId.split(":");const g=i.guildId,u=i.user.id;
       if(kind==="setup")return answer(i,{content:"Dieser Channel-Einrichtungsbefehl wurde entfernt.",ephemeral:true});
-      if(kind==="verify"&&action==="open")return openVerification(i);
+      if(kind==="verify"&&action==="open"){
+        const existing=verifications.byUser(i.guildId,i.user.id);
+        if(existing)return answer(i,{content:`Du bist bereits verifiziert als **${existing.nickname}**.\nUm deinen Namen zu ändern, nutze „Name ändern“. Die Ingame-ID kann nur das Team zurücksetzen – melde dich dafür per Ticket.`,ephemeral:true});
+        return openVerification(i);
+      }
+      if(kind==="verify"&&action==="rename"){
+        if(!verifications.byUser(i.guildId,i.user.id))return answer(i,{content:"Du bist noch nicht verifiziert. Bitte klicke zuerst auf „Verifizieren“.",ephemeral:true});
+        return openVerification(i,{rename:true});
+      }
       if(kind==="account"){
         const gate=memberGate(i);if(gate)return answer(i,{content:"Das Familienkonto gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});
         if(action==="balance")return answer(i,balanceView(g,u));
@@ -859,20 +870,24 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     } catch(e){if(!(e instanceof FinanceError))console.error("Button action failed:",e);return replyError(i,e);}
   }
 
-  function openVerification(i){
+  function openVerification(i,{rename=false}={}){
     const previous=verifications.byUser(i.guildId,i.user.id);
     const field=(id,label,max,value,placeholder)=>{const input=new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(TextInputStyle.Short).setRequired(true).setMinLength(id==="ingame_id"?1:2).setMaxLength(max).setPlaceholder(placeholder);if(value)input.setValue(value);return new ActionRowBuilder().addComponents(input);};
-    const modal=new ModalBuilder().setCustomId("verify:submit").setTitle(previous?"Verifizierung aktualisieren":"Gambinos Verifizierung").addComponents(
-      field("ingame_id","Ingame-ID",10,previous?.ingame_id,"z. B. 12345"),
+    // Beim Namen ändern bleibt die Ingame-ID fest; nur Vor- und Nachname sind änderbar.
+    const modal=new ModalBuilder().setCustomId(rename?"verify:rename-submit":"verify:submit").setTitle(rename?`Namen ändern (ID ${previous.ingame_id})`.slice(0,45):"Gambinos Verifizierung").addComponents(
+      ...(rename?[]:[field("ingame_id","Ingame-ID",10,previous?.ingame_id,"z. B. 12345")]),
       field("first_name","Vorname (Ingame)",20,previous?.first_name,"z. B. Tony"),
       field("last_name","Nachname (Ingame)",20,previous?.last_name,"z. B. Gambino"),
     );
     return i.showModal(modal);
   }
-  async function submitVerification(i){
+  async function submitVerification(i,{rename=false}={}){
     let data;
-    try{data=buildVerification({ingameId:i.fields.getTextInputValue("ingame_id"),firstName:i.fields.getTextInputValue("first_name"),lastName:i.fields.getTextInputValue("last_name")});verifications.assertAvailable(i.guildId,i.user.id,data.ingameId);}
+    const stored=rename?verifications.byUser(i.guildId,i.user.id):null;
+    if(rename&&!stored)return answer(i,{content:"Du bist noch nicht verifiziert. Bitte klicke zuerst auf „Verifizieren“.",ephemeral:true});
+    try{data=buildVerification({ingameId:rename?stored.ingame_id:i.fields.getTextInputValue("ingame_id"),firstName:i.fields.getTextInputValue("first_name"),lastName:i.fields.getTextInputValue("last_name")});verifications.assertAvailable(i.guildId,i.user.id,data.ingameId);}
     catch(error){return answer(i,{content:error.message,ephemeral:true});}
+    const verifiedBefore=verifications.byUser(i.guildId,i.user.id);
     await i.deferReply({flags:MessageFlags.Ephemeral});
     const member=await i.guild.members.fetch(i.user.id).catch(()=>null);
     if(!member)return i.editReply(presentInteractionPayload({content:"Du wurdest auf dem Server nicht gefunden. Bitte versuche es erneut."}));
@@ -890,6 +905,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     for(const roleId of roleIds){if(member.roles.cache.has(roleId))continue;await member.roles.add(roleId,"Gambinos Verifizierung").catch(error=>{failedRoles.push(roleId);console.warn("Verifizierungsrolle nicht vergeben:",error.message);});}
     try{verifications.save({guildId:i.guildId,userId:i.user.id,data,roleResult:roleIds.length?(failedRoles.length?"teilweise fehlgeschlagen":"vergeben"):null});}
     catch(error){return i.editReply(presentInteractionPayload({content:error.message}));}
+    const previousName=verifiedBefore?.nickname;
+    if(previousName)return i.editReply(presentInteractionPayload({embeds:[embed("✏️ Name geändert",`${previousName===data.nickname?"Dein Name war bereits":"Dein Name lautet jetzt"} **${data.nickname}**.${previousName!==data.nickname?`\nVorher: ${previousName}`:""}${nicknameNote}`)]}));
     return i.editReply(presentInteractionPayload({embeds:[embed("✅ Verifizierung abgeschlossen",`Willkommen, **${data.firstName} ${data.lastName}**!\nDein Name lautet jetzt **${data.nickname}**.${roleIds.length&&!failedRoles.length?"\nDu kannst jetzt im öffentlichen Chat schreiben.":""}${failedRoles.length?"\n\n⚠️ Eine Rolle konnte nicht vergeben werden – das Team wurde im Protokoll informiert.":""}${nicknameNote}`)]}));
   }
 
@@ -1006,6 +1023,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         return answer(i,{content:"Notiz wurde gespeichert. Sie ist nur für das Team sichtbar.",ephemeral:true});
       }
       if(i.customId==="verify:submit")return await submitVerification(i);
+      if(i.customId==="verify:rename-submit")return await submitVerification(i,{rename:true});
       if(!i.customId.startsWith("application:submit:"))return;
       const kind=i.customId.split(":")[2];if(!APPLICATION_KINDS.includes(kind))return answer(i,{content:"Dieser Antragstyp ist ungültig.",ephemeral:true});
       const answers=Object.fromEntries(applicationQuestions(kind).map(question=>[question.id,i.fields.getTextInputValue(question.id)??""]));

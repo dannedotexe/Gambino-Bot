@@ -31,7 +31,8 @@ export const PANEL_TEXTS = {
       title: { label: "Titel", max: 256, default: "✅  Willkommen auf dem Gambinos-Discord!" },
       description: { label: "Beschreibung", max: 4000, multiline: true, default: "Damit du im öffentlichen Chat schreiben kannst, verifiziere dich bitte einmal.\n\nKlicke auf **Verifizieren** und gib deine **Ingame-ID**, deinen **Vornamen** und **Nachnamen** aus Grand-RP an. Dein Discord-Name wird automatisch zu `ID | Vorname Nachname` geändert.\n\nℹ️ Das ist **keine** Bewerbung für die Familie – dafür gibt es das Bewerbungs-Panel." },
       footer: { label: "Fußzeile", max: 2048, default: "GAMBINOS  •  Deine Angaben sieht nur das Team" },
-      button: { label: "Button", max: 80, required: true, default: "✅  Verifizieren" },
+      button: { label: "Button: Verifizieren", max: 80, required: true, default: "✅  Verifizieren" },
+      buttonRename: { label: "Button: Name ändern", max: 80, required: true, default: "✏️  Name ändern" },
     },
   },
   events: {
