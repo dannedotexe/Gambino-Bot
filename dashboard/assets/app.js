@@ -67,7 +67,7 @@ function fieldHtml(field, index) {
   if (field.type === "textarea") return `<label for="${id}">${escapeHtml(field.label)}${hint}<textarea id="${id}" name="${field.name}" rows="${field.rows ?? 3}" maxlength="${field.max ?? 1000}" ${required} placeholder="${escapeHtml(field.placeholder ?? "")}">${value}</textarea></label>`;
   if (field.type === "select") return `<label for="${id}">${escapeHtml(field.label)}${hint}<select id="${id}" name="${field.name}" ${required}>${field.options.map(([v, l]) => `<option value="${escapeHtml(v)}" ${String(v) === String(field.value ?? "") ? "selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></label>`;
   if (field.type === "checks") return `<fieldset class="checks" data-name="${field.name}"><legend>${escapeHtml(field.label)}${hint}</legend>${field.options.map(([v, l]) => `<label class="check"><input type="checkbox" value="${escapeHtml(v)}" ${(field.value ?? []).map(String).includes(String(v)) ? "checked" : ""}> ${escapeHtml(l)}</label>`).join("")}</fieldset>`;
-  if (field.type === "member") return `<label for="${id}">${escapeHtml(field.label)}${hint}<input id="${id}" name="${field.name}" data-member list="${id}-list" autocomplete="off" ${required} placeholder="Name eingeben und auswählen …" value="${value}"><datalist id="${id}-list"></datalist></label>`;
+  if (field.type === "member") return `<label for="${id}">${escapeHtml(field.label)}${hint}<div class="member-picker"><input id="${id}" name="${field.name}" data-member data-id="${escapeHtml(field.memberId ?? "")}" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="${id}-list" autocomplete="off" spellcheck="false" ${required} placeholder="Name, Ingame-ID oder @Benutzer eingeben …" value="${value}"><div id="${id}-list" class="suggest" role="listbox" hidden></div></div></label>`;
   const type = { money: "text", number: "number", datetime: "datetime-local" }[field.type] ?? "text";
   const extra = field.type === "money" ? 'inputmode="decimal" placeholder="z. B. 2500000 oder 12,50"' : field.type === "number" ? `min="${field.min ?? 1}" max="${field.maxValue ?? 100000}"` : `maxlength="${field.max ?? 200}" placeholder="${escapeHtml(field.placeholder ?? "")}"`;
   return `<label for="${id}">${escapeHtml(field.label)}${hint}<input id="${id}" name="${field.name}" type="${type}" ${extra} ${required} value="${value}"></label>`;
@@ -84,6 +84,7 @@ function openForm({ eyebrow = "GAMBINOS", title, intro = "", fields = [], submit
 }
 const openInfo = (title, html, eyebrow = "DETAILS") => openForm({ eyebrow, title, intro: html });
 function memberValue(input) {
+  if (input.dataset.id) return input.dataset.id;
   const match = /(\d{17,20})\s*\)?\s*$/.exec(input.value.trim());
   return match ? match[1] : "";
 }
@@ -104,29 +105,61 @@ $("dialog-form").addEventListener("submit", async event => {
     $("dialog").close(); if (result?.message) notify(result.message); await refresh();
   } catch (error) { $("dialog-error").textContent = error.message; button.disabled = false; }
 });
-let memberTimer;
+// ------------------------------------------------------------------ Mitglieder-Vorschläge
+let memberTimer, memberRequest = 0;
+const suggestBox = input => document.getElementById(input.getAttribute("aria-controls"));
+function closeSuggest(input) { const box = suggestBox(input); if (box) { box.hidden = true; box.innerHTML = ""; } input.setAttribute("aria-expanded", "false"); }
+function chooseMember(input, item) {
+  input.value = item.dataset.name; input.dataset.id = item.dataset.id; state.names[item.dataset.id] = item.dataset.name;
+  closeSuggest(input); input.classList.add("picked");
+}
+async function loadSuggestions(input) {
+  const q = input.value.trim(), request = ++memberRequest, box = suggestBox(input);
+  if (!q) return closeSuggest(input);
+  box.hidden = false; input.setAttribute("aria-expanded", "true");
+  box.innerHTML = '<div class="suggest-empty">Suche …</div>';
+  try {
+    const data = await api(`/api/members?q=${encodeURIComponent(q)}`);
+    if (request !== memberRequest) return;
+    box.innerHTML = data.members.length ? data.members.map((m, index) => `<button type="button" role="option" class="suggest-item ${index === 0 ? "active" : ""}" data-id="${escapeHtml(m.id)}" data-name="${escapeHtml(m.name)}">${m.avatar ? `<img src="${escapeHtml(m.avatar)}" alt="" referrerpolicy="no-referrer">` : `<span class="suggest-initial">${escapeHtml((m.name.match(/\p{L}/u)?.[0] ?? "?").toUpperCase())}</span>`}<span><b>${escapeHtml(m.name)}</b><small>@${escapeHtml(m.tag)}</small></span></button>`).join("")
+      : '<div class="suggest-empty">Kein Mitglied gefunden.</div>';
+  } catch (error) { if (request === memberRequest) box.innerHTML = `<div class="suggest-empty">${escapeHtml(error.message)}</div>`; }
+}
 document.addEventListener("input", event => {
   const input = event.target;
   if (input.matches?.("input[data-member]")) {
-    clearTimeout(memberTimer);
-    const q = input.value.trim();
-    if (q.length < 2 || /\d{17,20}\)?$/.test(q)) return;
-    memberTimer = setTimeout(async () => {
-      try {
-        const data = await api(`/api/members?q=${encodeURIComponent(q)}`);
-        const list = document.getElementById(input.getAttribute("list"));
-        list.innerHTML = data.members.map(m => { state.names[m.id] = m.name; return `<option value="${escapeHtml(`${m.name} (@${m.tag}) ${m.id}`)}"></option>`; }).join("");
-      } catch { /* Suche ist eine Komfortfunktion. */ }
-    }, 250);
+    input.dataset.id = ""; input.classList.remove("picked");
+    clearTimeout(memberTimer); memberTimer = setTimeout(() => loadSuggestions(input), 150);
   }
   if (input.matches?.("input.search")) filterList(input);
+});
+document.addEventListener("keydown", event => {
+  const input = event.target;
+  if (!input.matches?.("input[data-member]")) return;
+  const box = suggestBox(input), items = box && !box.hidden ? [...box.querySelectorAll(".suggest-item")] : [];
+  if (event.key === "Escape" && !box.hidden) { event.preventDefault(); event.stopPropagation(); return closeSuggest(input); }
+  if (!items.length) return;
+  const current = items.findIndex(item => item.classList.contains("active"));
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const next = (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items.forEach((item, index) => item.classList.toggle("active", index === next)); items[next].scrollIntoView({ block: "nearest" });
+  } else if (event.key === "Enter" || event.key === "Tab") {
+    if (event.key === "Enter") event.preventDefault();
+    chooseMember(input, items[Math.max(0, current)]);
+  }
+});
+document.addEventListener("mousedown", event => {
+  const item = event.target.closest?.(".suggest-item");
+  if (item) { event.preventDefault(); chooseMember(item.closest(".member-picker").querySelector("input"), item); return; }
+  document.querySelectorAll("input[data-member][aria-expanded=true]").forEach(input => { if (!input.closest(".member-picker").contains(event.target)) closeSuggest(input); });
 });
 function filterList(input) {
   const term = input.value.trim().toLocaleLowerCase("de-AT"), target = $(input.dataset.target);
   target?.querySelectorAll(".manage-card,.table-row,.setting").forEach(card => { card.hidden = Boolean(term) && !card.textContent.toLocaleLowerCase("de-AT").includes(term); });
 }
 const confirmAction = (title, intro, submit, action, danger = true) => openForm({ eyebrow: "BESTÄTIGUNG", title, intro: `<p>${intro}</p>`, submit, danger, onSubmit: action });
-const memberField = (value = "", label = "Mitglied") => ({ name: "userId", label, type: "member", required: true, value: value ? `${state.names[value] ?? "Mitglied"} ${value}` : "" });
+const memberField = (value = "", label = "Mitglied") => ({ name: "userId", label, type: "member", required: true, value: value ? state.names[value] ?? `Mitglied …${String(value).slice(-4)}` : "", memberId: value || "" });
 
 // ------------------------------------------------------------------ Tabs
 function renderTabs() {
@@ -168,7 +201,8 @@ async function loadOverview() {
   const data = await api("/api/overview"), caps = state.me.capabilities, todo = data.todo ?? {};
   applyBadges(data);
   const hour = Number(new Intl.DateTimeFormat("de-AT", { hour: "numeric", hourCycle: "h23", timeZone: state.timezone }).format(new Date()));
-  $("greeting").textContent = `${hour < 11 ? "Guten Morgen" : hour < 18 ? "Hallo" : "Guten Abend"}, ${state.me.member.name}`;
+  const firstName = String(state.me.member.name ?? "").replace(/^\d+\s*\|\s*/, "").split(" ")[0] || state.me.member.name;
+  $("greeting").textContent = `${hour < 11 ? "Guten Morgen" : hour < 18 ? "Hallo" : "Guten Abend"}, ${firstName}`;
   const quick = [
     caps.events && ["event-create", "Event planen", "events"], caps.finance && ["credit", "Gutschrift", "finance"],
     caps.sanctions && ["sanction-create", "Sanktion", "sanctions"], caps.giveaways && ["giveaway-create", "Giveaway", "giveaways"],

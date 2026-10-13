@@ -107,10 +107,24 @@ export function createDashboardApi({ db, client, config, settings = null, series
     [/^\/api\/members$/, async (member, url) => {
       need(member, "anyStaff", "Staff-Rolle");
       const q = String(url.searchParams.get("q") ?? "").trim().slice(0, 50);
-      if (q.length < 2) return { members: [] };
+      if (!q) return { members: [] };
       const g = await guild();
-      const found = SNOWFLAKE.test(q) ? [await g.members.fetch(q).catch(() => null)].filter(Boolean) : [...((await g.members.search({ query: q, limit: 10 }).catch(() => null))?.values() ?? [])];
-      return { members: found.filter(m => !m.user?.bot).map(m => ({ id: m.id, name: m.displayName, tag: m.user?.username ?? "" })) };
+      const needle = q.toLocaleLowerCase("de-AT");
+      const found = new Map();
+      const add = m => { if (m && !m.user?.bot && !found.has(m.id) && found.size < 10) found.set(m.id, m); };
+      if (SNOWFLAKE.test(q)) add(await g.members.fetch(q).catch(() => null));
+      // 1. Verifizierte Mitglieder: Treffer auch mitten im Namen und über die Ingame-ID.
+      const like = `%${q.replace(/[%_]/g, "")}%`;
+      const verified = db.prepare("SELECT user_id FROM member_verifications WHERE guild_id=? AND (nickname LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR ingame_id LIKE ?) ORDER BY ingame_id=? DESC, updated_at DESC LIMIT 10").all(guildId, like, like, like, like, q);
+      for (const row of verified) add(g.members.cache.get(row.user_id) ?? await g.members.fetch(row.user_id).catch(() => null));
+      // 2. Bereits bekannte Mitglieder: Teiltreffer in Anzeige- oder Benutzername.
+      for (const m of g.members.cache?.values?.() ?? []) {
+        if ([m.displayName, m.user?.username, m.user?.globalName].some(value => String(value ?? "").toLocaleLowerCase("de-AT").includes(needle))) add(m);
+      }
+      // 3. Discord-Suche (Namensanfang) für Mitglieder, die noch nicht im Cache sind.
+      if (found.size < 10) for (const m of (await g.members.search({ query: q, limit: 10 }).catch(() => null))?.values() ?? []) add(m);
+      const avatar = m => (typeof m.displayAvatarURL === "function" ? m.displayAvatarURL({ size: 32, extension: "png" }) : null);
+      return { members: [...found.values()].map(m => ({ id: m.id, name: m.displayName, tag: m.user?.username ?? "", avatar: avatar(m) })) };
     }],
     [/^\/api\/roles$/, async member => {
       need(member, "staff", "Staff-Rolle");
