@@ -32,7 +32,19 @@ const dashboard=createDashboard({db,client,config,settings,series});
 client.once(Events.ClientReady,ready=>{
   console.log(`Gambino Bot bereit als ${ready.user.tag}.`);
   startScheduler({db,client,config,series});
+  void adoptClosedTicketCategory();
 });
+// Von der Leitung genannte Kategorie für geschlossene Tickets einmalig übernehmen, falls noch keine eingestellt ist.
+// Wird nur gesetzt, wenn die Kategorie wirklich auf dem konfigurierten Server existiert.
+const CLOSED_TICKETS_CATEGORY_HINT="1559680452980113479";
+async function adoptClosedTicketCategory(){
+  if(!settings||config.CHANNEL_TICKET_CLOSED_CATEGORY)return;
+  const guild=await client.guilds.fetch(config.DISCORD_GUILD_ID).catch(()=>null);
+  const category=guild?await guild.channels.fetch(CLOSED_TICKETS_CATEGORY_HINT).catch(()=>null):null;
+  if(category?.type!==4)return;
+  try{settings.update({key:"CHANNEL_TICKET_CLOSED_CATEGORY",value:category.id,actorId:client.user.id,actorIsOwner:true});console.log(`Kategorie für geschlossene Tickets eingestellt: ${category.name}`);}
+  catch(error){console.warn("Kategorie für geschlossene Tickets konnte nicht eingestellt werden:",error.message);}
+}
 client.on(Events.InteractionCreate,async interaction=>{
   try {
     if(interaction.isAutocomplete()) await handlers.autocomplete(interaction);

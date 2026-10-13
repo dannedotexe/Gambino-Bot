@@ -11,6 +11,7 @@ import { applicationDecisionDm, applicationInReviewDm, logEmbed } from "./presen
 import { accessGroups } from "./config.js";
 import { canHandleTicket, createTicketService } from "./services/tickets.js";
 import { createDashboardApi } from "./dashboard-api.js";
+import { moveTicketToClosed } from "./ticket-channels.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dashboard");
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".gif": "image/gif" };
@@ -196,6 +197,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
             if (!closed) return send(res, 409, { error: "Das Ticket wurde parallel geschlossen." });
             await channel.permissionOverwrites.edit(ticket.user_id, { SendMessages: false }).catch(() => {});
             await channel.setName(`closed-${ticket.category}-${ticket.user_id.slice(-4)}`.slice(0, 100)).catch(() => {});
+            await moveTicketToClosed(channel, config);
             const message = ticket.message_id ? await channel.messages.fetch(ticket.message_id).catch(() => null) : null;
             if (message) await message.edit({ embeds: [ticketClosedCard(categoryLabel(ticket.category), ticket.user_id)], components: ticketClosedActions(id) }).catch(() => {});
             const log = await ensureGuildChannel(config.CHANNEL_TICKET_LOG);

@@ -9,6 +9,7 @@ import { CHANNEL_BINDINGS } from "./channel-setup.js";
 export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_TICKET_PANEL", label: "Ticket-Panel", audience: "public", expect: ["ticket", "support"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_TICKET_CATEGORY", label: "Ticket-Kategorie", type: "category", audience: "any", perms: ["ManageChannels"], important: true },
+  { key: "CHANNEL_TICKET_CLOSED_CATEGORY", label: "Kategorie geschlossene Tickets", type: "category", audience: "staff", expect: ["closed", "geschlossen", "archiv"], perms: ["ManageChannels"] },
   { key: "CHANNEL_TICKET_LOG", label: "Ticket-Log", audience: "staff", expect: ["ticket"], perms: ["SendMessages", "EmbedLinks", "AttachFiles"], important: true },
   { key: "CHANNEL_APPLICATION_PANEL", label: "Bewerbungs-Panel", audience: "public", expect: ["bewerb", "antrag", "anträge"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_APPLICATION_REVIEW", label: "Bewerbungen prüfen", audience: "staff", expect: ["bewerb"], perms: ["SendMessages", "EmbedLinks"], important: true },

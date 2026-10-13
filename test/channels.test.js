@@ -95,3 +95,16 @@ test("Event-Ergebnis listet Anwesende, Angemeldete und Abwesende ohne Pings", as
   assert.deepEqual(sent[0].allowedMentions, { parse: [] });
   assert.equal(await postEventResult({ db, client, config: base(), event: { id: "e" } }), false, "ohne Channel nichts senden");
 });
+
+test("geschlossene Tickets wandern in die Closed-Kategorie und beim Wiederöffnen zurück", async () => {
+  const { moveTicketToClosed, moveTicketToOpen } = await import("../src/ticket-channels.js");
+  const moves = [];
+  const channel = { id: "c", parentId: "open-cat", setParent: async (id, options) => { moves.push([id, options.lockPermissions]); channel.parentId = id; } };
+  const config = { CHANNEL_TICKET_CATEGORY: "open-cat", CHANNEL_TICKET_CLOSED_CATEGORY: "closed-cat" };
+  assert.equal(await moveTicketToClosed(channel, config), "moved");
+  assert.equal(await moveTicketToOpen(channel, config), "moved");
+  assert.deepEqual(moves, [["closed-cat", false], ["open-cat", false]], "private Ticket-Rechte bleiben erhalten");
+  assert.equal(await moveTicketToClosed(channel, {}), "disabled");
+  const full = { id: "f", parentId: "open-cat", setParent: async () => { throw new Error("Maximum number of channels in category reached (50)"); } };
+  assert.equal(await moveTicketToClosed(full, config), "failed", "volle Kategorie blockiert das Schließen nicht");
+});

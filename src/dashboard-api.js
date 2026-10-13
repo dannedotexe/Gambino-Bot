@@ -13,6 +13,7 @@ import { createSeriesService, describeSchedule, nextOccurrence } from "./service
 import { publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { checkChannels } from "./channel-check.js";
+import { moveTicketToOpen } from "./ticket-channels.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
 
@@ -262,6 +263,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (ch) {
         await ch.permissionOverwrites.edit(row.user_id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
         await ch.setName(`ticket-${row.category}-${row.user_id.slice(-4)}`.slice(0, 90)).catch(() => {});
+        await moveTicketToOpen(ch, config);
         const message = row.message_id ? await ch.messages.fetch(row.message_id).catch(() => null) : null;
         await message?.edit({ embeds: [ticketCard(categoryLabel(row.category), row.user_id, row.claimed_by)], components: ticketActions(row.id, Boolean(row.claimed_by)) }).catch(() => {});
       }

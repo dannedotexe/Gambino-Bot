@@ -19,6 +19,7 @@ import { describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { buildActivityBoard, publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { checkChannels } from "./channel-check.js";
+import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 
 const isoNow=()=>new Date().toISOString();
@@ -449,6 +450,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if(channel){
       await channel.permissionOverwrites.edit(row.user_id,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true}).catch(error=>console.warn("Ticket-Berechtigung nicht wiederhergestellt:",error.message));
       await channel.setName(`ticket-${row.category}-${row.user_id.slice(-4)}`.slice(0,90)).catch(()=>{});
+      await moveTicketToOpen(channel,config);
       await refreshTicketMessage(channel,row);
     }
     await sendTicketLog(i.guild,logEmbed("🔓 Ticket wieder geöffnet",`**Ticket:** <#${row.channel_id}>\n**Mitglied:** <@${row.user_id}>\n**Durch:** <@${i.user.id}>`));
@@ -857,10 +859,11 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if(!row)return i.editReply(presentInteractionPayload({content:"Ticket wurde bereits geschlossen."}));
     await channel.permissionOverwrites.edit(t.user_id,{SendMessages:false}).catch(()=>{});
     await channel.setName(`closed-${t.category}-${t.user_id.slice(-4)}`.slice(0,90)).catch(()=>{});
+    const moved=await moveTicketToClosed(channel,config);
     await refreshTicketMessage(channel,{...row,status:"closed"});
     const text=transcript.map(m=>`[${m.createdAt}] ${m.author}: ${m.content}${m.attachments?.length?` [Anhänge: ${m.attachments.map(a=>a.name).join(", ")}]`:""}`).join("\n");
     await sendTicketLog(i.guild,logEmbed("🔒 Ticket geschlossen",`**Kategorie:** ${ticketCategoryLabel(t.category,config)}\n**Mitglied:** <@${t.user_id}>\n**Bearbeiter:** ${t.claimed_by?`<@${t.claimed_by}>`:"—"}\n**Geschlossen von:** <@${i.user.id}>\n**Eröffnet:** <t:${unix(t.created_at)}:f>\n**Nachrichten im Transkript:** ${transcript.length}`),[new AttachmentBuilder(Buffer.from(text||"(keine Nachrichten)","utf8"),{name:`ticket-${t.id.slice(0,8)}.txt`})]);
-    return i.editReply(presentInteractionPayload({content:"Ticket geschlossen. Der Verlauf wurde gespeichert; Staff kann es über die Schaltfläche wieder öffnen."}));
+    return i.editReply(presentInteractionPayload({content:`Ticket geschlossen. Der Verlauf wurde gespeichert; Staff kann es über die Schaltfläche wieder öffnen.${moved==="failed"?" Hinweis: Der Channel konnte nicht in die Kategorie für geschlossene Tickets verschoben werden (voll oder fehlende Rechte).":""}`}));
   }
 
   async function select(i){

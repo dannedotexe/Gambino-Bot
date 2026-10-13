@@ -17,6 +17,7 @@ export const SETTINGS = [
   { key: "ROLE_MEMBERS", group: "Rollen", label: "Familienmitglieder", type: "roles", help: "Wenn gesetzt: nur diese (und Staff) dürfen sich für Events anmelden und Rang-Anträge stellen." },
   { key: "CHANNEL_TICKET_PANEL", group: "Channels", label: "Ticket-Panel (öffentlich)", type: "channel", help: "Hier steht das Auswahlmenü zum Ticket-Öffnen; wird automatisch gepostet. Empfohlen: SUPPORT・ticket." },
   { key: "CHANNEL_TICKET_CATEGORY", group: "Channels", label: "Ticket-Kategorie", type: "category", help: "Unter dieser Kategorie entstehen die privaten Ticket-Channels." },
+  { key: "CHANNEL_TICKET_CLOSED_CATEGORY", group: "Channels", label: "Kategorie für geschlossene Tickets", type: "category", help: "Geschlossene Tickets werden hierher verschoben, beim Wiederöffnen zurück. Discord erlaubt max. 50 Channels pro Kategorie." },
   { key: "CHANNEL_TICKET_LOG", group: "Channels", label: "Ticket-Log (Staff)", type: "channel", help: "Neue/geschlossene Tickets inkl. Transkript-Datei. Empfohlen: STAFF・ticket-logs." },
   { key: "CHANNEL_APPLICATION_PANEL", group: "Channels", label: "Bewerbungs-Panel (öffentlich)", type: "channel", help: "Buttons für Bewerbung und Rang-Antrag; wird automatisch gepostet. Empfohlen: SUPPORT・bewerbungen." },
   { key: "CHANNEL_APPLICATION_REVIEW", group: "Channels", label: "Bewerbungen prüfen (Staff)", type: "channel", help: "Empfohlen: STAFF・bewerbungen." },

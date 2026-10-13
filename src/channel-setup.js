@@ -17,6 +17,7 @@ export const displayChannelName = channel => `${channel.emoji}・${channel.name}
 export const CHANNEL_BINDINGS = {
   CHANNEL_TICKET_PANEL: ["SUPPORT", "ticket"],
   CHANNEL_TICKET_CATEGORY: ["SUPPORT", null],
+  CHANNEL_TICKET_CLOSED_CATEGORY: ["closed tickets", null],
   CHANNEL_TICKET_LOG: ["STAFF", "ticket-logs"],
   CHANNEL_APPLICATION_PANEL: ["SUPPORT", "bewerbungen"],
   CHANNEL_APPLICATION_REVIEW: ["STAFF", "bewerbungen"],

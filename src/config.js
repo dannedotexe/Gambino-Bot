@@ -39,7 +39,7 @@ const schema = z.object({
   CHANNEL_TICKET_CATEGORY: snowflake, CHANNEL_TICKET_LOG: snowflake,
   CHANNEL_APPLICATION_REVIEW: snowflake, CHANNEL_RANK_REVIEW: snowflake, CHANNEL_EVENT_ANNOUNCEMENTS: snowflake,
   CHANNEL_AUDIT_LOG: snowflake, CHANNEL_STATS: snowflake, CHANNEL_AUTOMOD_LOG: snowflake,
-  CHANNEL_TICKET_PANEL: snowflake, CHANNEL_APPLICATION_PANEL: snowflake, CHANNEL_STAFF_DASHBOARD: snowflake,
+  CHANNEL_TICKET_PANEL: snowflake, CHANNEL_TICKET_CLOSED_CATEGORY: snowflake, CHANNEL_APPLICATION_PANEL: snowflake, CHANNEL_STAFF_DASHBOARD: snowflake,
   CHANNEL_ACTIVITY_BOARD: snowflake, CHANNEL_EVENT_RESULTS: snowflake, CHANNEL_EVENT_LOG: snowflake,
   CHANNEL_GIVEAWAYS: snowflake, CHANNEL_SANCTION_LOG: snowflake, CHANNEL_FINANCE_LOG: snowflake,
   AUDIT_CHANNEL_IGNORE_ACTIONS: z.string().default("event.participation,giveaway.entry").transform(csv),
