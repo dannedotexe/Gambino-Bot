@@ -5,7 +5,7 @@ const now = () => new Date().toISOString();
 /** Darf jemand ein Ticket bearbeiten? Staff/Leitung oder eine für die Kategorie zuständige Rolle. */
 export function canHandleTicket({ memberRoleIds = [], isOwner = false }, ticket, config, staffRoles) {
   if (isOwner) return true;
-  const categoryRoles = config.TICKET_CATEGORIES_JSON.find(category => category.id === ticket.category)?.roleIds ?? [];
+  const categoryRoles = (config.TICKET_CATEGORIES_JSON ?? []).find(category => category.id === ticket.category)?.roleIds ?? [];
   return [...staffRoles, ...categoryRoles].some(id => memberRoleIds.includes(id));
 }
 

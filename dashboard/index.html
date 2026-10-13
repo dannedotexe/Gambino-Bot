@@ -3,35 +3,72 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#111114"><meta name="description" content="Gambinos Familienverwaltung – Staff Dashboard"><title>Gambinos · Familienbüro</title>
-  <link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
+  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script>
 </head>
 <body>
   <main class="shell">
     <header class="topbar"><a class="brand" href="/"><img class="brand-mark" src="/assets/gambinos-profile.gif" alt="Gambinos"><span><b>GAMBINOS</b><small>FAMILIENVERWALTUNG</small></span></a><div class="profile"><span id="staff-name">Staff-Dashboard</span><button id="logout" class="quiet hidden">Abmelden</button></div></header>
-    <section id="login" class="login-card"><img class="login-banner" src="/assets/gambinos-banner.gif" alt="Gambinos"><div class="login-content"><div class="eyebrow">STAFF PORTAL · GRAND-RP</div><h1>Das Familienbüro.</h1><p>Melde dich mit Discord an. Zugriff erhalten nur konfigurierte Gambinos-Staffrollen. Anträge, Tickets und Events lassen sich direkt hier verwalten.</p><a class="primary" href="/login">Mit Discord anmelden <span>↗</span></a><p id="message" class="message"></p></div></section>
+    <section id="login" class="login-card"><img class="login-banner" src="/assets/gambinos-banner.gif" alt="Gambinos"><div class="login-content"><div class="eyebrow">STAFF PORTAL · GRAND-RP</div><h1>Das Familienbüro.</h1><p>Melde dich mit Discord an. Zugriff erhalten nur konfigurierte Gambinos-Staffrollen. Anträge, Tickets, Events, Familienkonto, Sanktionen und Giveaways lassen sich direkt hier verwalten.</p><a class="primary" href="/login">Mit Discord anmelden <span>↗</span></a><p id="message" class="message"></p></div></section>
     <section id="dashboard" class="hidden">
-      <div class="welcome"><div><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1>Übersicht</h1><p>Dein aktueller Serverstand auf einen Blick.</p></div><div class="live"><i></i> Live-Daten <span id="updated-at"></span></div></div>
-      <div id="stats" class="stats"></div>
-      <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">ALS NÄCHSTES</div><h2>Anstehende Events</h2></div><span class="icon">◷</span></div><div id="events" class="rows"></div></section>
-        <section class="panel"><div class="panel-head"><div><div class="eyebrow">REVIEW</div><h2>Offene Anträge</h2></div><span class="icon">✳</span></div><div id="applications" class="rows"></div></section></div>
-      <section id="manage" class="management hidden">
-        <div class="section-intro"><div><div class="eyebrow">DIREKT VERWALTEN</div><h2>Deine Staff-Werkzeuge</h2><p>Aktionen werden mit deinem Discord-Konto protokolliert.</p></div><div class="section-tools"><input id="queue-search" type="search" placeholder="Anträge und Tickets durchsuchen …" aria-label="Anträge und Tickets durchsuchen"><span class="secure-pill">🔒 Rollenprüfung aktiv</span></div></div>
-        <div class="columns"><section id="application-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">FAMILIENBÜRO</div><h2>Anträge bearbeiten</h2></div><span class="icon">✳</span></div><div id="application-queue" class="queue"></div></section>
-          <section id="ticket-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">SUPPORT</div><h2>Offene Tickets</h2></div><span class="icon">🎫</span></div><div id="ticket-queue" class="queue"></div></section></div>
-        <div class="columns"><section id="event-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">EVENT-TEAM</div><h2>Event veröffentlichen</h2></div><span class="icon">📅</span></div><form id="event-form" class="event-form">
-          <label>Eventname<input name="name" required minlength="3" maxlength="100" placeholder="z. B. Familienbesprechung"></label>
-          <div class="form-grid"><label>Datum & Uhrzeit<input name="startsAt" type="datetime-local" required></label><label>Treffpunkt<input name="location" required maxlength="100" placeholder="Ort in Grand-RP"></label></div>
-          <label>Beschreibung<textarea name="description" maxlength="1000" rows="2" placeholder="Was ist geplant?"></textarea></label>
-          <div class="form-grid"><label>Ausrüstung <small>(optional)</small><input name="equipment" maxlength="500"></label><label>Max. Teilnehmer <small>(optional)</small><input name="maximum" type="number" min="1" max="500" placeholder="Kein Limit"></label></div>
-          <label>Hinweise <small>(optional)</small><input name="notes" maxlength="500" placeholder="Weitere Informationen"></label><button class="primary" type="submit">Event veröffentlichen <span>↗</span></button><p id="event-feedback" class="form-feedback" role="status"></p>
-        </form></section><section id="event-manage-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">PLANUNG</div><h2>Geplante Events</h2></div><span class="icon">◷</span></div><div id="event-queue" class="queue"></div></section></div>
+      <nav id="tabs" class="tabs" aria-label="Bereiche"></nav>
+
+      <section id="tab-overview" class="tab-panel">
+        <div class="welcome"><div><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1>Übersicht</h1><p>Dein aktueller Serverstand auf einen Blick.</p></div><div class="live"><i></i> Live-Daten <span id="updated-at"></span></div></div>
+        <div id="stats" class="stats"></div>
+        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">ALS NÄCHSTES</div><h2>Anstehende Events</h2></div><span class="icon">◷</span></div><div id="events" class="rows"></div></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">REVIEW</div><h2>Offene Anträge</h2></div><span class="icon">✳</span></div><div id="applications" class="rows"></div></section></div>
+        <div class="columns lower"><section class="panel"><div class="panel-head"><div><div class="eyebrow">AKTIVITÄT</div><h2>Letzte Aktionen</h2></div><span class="icon">↗</span></div><div id="activity" class="rows"></div></section>
+          <section id="finance-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">LEITUNG & FINANZEN</div><h2>Familienkonto</h2></div><span class="icon gold">$</span></div><div id="finance" class="finance"></div><p class="subtle">Persönliche Guthaben und Sanktionsdetails bleiben rollenbeschränkt.</p></section></div>
       </section>
-      <div class="columns lower"><section class="panel"><div class="panel-head"><div><div class="eyebrow">AKTIVITÄT</div><h2>Letzte Aktionen</h2></div><span class="icon">↗</span></div><div id="activity" class="rows"></div></section>
-        <section id="finance-panel" class="panel hidden"><div class="panel-head"><div><div class="eyebrow">LEITUNG & FINANZEN</div><h2>Familienkonto</h2></div><span class="icon gold">$</span></div><div id="finance" class="finance"></div><p class="subtle">Persönliche Guthaben und Sanktionsdetails bleiben rollenbeschränkt.</p></section></div>
-      <footer>GAMBINOS <span>·</span> Nur für autorisierte Staffmitglieder</footer>
+
+      <section id="tab-applications" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">FAMILIENBÜRO</div><h2>Bewerbungen & Rang-Anträge</h2><p>Übernehmen, kommentieren und entscheiden. Antragsteller werden privat benachrichtigt.</p></div><div class="section-tools"><select id="applications-filter" aria-label="Filter"><option value="open">Offen & in Prüfung</option><option value="closed">Abgeschlossen</option></select><input class="search" data-target="applications-list" type="search" placeholder="Suchen …" aria-label="Suchen"></div></div>
+        <div id="applications-list" class="queue"></div>
+      </section>
+
+      <section id="tab-tickets" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">SUPPORT</div><h2>Tickets</h2><p>Übernehmen, schließen (mit Transkript) und wieder öffnen.</p></div><div class="section-tools"><select id="tickets-filter" aria-label="Filter"><option value="open">Offen</option><option value="closed">Geschlossen</option></select><input class="search" data-target="tickets-list" type="search" placeholder="Suchen …" aria-label="Suchen"></div></div>
+        <div id="tickets-list" class="queue grid2"></div>
+      </section>
+
+      <section id="tab-events" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">EVENT-TEAM</div><h2>Familien-Events</h2><p>Planen, bearbeiten, Anwesenheit dokumentieren, beenden oder absagen.</p></div><div class="section-tools"><select id="events-filter" aria-label="Filter"><option value="upcoming">Geplant</option><option value="past">Vergangen</option></select><button class="primary-btn needs-events" data-action="event-create">+ Neues Event</button></div></div>
+        <div id="events-list" class="queue grid2"></div>
+      </section>
+
+      <section id="tab-finance" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">FAMILIENKONTO</div><h2>Guthaben & Auszahlungen</h2><p>Brutto = noch auszuzahlendes Familienguthaben. Sanktionen werden erst bei der Auszahlung abgezogen.</p></div><div class="section-tools"><input class="search" data-target="accounts-list" type="search" placeholder="Mitglied suchen …" aria-label="Suchen"><button class="primary-btn needs-finance" data-action="credit">+ Gutschrift</button></div></div>
+        <div id="finance-totals" class="stats"></div>
+        <div id="accounts-list" class="table"></div>
+      </section>
+
+      <section id="tab-sanctions" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">DISZIPLIN</div><h2>Sanktionen & Verwarnungen</h2><p>Sanktionen sind offene Auszahlungsabzüge. Verwarnungen haben keine Geldwirkung.</p></div><div class="section-tools"><select id="sanctions-filter" aria-label="Filter"><option value="active">Offen & teilweise</option><option value="all">Alle</option></select><button class="secondary needs-sanctions" data-action="warning-create">+ Verwarnung</button><button class="primary-btn needs-sanctions" data-action="sanction-create">+ Sanktion</button></div></div>
+        <div id="sanctions-summary" class="stats"></div>
+        <div id="sanctions-list" class="queue grid2"></div>
+        <h3 class="subhead">Letzte Verwarnungen</h3>
+        <div id="warnings-list" class="rows panel"></div>
+      </section>
+
+      <section id="tab-giveaways" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">COMMUNITY</div><h2>Giveaways</h2><p>Starten, vorzeitig auslosen oder abbrechen. Gewinner werden in Discord verkündet.</p></div><div class="section-tools"><button class="primary-btn" data-action="giveaway-create">+ Giveaway starten</button></div></div>
+        <div id="giveaways-list" class="queue grid2"></div>
+      </section>
+
+      <section id="tab-stats" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">AUSWERTUNG</div><h2>Statistik</h2><p id="stats-source">Quelle: Bot-Datenbank. Nur Vorgänge, die über den Bot liefen.</p></div><div class="section-tools"><select id="stats-filter" aria-label="Zeitraum"><option value="7">Letzte 7 Tage</option><option value="30" selected>Letzte 30 Tage</option><option value="90">Letzte 90 Tage</option><option value="365">Letzte 365 Tage</option><option value="0">Gesamter Zeitraum</option></select></div></div>
+        <div id="stats-view"></div>
+      </section>
+
+      <section id="tab-audit" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">NACHVOLLZIEHBARKEIT</div><h2>Protokoll</h2><p>Wer hat wann was getan. Einträge sind unveränderlich.</p></div><div class="section-tools"><select id="audit-filter" aria-label="Bereich"><option value="">Alle relevanten</option><option value="ticket.">Tickets</option><option value="application.">Anträge</option><option value="event.">Events</option><option value="finance.">Familienkonto</option><option value="sanction.">Sanktionen</option><option value="giveaway.">Giveaways</option><option value="automod.">AutoMod</option><option value="config.">Einstellungen</option><option value="admin.">Admin-Overrides</option></select></div></div>
+        <div id="audit-list" class="rows panel"></div>
+      </section>
+
+      <footer>GAMBINOS <span>·</span> Nur für autorisierte Staffmitglieder <span>·</span> Jede Aktion wird mit deinem Discord-Konto protokolliert</footer>
     </section>
   </main>
-  <dialog id="reject-dialog" class="dialog"><form method="dialog" id="reject-form"><div class="eyebrow">FAMILIENBÜRO</div><h2>Antrag ablehnen</h2><p>Der Antragsteller erhält diesen Grund als private Nachricht.</p><label>Begründung<textarea name="reason" required minlength="3" maxlength="1000" rows="4" placeholder="Formuliere eine klare, respektvolle Rückmeldung …"></textarea></label><div class="dialog-actions"><button value="cancel" class="secondary">Abbrechen</button><button id="reject-submit" value="reject" class="danger">Mit Begründung ablehnen</button></div></form></dialog>
+  <dialog id="dialog" class="dialog"><form id="dialog-form" method="dialog" novalidate><div id="dialog-eyebrow" class="eyebrow"></div><h2 id="dialog-title"></h2><div id="dialog-intro" class="dialog-intro"></div><div id="dialog-fields" class="event-form"></div><p id="dialog-error" class="form-error" role="alert"></p><div class="dialog-actions"><button value="cancel" class="secondary" id="dialog-cancel">Abbrechen</button><button id="dialog-submit" value="ok" class="primary-btn">OK</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

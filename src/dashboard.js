@@ -5,8 +5,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { audit } from "./database.js";
-import { eventButtons, eventEmbed, parseEventDate, ticketActions, ticketCard, ticketClosedCard, buildApplicationReviewPayload } from "./commands.js";
-import { applicationDecisionDm, applicationInReviewDm } from "./presentation.js";
+import { AttachmentBuilder } from "discord.js";
+import { applicationReviewComponents, eventButtons, eventEmbed, fetchTranscript, parseEventDate, ticketActions, ticketCard, ticketClosedActions, ticketClosedCard, buildApplicationReviewPayload } from "./commands.js";
+import { applicationDecisionDm, applicationInReviewDm, logEmbed } from "./presentation.js";
+import { accessGroups } from "./config.js";
+import { canHandleTicket, createTicketService } from "./services/tickets.js";
+import { createDashboardApi } from "./dashboard-api.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dashboard");
 const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".gif": "image/gif" };
@@ -17,7 +21,12 @@ export function createDashboard({ db, client, config }) {
   const state = new Map();
   const cookieName = "gambino_staff";
   const secret = config.DASHBOARD_SESSION_SECRET;
-  const staffRoleIds = [...new Set([...(config.ROLE_LEADERS ?? []), ...(config.ROLE_STAFF ?? []), ...(config.ROLE_FINANCE ?? []), ...(config.ROLE_EVENT_TEAM ?? []), ...(config.ROLE_REVIEWERS ?? [])])];
+  const groups = accessGroups(config);
+  // Login: alle Staff-Stufen, reine Finanz-Einsicht und für Ticket-Kategorien zuständige Rollen.
+  const staffRoleIds = [...new Set([...groups.anyStaff, ...groups.financeView, ...(config.TICKET_CATEGORIES_JSON ?? []).flatMap(category => category.roleIds)])];
+  const extendedApi = createDashboardApi({ db, client, config });
+  const ticketService = createTicketService(db);
+  const categoryLabel = id => (config.TICKET_CATEGORIES_JSON ?? []).find(category => category.id === id)?.label ?? id;
   const sign = value => createHmac("sha256", secret).update(value).digest("base64url");
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
   const send = (res, status, body, type = "application/json; charset=utf-8", headers = {}) => {
@@ -53,11 +62,7 @@ export function createDashboard({ db, client, config }) {
     const message = channel && row.message_id ? await channel.messages.fetch(row.message_id).catch(() => null) : null;
     if (!message) return;
     if (["open", "review"].includes(row.status)) {
-      const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import("discord.js");
-      const controls = [];
-      if (row.status === "open") controls.push(new ButtonBuilder().setCustomId(`application:review:${row.id}`).setLabel("Übernehmen").setStyle(ButtonStyle.Primary));
-      controls.push(new ButtonBuilder().setCustomId(`application:accept:${row.id}`).setLabel("Annehmen").setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`application:reject:${row.id}`).setLabel("Ablehnen").setStyle(ButtonStyle.Danger));
-      await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status === "review" ? "review" : null, row.review_note ?? "", row.reviewer_id), components: [new ActionRowBuilder().addComponents(...controls)] }).catch(() => {});
+      await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status === "review" ? "review" : null, row.review_note ?? "", row.reviewer_id), components: applicationReviewComponents(row.id, row.status) }).catch(() => {});
     } else await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status, row.review_note ?? ""), components: [] }).catch(() => {});
   };
   const sessionFor = async req => {
@@ -166,10 +171,10 @@ export function createDashboard({ db, client, config }) {
             return send(res, 200, { ok: true, message: status === "accepted" ? (dmSent ? "Antrag angenommen und Antragsteller privat benachrichtigt." : "Antrag angenommen. Eine private Nachricht konnte nicht zugestellt werden.") : (dmSent ? "Antrag mit Begründung abgelehnt; die Rückmeldung wurde privat gesendet." : "Antrag mit Begründung abgelehnt. Eine private Nachricht konnte nicht zugestellt werden.") });
           }
           if ((match = /^\/api\/tickets\/([\w-]+)\/(claim|close)$/.exec(url.pathname))) {
-            if (!can(member, "ROLE_STAFF") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Staff- oder Leitungsrolle." });
             const [, id, action] = match;
             const ticket = db.prepare("SELECT * FROM tickets WHERE id=? AND guild_id=? AND status='open'").get(id, config.DISCORD_GUILD_ID);
             if (!ticket) return send(res, 404, { error: "Das Ticket ist nicht mehr offen." });
+            if (!canHandleTicket({ memberRoleIds: member.roles, isOwner: member.owner }, ticket, config, groups.staff)) return send(res, 403, { error: "Dafür brauchst du die Staff- oder eine zuständige Ticket-Rolle." });
             const channel = await ensureGuildChannel(ticket.channel_id);
             if (!channel?.isTextBased()) return send(res, 409, { error: "Der Ticket-Channel ist nicht erreichbar." });
             if (action === "claim") {
@@ -181,22 +186,21 @@ export function createDashboard({ db, client, config }) {
               })();
               if (!claimed) return send(res, 409, { error: "Das Ticket wurde parallel übernommen." });
               const message = ticket.message_id ? await channel.messages.fetch(ticket.message_id).catch(() => null) : null;
-              if (message) await message.edit({ embeds: [ticketCard(ticket.category, ticket.user_id, member.id)], components: ticketActions(id, true) }).catch(() => {});
+              if (message) await message.edit({ embeds: [ticketCard(categoryLabel(ticket.category), ticket.user_id, member.id)], components: ticketActions(id, true) }).catch(() => {});
               return send(res, 200, { ok: true, message: "Ticket übernommen und im Discord aktualisiert." });
             }
-            const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
-            if (!messages) return send(res, 503, { error: "Der Ticketverlauf konnte nicht geladen werden. Das Ticket bleibt offen; bitte prüfe die Discord-Berechtigungen und versuche es erneut." });
-            const transcript = messages ? [...messages.values()].sort((a,b) => a.createdTimestamp-b.createdTimestamp).map(message => ({ author: message.author?.tag ?? "Unbekannt", userId: message.author?.id ?? null, content: message.content, createdAt: message.createdAt.toISOString(), attachments: [...message.attachments.values()].map(file => ({ name: file.name, url: file.url })) })) : [];
-            db.transaction(() => {
-              db.prepare("INSERT OR REPLACE INTO ticket_transcripts(ticket_id,messages,created_at) VALUES(?,?,?)").run(id, JSON.stringify(transcript), now);
-              const changed = db.prepare("UPDATE tickets SET status='closed',closed_at=?,updated_at=? WHERE id=? AND status='open'").run(now, now, id);
-              if (!changed.changes) throw new Error("Das Ticket wurde parallel geschlossen.");
-              audit(db, config.DISCORD_GUILD_ID, member.id, "ticket.closed", ticket.user_id, { ticketId: id, channelId: ticket.channel_id, transcriptMessages: transcript.length });
-            })();
+            let transcript;
+            try { transcript = await fetchTranscript(channel, config.TICKET_TRANSCRIPT_LIMIT ?? 500); }
+            catch { return send(res, 503, { error: "Der Ticketverlauf konnte nicht geladen werden. Das Ticket bleibt offen; bitte prüfe die Discord-Berechtigungen und versuche es erneut." }); }
+            const closed = ticketService.close({ guildId: config.DISCORD_GUILD_ID, ticketId: id, actorId: member.id, transcript });
+            if (!closed) return send(res, 409, { error: "Das Ticket wurde parallel geschlossen." });
             await channel.permissionOverwrites.edit(ticket.user_id, { SendMessages: false }).catch(() => {});
             await channel.setName(`closed-${ticket.category}-${ticket.user_id.slice(-4)}`.slice(0, 100)).catch(() => {});
             const message = ticket.message_id ? await channel.messages.fetch(ticket.message_id).catch(() => null) : null;
-            if (message) await message.edit({ embeds: [ticketClosedCard(ticket.category, ticket.user_id)], components: [] }).catch(() => {});
+            if (message) await message.edit({ embeds: [ticketClosedCard(categoryLabel(ticket.category), ticket.user_id)], components: ticketClosedActions(id) }).catch(() => {});
+            const log = await ensureGuildChannel(config.CHANNEL_TICKET_LOG);
+            const textLog = transcript.map(m => `[${m.createdAt}] ${m.author}: ${m.content}${m.attachments?.length ? ` [Anhänge: ${m.attachments.map(a => a.name).join(", ")}]` : ""}`).join("\n");
+            if (log) await log.send({ embeds: [logEmbed("🔒 Ticket geschlossen (Webdashboard)", `**Kategorie:** ${categoryLabel(ticket.category)}\n**Mitglied:** <@${ticket.user_id}>\n**Geschlossen von:** <@${member.id}>\n**Nachrichten im Transkript:** ${transcript.length}`)], files: [new AttachmentBuilder(Buffer.from(textLog || "(keine Nachrichten)", "utf8"), { name: `ticket-${id.slice(0, 8)}.txt` })] }).catch(() => {});
             return send(res, 200, { ok: true, message: "Ticket geschlossen. Der Verlauf wurde gespeichert." });
           }
           if (url.pathname === "/api/events" && req.method === "POST") {
@@ -235,6 +239,8 @@ export function createDashboard({ db, client, config }) {
             }
             return send(res, 200, { ok: true, message: "Event abgesagt und Anmeldung geschlossen." });
           }
+          const extended = await extendedApi.post(member, url, body);
+          if (extended) return send(res, extended.status, extended.body);
           return send(res, 404, { error: "Nicht gefunden." });
         }
         if (req.method === "GET" && url.pathname === "/api/overview") {
@@ -247,6 +253,10 @@ export function createDashboard({ db, client, config }) {
             data.finance = { balances: db.prepare("SELECT COUNT(*) n FROM accounts WHERE guild_id=?").get(config.DISCORD_GUILD_ID).n, openSanctions: db.prepare("SELECT COALESCE(SUM(remaining_cents),0) cents FROM sanctions WHERE guild_id=? AND status IN ('open','partial')").get(config.DISCORD_GUILD_ID).cents };
           }
           return send(res, 200, data);
+        }
+        if (req.method === "GET") {
+          const extended = await extendedApi.get(member, url);
+          if (extended) return send(res, extended.status, extended.body);
         }
         return send(res, 404, { error: "Nicht gefunden." });
       }

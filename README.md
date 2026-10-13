@@ -107,7 +107,23 @@ Vollständige Liste mit Kommentaren: [`.env.example`](.env.example). Die wichtig
 
 ### Staff-Webdashboard (optional)
 
-Die responsive Staff-Website mit Discord-OAuth ist standardmäßig aus. Zum Aktivieren: `DASHBOARD_ENABLED=true`, `DASHBOARD_PUBLIC_URL` (HTTPS-Domain), `DISCORD_CLIENT_SECRET`, `DASHBOARD_SESSION_SECRET` (z. B. `openssl rand -hex 32`, nur in der VM-`.env`). In der OAuth-Anwendung die Redirect-URL `https://DEINE-DOMAIN/oauth/callback` eintragen. Der Dienst bindet nur an `127.0.0.1:3080` und braucht einen HTTPS-Reverse-Proxy. Reviewer, Staff und Event-Team können dort Anträge, Tickets und Events bearbeiten; jede Aktion prüft die aktuelle Discord-Rolle und wird protokolliert.
+Responsive Staff-Website mit Discord-Login. Man kann dort alles nicht nur ansehen, sondern auch bearbeiten. Jeder Tab erscheint nur mit passender Rolle; jede Aktion prüft serverseitig die aktuelle Discord-Rolle, nutzt dieselben Services wie der Bot und wird protokolliert.
+
+| Tab | Möglichkeiten |
+| --- | --- |
+| Übersicht | Kennzahlen, kommende Events, offene Anträge, letzte Aktionen |
+| Anträge | übernehmen, annehmen, mit Begründung ablehnen, interne Notizen, Rang-Rolle vergeben (Leitung, wenn aktiviert), abgeschlossene Anträge |
+| Tickets | übernehmen, schließen (Transkript), wieder öffnen, Transkript lesen; Kategorie-Rollen sehen nur ihre Tickets |
+| Events | anlegen, bearbeiten (Discord-Ankündigung wird aktualisiert), Anwesenheit dokumentieren/nachtragen, beenden, absagen, Historie |
+| Familienkonto | Brutto/Sanktionen/Netto je Mitglied, Gutschrift, Auszahlung mit Vorschau und Bestätigung, Korrektur (Leitung), Buchungs- und Sanktionsdetails |
+| Sanktionen | Sanktion oder Verwarnung eintragen, korrigieren, aufheben, erstatten (Leitung) |
+| Giveaways | starten (Channel und optionale Pflichtrolle wählen), vorzeitig auslosen, abbrechen, Gewinner ansehen |
+| Statistik | alle Auswertungen nach Zeitraum, Finanzteil nur mit Finanzrechten |
+| Protokoll | Audit-Log mit Bereichsfilter; Finanzeinträge nur mit Finanzrechten |
+
+Statt IDs zeigt die Website Namen an, und Mitglieder werden über eine Suche ausgewählt. Gutschriften, Auszahlungen, Korrekturen und Erstattungen tragen eine eindeutige Anfrage-ID: Ein Doppelklick bucht nie doppelt, und eine veraltete Auszahlungsvorschau wird abgelehnt.
+
+**Aktivieren:** `DASHBOARD_ENABLED=true`, `DASHBOARD_PUBLIC_URL` (HTTPS, eine Domain oder die IP der VM, z. B. `https://203.0.113.10`), `DISCORD_CLIENT_SECRET`, `DASHBOARD_SESSION_SECRET` (z. B. `openssl rand -hex 32`, nur in der VM-`.env`). In der OAuth-Anwendung die Redirect-URL `<DASHBOARD_PUBLIC_URL>/oauth/callback` eintragen. Der Dienst bindet nur an `127.0.0.1:3080` und braucht davor einen HTTPS-Reverse-Proxy (z. B. Caddy oder nginx). Session-Cookies sind signiert, HttpOnly, Secure und laufen nach acht Stunden ab; schreibende Anfragen müssen vom eigenen Origin kommen.
 
 ## Oracle-VM: Betrieb und Aktualisierung
 
@@ -170,4 +186,4 @@ Node: Die VM lief laut früherer Bestandsaufnahme mit Node 20.20.2. Der Code lä
 - AutoMod-Zähler (Spam-Fenster, Raid-Erkennung) liegen bewusst im Arbeitsspeicher und beginnen nach einem Neustart neu. Alle Maßnahmen werden dauerhaft gespeichert.
 - Erinnerungen werden vor dem Senden reserviert. Ist der Event-Channel in diesem Moment nicht erreichbar, wird diese eine Erinnerung nicht nachgeholt (dafür nie doppelt gesendet).
 - Antragsfragen sind auf 5 pro Typ begrenzt (Discord-Modal-Limit). Weitere Antragstypen außer Bewerbung/Rang bräuchten zusätzlichen Code.
-- Das Webdashboard nutzt eigene Ticket-Logik und kennt die kategoriebezogenen Ticket-Rollen noch nicht (dort gelten nur Staff/Leitung).
+- Die Mitgliedersuche der Website nutzt die Discord-Mitgliedersuche (Server Members Intent erforderlich).
