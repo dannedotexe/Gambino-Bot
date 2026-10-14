@@ -32,6 +32,8 @@ import { buildLeaderboard } from "./leaderboard.js";
 import { postAbsence } from "./absence-posts.js";
 import { BAN_DELETE_CHOICES, MOD_PERMISSIONS, TIMEOUT_CHOICES, formatMinutes, hierarchyProblem, performModeration } from "./member-moderation.js";
 import { MOD_ACTIONS } from "./services/moderation-log.js";
+import { createReminderPrefs } from "./reminder-prefs.js";
+import { cancelEvent } from "./event-checks.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, pollPayload, validatePoll } from "./polls.js";
 
 const isoNow=()=>new Date().toISOString();
@@ -195,13 +197,14 @@ export function buildCommands() {
     .addSubcommand(s=>s.setName("wiedereroeffnen").setDescription("Geschlossenes Ticket wieder öffnen (Staff)"))
     .addSubcommand(s=>s.setName("schliessen").setDescription("Dieses Ticket schließen"));
   const event = new SlashCommandBuilder().setName("event").setDescription("Familien-Events")
-    .addSubcommand(s=>s.setName("erstellen").setDescription("Event anlegen").addStringOption(o=>o.setName("name").setDescription("Name").setRequired(true).setMaxLength(100)).addStringOption(o=>o.setName("start").setDescription("Datum und Uhrzeit, z. B. 31.12.2026 19:00 (Server-Zeitzone)").setRequired(true)).addStringOption(o=>o.setName("treffpunkt").setDescription("Treffpunkt").setRequired(true).setMaxLength(100)).addStringOption(o=>o.setName("beschreibung").setDescription("Beschreibung").setRequired(true).setMaxLength(1000)).addIntegerOption(o=>o.setName("maximum").setDescription("Teilnehmerlimit").setMinValue(1).setMaxValue(500)).addStringOption(o=>o.setName("ausruestung").setDescription("Benötigte Ausrüstung").setMaxLength(500)).addStringOption(o=>o.setName("hinweise").setDescription("Teilnahmehinweise").setMaxLength(500)))
+    .addSubcommand(s=>s.setName("erstellen").setDescription("Event anlegen").addStringOption(o=>o.setName("name").setDescription("Name").setRequired(true).setMaxLength(100)).addStringOption(o=>o.setName("start").setDescription("Datum und Uhrzeit, z. B. 31.12.2026 19:00 (Server-Zeitzone)").setRequired(true)).addStringOption(o=>o.setName("treffpunkt").setDescription("Treffpunkt").setRequired(true).setMaxLength(100)).addStringOption(o=>o.setName("beschreibung").setDescription("Beschreibung").setRequired(true).setMaxLength(1000)).addIntegerOption(o=>o.setName("maximum").setDescription("Teilnehmerlimit").setMinValue(1).setMaxValue(500)).addIntegerOption(o=>o.setName("mindestens").setDescription("Mindestteilnehmer (sonst Meldung bzw. Absage kurz vor Start)").setMinValue(1).setMaxValue(500)).addStringOption(o=>o.setName("ausruestung").setDescription("Benötigte Ausrüstung").setMaxLength(500)).addStringOption(o=>o.setName("hinweise").setDescription("Teilnahmehinweise").setMaxLength(500)))
     .addSubcommand(s=>s.setName("liste").setDescription("Anstehende Events"))
     .addSubcommand(s=>s.setName("historie").setDescription("Vergangene Events"))
     .addSubcommand(s=>s.setName("teilnehmer").setDescription("Teilnehmerliste eines Events").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)))
-    .addSubcommand(s=>s.setName("bearbeiten").setDescription("Geplantes Event ändern").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("name").setDescription("Neuer Name").setMaxLength(100)).addStringOption(o=>o.setName("start").setDescription("Datum und Uhrzeit, z. B. 31.12.2026 19:00 (Server-Zeitzone)")).addStringOption(o=>o.setName("treffpunkt").setDescription("Neuer Treffpunkt").setMaxLength(100)).addStringOption(o=>o.setName("beschreibung").setDescription("Neue Beschreibung").setMaxLength(1000)).addIntegerOption(o=>o.setName("maximum").setDescription("Neues Teilnehmerlimit").setMinValue(1).setMaxValue(500)).addStringOption(o=>o.setName("ausruestung").setDescription("Neue Ausrüstung").setMaxLength(500)).addStringOption(o=>o.setName("hinweise").setDescription("Neue Teilnahmehinweise").setMaxLength(500)))
+    .addSubcommand(s=>s.setName("bearbeiten").setDescription("Geplantes Event ändern").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("name").setDescription("Neuer Name").setMaxLength(100)).addStringOption(o=>o.setName("start").setDescription("Datum und Uhrzeit, z. B. 31.12.2026 19:00 (Server-Zeitzone)")).addStringOption(o=>o.setName("treffpunkt").setDescription("Neuer Treffpunkt").setMaxLength(100)).addStringOption(o=>o.setName("beschreibung").setDescription("Neue Beschreibung").setMaxLength(1000)).addIntegerOption(o=>o.setName("maximum").setDescription("Neues Teilnehmerlimit").setMinValue(1).setMaxValue(500)).addIntegerOption(o=>o.setName("mindestens").setDescription("Neue Mindestteilnehmerzahl").setMinValue(1).setMaxValue(500)).addStringOption(o=>o.setName("ausruestung").setDescription("Neue Ausrüstung").setMaxLength(500)).addStringOption(o=>o.setName("hinweise").setDescription("Neue Teilnahmehinweise").setMaxLength(500)))
     .addSubcommand(s=>s.setName("anwesenheit").setDescription("Teilnahme dokumentieren (Event-Team)").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addUserOption(o=>o.setName("mitglied").setDescription("Teilnehmer").setRequired(true)).addStringOption(o=>o.setName("status").setDescription("Teilnahme").setRequired(true).addChoices({name:"Anwesend",value:"present"},{name:"Abwesend",value:"absent"})))
     .addSubcommand(s=>s.setName("beenden").setDescription("Event abschließen").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)))
+    .addSubcommand(s=>s.setName("erinnerung").setDescription("Wie du an Events erinnert wirst").addStringOption(o=>o.setName("modus").setDescription("Erinnerungsart").setRequired(true).addChoices({name:"Per DM (privat, ohne Ping im Channel)",value:"dm"},{name:"Im Event-Channel erwähnen",value:"channel"})))
     .addSubcommand(s=>s.setName("absagen").setDescription("Event absagen").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("grund").setDescription("Grund für die Absage").setMaxLength(300)));
   const apps = new SlashCommandBuilder().setName("antrag").setDescription("Bewerbung und Rang-Anträge")
     .addSubcommand(s=>s.setName("bewerben").setDescription("Bewerbung einreichen").addStringOption(o=>o.setName("typ").setDescription("Bewerbungstyp").setRequired(true).addChoices({name:"Familienbeitritt",value:"bewerbung"},{name:"Rang-Antrag",value:"rang"})))
@@ -280,7 +283,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   questionConfig=config;
   // Live berechnet: Rollenänderungen über Website/Discord gelten sofort.
   const groups=new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
-  const polls=createPollService(db);
+  const polls=createPollService(db),reminderPrefs=createReminderPrefs(db);
   const verifications=createVerificationService(db),warningService=createWarningService(db),absences=createAbsenceService(db),activity=createActivityService(db);
   const pendingModeration=new Map();
   const events=createEventService(db),giveaways=createGiveawayService(db),tickets=createTicketService(db),applications=createApplicationService(db);
@@ -757,6 +760,11 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   async function eventCommand(i,sub,g,u) {
     const invalidDate=()=>respond(i,`Bitte ein gültiges zukünftiges Datum eingeben, z. B. 31.12.2026 19:00 (${config.TIMEZONE}).`);
     const participantsOf=id=>events.participants(id);
+    if(sub==="erinnerung"){
+      const dm=i.options.getString("modus")==="dm";
+      reminderPrefs.set(g,u,dm);
+      return respond(i,dm?"🔔 Du bekommst Event-Erinnerungen ab jetzt **per DM** und wirst im Channel nicht mehr erwähnt. (Bei geschlossenen DMs wirst du weiterhin im Channel erwähnt.)":"Du wirst bei Event-Erinnerungen wieder **im Channel erwähnt**.");
+    }
     if(sub==="erstellen") {
       const denied=guard(i,"events","Event-Team");if(denied)return respond(i,denied);
       const start=parseEventDate(i.options.getString("start"),config.TIMEZONE);
@@ -767,6 +775,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       try{
         db.transaction(()=>{
           db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,announce_channel_id,announce_message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)").run(id,g,posted.channelId,posted.messageId,posted.announceChannelId,posted.announceMessageId,item.name,item.description,item.starts_at,item.location,u,item.equipment,item.notes,item.max_participants,isoNow());
+          if(i.options.getInteger("mindestens"))db.prepare("UPDATE events SET min_participants=? WHERE id=?").run(i.options.getInteger("mindestens"),id);
           audit(db,g,u,"event.created",id,{name:item.name,startsAt:item.starts_at,channelId:posted.channelId});
         })();
       }catch(error){await deleteEventPosts({client,posted});throw error;}
@@ -804,6 +813,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if(!Object.keys(changes).length)return respond(i,"Keine Änderung angegeben.");
       db.transaction(()=>{
         db.prepare("UPDATE events SET name=?,starts_at=?,location=?,description=?,max_participants=?,equipment=?,notes=? WHERE id=? AND status='scheduled'").run(next.name,next.starts_at,next.location,next.description,next.max_participants,next.equipment,next.notes,id);
+        if(i.options.getInteger("mindestens"))db.prepare("UPDATE events SET min_participants=?,min_checked_at=NULL WHERE id=?").run(i.options.getInteger("mindestens"),id);
         if(changes.starts_at)db.prepare("DELETE FROM event_reminders WHERE event_id=?").run(id);
         audit(db,g,u,"event.updated",id,{name:next.name,startsAt:next.starts_at,changed:Object.keys(changes).join(", ")});
       })();
@@ -828,6 +838,10 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if(sub==="beenden"||sub==="absagen") {
       const denied=guard(i,"events","Event-Team");if(denied)return respond(i,denied);
       const status=sub==="beenden"?"ended":"cancelled",id=i.options.getString("id"),reason=i.options.getString("grund")??"";
+      if(sub==="absagen"){
+        const cancelled=await cancelEvent({db,client,config,eventId:id,actorId:u,reason});
+        return respond(i,cancelled?`Event **${cancelled.name}** wurde abgesagt. Die Angemeldeten wurden informiert.`:"Geplantes Event nicht gefunden.");
+      }
       const row=db.transaction(()=>{
         const changed=db.prepare("UPDATE events SET status=? WHERE id=? AND guild_id=? AND status='scheduled' RETURNING *").get(status,id,g);
         if(changed)audit(db,g,u,`event.${status}`,id,{name:changed.name,reason});
@@ -1360,7 +1374,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     }catch(e){console.error("Review action failed:",e);return replyError(i,e);}
   }
 
-  async function eventButton(i){const [,action]=i.customId.split(":");if(action==="join"||action==="leave")return button(i);return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
+  async function eventButton(i){const [,action]=i.customId.split(":");if(action==="join"||action==="leave")return button(i);
+    if(action==="dm"){const next=!reminderPrefs.wantsDm(i.guildId,i.user.id);reminderPrefs.set(i.guildId,i.user.id,next);return answer(i,{content:next?"🔔 Erinnerungen kommen ab jetzt **per DM** (für alle Events). Im Channel wirst du nicht mehr erwähnt. Nochmal klicken schaltet es wieder aus.":"Erinnerungen kommen wieder **im Channel** mit Erwähnung.",ephemeral:true});}return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
 
   return {command,autocomplete,button,select,modal,reviewButton,eventButton};
 }

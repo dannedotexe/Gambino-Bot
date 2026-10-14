@@ -46,6 +46,7 @@ export const PANEL_TEXTS = {
       emptyParticipants: { label: "Text ohne Anmeldungen", max: 200, required: true, default: "Noch keine Anmeldungen – sei der Erste!" },
       joinButton: { label: "Button: Teilnehmen", max: 80, required: true, default: "✅  Teilnehmen" },
       leaveButton: { label: "Button: Abmelden", max: 80, required: true, default: "Abmelden" },
+      dmButton: { label: "Button: Erinnerung per DM", max: 80, required: true, default: "🔔 Erinnerung per DM" },
       announceText: { label: "Ankündigungstext", max: 2000, multiline: true, required: true, default: "📢 **{name}** startet {relativ} ({uhrzeit} Uhr).\nMelde dich jetzt an, damit wir planen können!" },
       announceButton: { label: "Button in der Ankündigung", max: 80, required: true, default: "Zur Anmeldung" },
       reminderText: { label: "Erinnerungstext", max: 2000, multiline: true, required: true, default: "⏰ **{name}** beginnt {relativ}. Seid pünktlich!" },

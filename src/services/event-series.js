@@ -91,10 +91,13 @@ export function validateSeries(input) {
   if (!Number.isInteger(lead) || lead < 5 || lead > 1440) throw new Error("Vorlaufzeit: 5 bis 1440 Minuten.");
   const max = input.maxParticipants == null || input.maxParticipants === "" ? null : Number(input.maxParticipants);
   if (max !== null && (!Number.isInteger(max) || max < 1 || max > 500)) throw new Error("Teilnehmerlimit: 1 bis 500 oder leer.");
+  const min = input.minParticipants == null || input.minParticipants === "" ? null : Number(input.minParticipants);
+  if (min !== null && (!Number.isInteger(min) || min < 1 || min > 500)) throw new Error("Mindestteilnehmer: 1 bis 500 oder leer.");
+  if (min !== null && max !== null && min > max) throw new Error("Die Mindestzahl darf nicht über dem Teilnehmerlimit liegen.");
   return {
     name, kind, weekdays: kind === "scheduled" ? weekdays.join(",") : "", times: kind === "scheduled" ? times.join(",") : "", availability,
     description: String(input.description ?? "").trim().slice(0, 1000), location: String(input.location ?? "").trim().slice(0, 100),
-    lead_minutes: lead, max_participants: max,
+    lead_minutes: lead, max_participants: max, min_participants: min,
   };
 }
 
@@ -123,6 +126,7 @@ export function createSeriesService(db) {
     const id = randomUUID(), order = db.prepare("SELECT COALESCE(MAX(sort_order),0)+1 n FROM event_series WHERE guild_id=?").get(guildId).n;
     db.prepare("INSERT INTO event_series(id,guild_id,name,kind,weekdays,times,availability,description,location,lead_minutes,max_participants,active,sort_order,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, guildId, data.name, data.kind, data.weekdays, data.times, data.availability, data.description, data.location, data.lead_minutes, data.max_participants, input.active ? 1 : 0, order, actorId, now(), now());
+    db.prepare("UPDATE event_series SET min_participants=? WHERE id=?").run(data.min_participants, id);
     audit(db, guildId, actorId, "event.series_created", id, { name: data.name, schedule: describeSchedule(data) });
     return get(guildId, id);
   });
@@ -130,10 +134,11 @@ export function createSeriesService(db) {
   const update = db.transaction(({ guildId, id, actorId, input }) => {
     const old = get(guildId, id);
     if (!old) throw new Error("Aktivität nicht gefunden.");
-    const data = validateSeries({ ...old, weekdays: old.weekdays, times: old.times, leadMinutes: old.lead_minutes, maxParticipants: old.max_participants, ...input });
+    const data = validateSeries({ ...old, weekdays: old.weekdays, times: old.times, leadMinutes: old.lead_minutes, maxParticipants: old.max_participants, minParticipants: old.min_participants, ...input });
     if (data.name !== old.name && db.prepare("SELECT 1 FROM event_series WHERE guild_id=? AND name=? AND id<>?").get(guildId, data.name, id)) throw new Error("Eine Aktivität mit diesem Namen existiert bereits.");
     db.prepare("UPDATE event_series SET name=?,kind=?,weekdays=?,times=?,availability=?,description=?,location=?,lead_minutes=?,max_participants=?,updated_at=? WHERE id=?")
       .run(data.name, data.kind, data.weekdays, data.times, data.availability, data.description, data.location, data.lead_minutes, data.max_participants, now(), id);
+    db.prepare("UPDATE event_series SET min_participants=? WHERE id=?").run(data.min_participants, id);
     audit(db, guildId, actorId, "event.series_updated", id, { name: data.name, schedule: describeSchedule(data) });
     return get(guildId, id);
   });

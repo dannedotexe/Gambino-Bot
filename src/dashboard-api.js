@@ -31,6 +31,8 @@ import { createRankHistory } from "./services/ranks.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
+import { noShowsOf } from "./event-checks.js";
+import { createReminderPrefs } from "./reminder-prefs.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -181,6 +183,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         verification: verifications.byUser(guildId, userId),
         activity: { ...activity.eventStats(guildId, userId), lastMessage: activity.lastMessage(guildId, userId)?.last_message_at ?? null, messages: activity.lastMessage(guildId, userId)?.messages ?? 0, trackingSince: activity.trackingSince(guildId) },
         rankHistory: rankHistory.forUser(guildId, userId, 20),
+        noShows: noShowsOf(db, config, guildId, userId), noShowWindow: config.NOSHOW_WINDOW_DAYS, dmReminders: createReminderPrefs(db).wantsDm(guildId, userId),
         absences: absences.forUser(guildId, userId, 10), absentNow: absences.absentUserIds(guildId, today()).has(userId),
         events: db.prepare("SELECT e.id,e.name,e.starts_at,e.status AS event_status,p.status FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status<>'left' ORDER BY e.starts_at DESC LIMIT 15").all(guildId, userId)
           .map(e => ({ ...e, excused: e.status === "absent" && absences.wasAbsent(guildId, userId, e.starts_at, config.TIMEZONE), upcoming: e.starts_at > iso })),
@@ -411,11 +414,14 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (!start || (body.startsAt && start.getTime() < Date.now() + 60_000)) throw new HttpError(400, `Bitte ein gültiges zukünftiges Datum angeben (${config.TIMEZONE}).`);
       const maximum = body.maximum === "" || body.maximum == null ? null : Number(body.maximum);
       if (maximum !== null && (!Number.isInteger(maximum) || maximum < 1 || maximum > 500)) throw new HttpError(400, "Teilnehmerlimit zwischen 1 und 500 oder leer lassen.");
-      const next = { name: text(body.name ?? old.name, { min: 3, max: 100, label: "Name" }), description: text(body.description ?? old.description, { max: 1000, label: "Beschreibung" }), location: text(body.location ?? old.location, { min: 2, max: 100, label: "Treffpunkt" }), starts_at: start.toISOString(), max_participants: maximum, equipment: text(body.equipment ?? old.equipment, { max: 500, label: "Ausrüstung" }), notes: text(body.notes ?? old.notes, { max: 500, label: "Hinweise" }) };
+      const minimum = body.minimum === "" || body.minimum == null ? null : Number(body.minimum);
+      if (minimum !== null && (!Number.isInteger(minimum) || minimum < 1 || minimum > 500)) throw new HttpError(400, "Mindestteilnehmer zwischen 1 und 500 oder leer lassen.");
+      const next = { min_participants: minimum, name: text(body.name ?? old.name, { min: 3, max: 100, label: "Name" }), description: text(body.description ?? old.description, { max: 1000, label: "Beschreibung" }), location: text(body.location ?? old.location, { min: 2, max: 100, label: "Treffpunkt" }), starts_at: start.toISOString(), max_participants: maximum, equipment: text(body.equipment ?? old.equipment, { max: 500, label: "Ausrüstung" }), notes: text(body.notes ?? old.notes, { max: 500, label: "Hinweise" }) };
       const changed = Object.keys(next).filter(key => next[key] !== old[key]);
       if (!changed.length) return { message: "Keine Änderung." };
       db.transaction(() => {
         db.prepare("UPDATE events SET name=?,description=?,location=?,starts_at=?,max_participants=?,equipment=?,notes=? WHERE id=? AND status='scheduled'").run(next.name, next.description, next.location, next.starts_at, next.max_participants, next.equipment, next.notes, id);
+        if (changed.includes("min_participants")) db.prepare("UPDATE events SET min_participants=?,min_checked_at=NULL WHERE id=?").run(next.min_participants, id);
         if (changed.includes("starts_at")) db.prepare("DELETE FROM event_reminders WHERE event_id=?").run(id);
         audit(db, guildId, member.id, "event.updated", id, { name: next.name, startsAt: next.starts_at, changed: changed.join(", ") });
       })();

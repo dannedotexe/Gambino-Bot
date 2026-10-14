@@ -142,6 +142,7 @@ const ACTIONS = {
   "admin.data_reset": "Testdaten zurückgesetzt",
   "admin.export": "Daten exportiert",
   "announcement.created": "Ankündigung gesendet", "announcement.scheduled": "Ankündigung geplant", "announcement.cancelled": "Ankündigung abgebrochen",
+  "event.min_not_reached": "Zu wenige Anmeldungen", "event.noshow_limit": "No-Show-Grenze erreicht",
   "poll.created": "Abstimmung gestartet", "poll.closed": "Abstimmung beendet", "poll.cancelled": "Abstimmung abgebrochen",
   "rank.promotion": "Beförderung", "rank.demotion": "Degradierung", "rank.change": "Rangänderung",
   "config.changed": "Einstellung geändert",

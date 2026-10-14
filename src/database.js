@@ -129,6 +129,14 @@ export const MIGRATIONS = [
       CREATE TABLE IF NOT EXISTS poll_votes (poll_id TEXT NOT NULL REFERENCES polls(id), user_id TEXT NOT NULL, option_index INTEGER NOT NULL, voted_at TEXT NOT NULL, PRIMARY KEY(poll_id,user_id));
     `),
   },
+  {
+    version: 8,
+    name: "event-mindestteilnehmer-noshows-dm",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS reminder_prefs (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, dm INTEGER NOT NULL DEFAULT 0 CHECK(dm IN (0,1)), updated_at TEXT NOT NULL, PRIMARY KEY(guild_id,user_id));
+      CREATE TABLE IF NOT EXISTS noshow_notices (event_id TEXT NOT NULL, user_id TEXT NOT NULL, guild_id TEXT NOT NULL, count INTEGER NOT NULL, action TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(event_id,user_id));
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.
@@ -142,6 +150,9 @@ const COLUMNS = [
   ["events", "announce_channel_id", "TEXT"],
   ["events", "announce_message_id", "TEXT"],
   ["member_warnings", "revoked_at", "TEXT"],
+  ["events", "min_participants", "INTEGER"],
+  ["events", "min_checked_at", "TEXT"],
+  ["event_series", "min_participants", "INTEGER"],
   ["member_warnings", "revoked_by", "TEXT"],
   ["member_warnings", "revoke_reason", "TEXT"],
 ];

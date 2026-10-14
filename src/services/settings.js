@@ -70,6 +70,12 @@ export const SETTINGS = [
   { key: "TIMEZONE", group: "Events", label: "Zeitzone", type: "text", help: "IANA-Name, z. B. Europe/Vienna." },
   { key: "EVENT_REMINDER_MINUTES", group: "Events", label: "Erinnerungen (Minuten vorher)", type: "numberList", help: "Kommagetrennt, z. B. 60, 15. Leer = Standard." },
   { key: "EVENT_PING_ROLES", group: "Events", label: "Rollen bei Event-Ankündigung erwähnen", type: "roles", help: "Optional, z. B. Familienrolle. Leer = niemand wird erwähnt." },
+  { key: "EVENT_MIN_PARTICIPANTS", group: "Events", label: "Mindestteilnehmer (Standard, 0 = aus)", type: "number", min: 0, max: 500, help: "Gilt für Events und Aktivitäten ohne eigene Mindestzahl. Eigene Werte setzt man beim Event bzw. bei der Aktivität." },
+  { key: "EVENT_MIN_CHECK_MINUTES", group: "Events", label: "Mindestteilnehmer prüfen (Minuten vor Start)", type: "number", min: 5, max: 1440 },
+  { key: "EVENT_MIN_AUTO_CANCEL", group: "Events", label: "Bei zu wenigen Anmeldungen automatisch absagen", type: "bool", help: "Aus = nur Meldung an das Event-Team. An = Event wird abgesagt und die Angemeldeten werden informiert." },
+  { key: "NOSHOW_THRESHOLD", group: "Events", label: "No-Shows bis zur Reaktion (0 = aus)", type: "number", min: 0, max: 50, help: "Angemeldet, aber unentschuldigt nicht erschienen (nur bei Events mit erfasster Anwesenheit; Abgemeldete zählen nicht)." },
+  { key: "NOSHOW_WINDOW_DAYS", group: "Events", label: "No-Shows zählen im Zeitraum (Tage)", type: "number", min: 1, max: 365 },
+  { key: "NOSHOW_ACTION", group: "Events", label: "Reaktion auf No-Shows", type: "select", options: [["alert", "Meldung an die Leitung"], ["warn", "Automatische Verwarnung"], ["both", "Meldung und Verwarnung"]] },
   { key: "EVENT_SERIES_DELETE_ENDED", group: "Events", label: "Beendete Aktivitäts-Posts löschen", type: "bool", help: "Hält die Channels sauber: Posts automatischer Aktivitäten werden nach Ende gelöscht. Teilnahme bleibt gespeichert, Ergebnisse gehen weiter in den Ergebnis-Channel." },
   { key: "EVENT_SERIES_AUTO_END_MINUTES", group: "Events", label: "Aktivitäten automatisch beenden nach (Minuten)", type: "number", min: 15, max: 1440, help: "Automatisch erstellte Termine werden so lange nach Start geschlossen." },
   { key: "RANK_ROLE_ASSIGNMENT_ENABLED", group: "Anträge", label: "Rang-Rollen nach Annahme vergeben", type: "bool", help: "Nur Leitung, nur nach Bestätigung, mit Hierarchieprüfung." },
@@ -124,6 +130,7 @@ export function toRaw(definition, value) {
     case "bool": return value === true || value === "true" ? "true" : "false";
     case "list": case "actions": case "numberList": return list(value).join(",");
     case "text": return String(value ?? "").trim();
+    case "select": { const v = String(value ?? ""); if (!definition.options.some(([key]) => key === v)) throw new Error(`${definition.label}: ungültige Auswahl.`); return v; }
     case "json": case "ticketCategories": case "rankRoles": {
       if (typeof value === "string") { try { JSON.parse(value || (definition.type === "json" ? "{}" : "[]")); } catch { throw new Error(`${definition.label}: ungültiges JSON.`); } return value.trim() || (definition.type === "json" ? "{}" : "[]"); }
       return JSON.stringify(value ?? (definition.type === "json" ? {} : []));

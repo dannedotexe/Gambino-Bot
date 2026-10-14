@@ -1,4 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
+import { splitAndSendDms } from "./reminder-prefs.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 import { describeSchedule } from "./services/event-series.js";
 
@@ -35,13 +36,14 @@ export function eventCardPayload({ event, participants = [], texts = defaultsFor
   if (event.equipment) fields.push({ name: "🧰 Ausrüstung", value: event.equipment.slice(0, 1024), inline: false });
   if (event.notes && event.notes !== "Automatisch aus dem Aktivitätenplan erstellt.") fields.push({ name: "ℹ️ Hinweise", value: event.notes.slice(0, 1024), inline: false });
   const list = participants.length ? participants.slice(0, 40).map(p => `<@${p.user_id}>`).join(", ") + (participants.length > 40 ? ` +${participants.length - 40}` : "") : (texts.emptyParticipants || "—");
-  fields.push({ name: `🙋 ${texts.participantsLabel || "Teilnehmende"} (${participants.length}${event.max_participants ? `/${event.max_participants}` : ""})`, value: list.slice(0, 1024), inline: false });
+  fields.push({ name: `🙋 ${texts.participantsLabel || "Teilnehmende"} (${participants.length}${event.max_participants ? `/${event.max_participants}` : ""}${event.min_participants ? ` · mind. ${event.min_participants}` : ""})`, value: list.slice(0, 1024), inline: false });
   embed.addFields(fields);
   const footer = series ? `${texts.seriesFooter || "Wiederkehrende Aktivität"} · ${describeSchedule(series)}` : texts.footer;
   if (footer) embed.setFooter({ text: footer.slice(0, 2048) });
   const components = !look ? [new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`event:join:${event.id}`).setLabel(texts.joinButton || "Teilnehmen").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`event:leave:${event.id}`).setLabel(texts.leaveButton || "Abmelden").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`event:dm:${event.id}`).setLabel(texts.dmButton || "🔔 Erinnerung per DM").setStyle(ButtonStyle.Secondary),
   )] : [];
   return { embeds: [embed], components };
 }
@@ -119,10 +121,13 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
 /** Erinnerung als Antwort auf die Event-Karte; erwähnt nur Angemeldete. */
 export async function sendEventReminder({ db, client, config, event }) {
   const texts = panelTexts(db, config.DISCORD_GUILD_ID, "events");
-  const participants = participantsOf(db, event.id).slice(0, 50).map(p => p.user_id);
+  const all = participantsOf(db, event.id).slice(0, 50).map(p => p.user_id);
   const card = await fetchMessage(client, event.channel_id, event.message_id);
   const embed = new EmbedBuilder().setColor(colorNumber(texts.color || "#d4af37"))
     .setDescription(`${fillTemplate(texts.reminderText, event)}${event.location ? `\n📍 ${event.location}` : ""}${event.equipment ? `\n🧰 ${event.equipment}` : ""}`.slice(0, 4000));
+  // Wer Erinnerungen per DM möchte, bekommt sie privat und wird im Channel nicht erwähnt.
+  const link = card?.url ?? (event.channel_id && event.message_id && config.DISCORD_GUILD_ID ? `https://discord.com/channels/${config.DISCORD_GUILD_ID}/${event.channel_id}/${event.message_id}` : null);
+  const participants = await splitAndSendDms({ db, client, guildId: event.guild_id ?? config.DISCORD_GUILD_ID, userIds: all, embed, link });
   const payload = { content: participants.length ? participants.map(id => `<@${id}>`).join(" ") : undefined, embeds: [embed], allowedMentions: { users: participants, repliedUser: false } };
   if (card) return card.reply(payload).then(() => true).catch(error => { console.warn(`Event-Erinnerung ${event.id} fehlgeschlagen:`, error.message); return false; });
   const channel = await getChannel(client, event.channel_id);

@@ -33,7 +33,7 @@ const labels = {
   "absence.created": "Abmeldung eingetragen", "absence.ended": "Abmeldung beendet", "activity.reminder": "Inaktivitäts-Erinnerung",
   "moderation.timeout": "Timeout", "moderation.untimeout": "Timeout aufgehoben", "moderation.kick": "Kick", "moderation.ban": "Bann", "moderation.unban": "Entbannt",
   "moderation.timeout_failed": "Timeout fehlgeschlagen", "moderation.kick_failed": "Kick fehlgeschlagen", "moderation.ban_failed": "Bann fehlgeschlagen", "moderation.unban_failed": "Entbannen fehlgeschlagen", "moderation.untimeout_failed": "Timeout-Aufhebung fehlgeschlagen",
-  "automod.action": "AutoMod-Maßnahme", "admin.override": "Bot-Owner-Override", "admin.data_reset": "Testdaten zurückgesetzt", "admin.export": "Daten exportiert", "announcement.created": "Ankündigung gesendet", "announcement.scheduled": "Ankündigung geplant", "announcement.cancelled": "Ankündigung abgebrochen", "poll.created": "Abstimmung gestartet", "poll.closed": "Abstimmung beendet", "poll.cancelled": "Abstimmung abgebrochen", "rank.promotion": "Beförderung", "rank.demotion": "Degradierung", "rank.change": "Rangänderung", "config.changed": "Einstellung geändert", "config.panel_published": "Dashboard-Panel veröffentlicht", "config.automod_synced": "AutoMod synchronisiert",
+  "automod.action": "AutoMod-Maßnahme", "admin.override": "Bot-Owner-Override", "admin.data_reset": "Testdaten zurückgesetzt", "admin.export": "Daten exportiert", "announcement.created": "Ankündigung gesendet", "announcement.scheduled": "Ankündigung geplant", "announcement.cancelled": "Ankündigung abgebrochen", "event.min_not_reached": "Zu wenige Anmeldungen", "event.noshow_limit": "No-Show-Grenze erreicht", "poll.created": "Abstimmung gestartet", "poll.closed": "Abstimmung beendet", "poll.cancelled": "Abstimmung abgebrochen", "rank.promotion": "Beförderung", "rank.demotion": "Degradierung", "rank.change": "Rangänderung", "config.changed": "Einstellung geändert", "config.panel_published": "Dashboard-Panel veröffentlicht", "config.automod_synced": "AutoMod synchronisiert",
 };
 const statusLabels = { open: "Offen", review: "In Prüfung", accepted: "Angenommen", rejected: "Abgelehnt", withdrawn: "Zurückgezogen", partial: "Teilweise verrechnet", paid: "Beglichen", void: "Aufgehoben", scheduled: "Geplant", ended: "Beendet", cancelled: "Abgesagt", active: "Aktiv", closed: "Geschlossen", signed_up: "Angemeldet", present: "Anwesend", absent: "Abwesend" };
 const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP-Erfahrung", motivation: "Motivation", aktivitaet: "Aktivität", aktueller_rang: "Aktueller Rang", ziel_rang: "Beantragter Rang", begruendung: "Begründung" };
@@ -308,6 +308,7 @@ const eventFields = (e = {}) => [
   { name: "equipment", label: "Ausrüstung", hint: "(optional)", max: 500, value: e.equipment },
   { name: "notes", label: "Hinweise", hint: "(optional)", max: 500, value: e.notes },
   { name: "maximum", label: "Max. Teilnehmer", hint: "(leer = kein Limit)", type: "number", min: 1, maxValue: 500, value: e.max_participants ?? "" },
+  { name: "minimum", label: "Mindestteilnehmer", hint: "(leer = Standard aus den Einstellungen)", type: "number", min: 1, maxValue: 500, value: e.min_participants ?? "" },
 ];
 const DAYS = [["1", "Mo"], ["2", "Di"], ["3", "Mi"], ["4", "Do"], ["5", "Fr"], ["6", "Sa"], ["7", "So"]];
 const seriesFields = (s = {}) => [
@@ -319,6 +320,7 @@ const seriesFields = (s = {}) => [
   { name: "location", label: "Treffpunkt", hint: "(optional)", max: 100, value: s.location },
   { name: "description", label: "Beschreibung", hint: "(optional)", type: "textarea", rows: 2, max: 1000, value: s.description },
   { name: "maxParticipants", label: "Max. Teilnehmer", hint: "(leer = kein Limit)", type: "number", min: 1, maxValue: 500, value: s.max_participants ?? "" },
+  { name: "minParticipants", label: "Mindestteilnehmer", hint: "(leer = Standard aus den Einstellungen)", type: "number", min: 1, maxValue: 500, value: s.min_participants ?? "" },
   { name: "leadMinutes", label: "Ankündigung … Minuten vorher", type: "number", min: 5, maxValue: 1440, value: s.lead_minutes ?? 120 },
 ];
 async function loadSeries() {
@@ -459,8 +461,8 @@ const actions = {
     const data = await api(`/api/tickets/${id}/transcript`);
     openInfo(`Transkript · ${data.ticket.category}`, `<div class="transcript">${data.messages.map(m => `<div class="msg"><b>${escapeHtml(m.author)}</b> <small>${date(m.createdAt)}</small><p>${escapeHtml(m.content) || "<i>(ohne Text)</i>"}${m.attachments.length ? `<br><small>${escapeHtml(m.attachments.join(", "))}</small>` : ""}</p></div>`).join("") || empty("Keine Nachrichten gespeichert.")}</div>`, "TICKET");
   },
-  "event-create": () => openForm({ eyebrow: "EVENT-TEAM", title: "Event veröffentlichen", intro: "<p>Die Ankündigung erscheint im konfigurierten Event-Channel mit Anmeldebuttons.</p>", fields: eventFields(), submit: "Veröffentlichen", onSubmit: v => post("/api/events", { ...v, startsAt: fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null }) }),
-  "event-edit": ({ id }) => { const e = state.cache.events[id]; openForm({ eyebrow: "EVENT BEARBEITEN", title: e.name, intro: "<p>Die Ankündigung in Discord wird automatisch aktualisiert. Bei geänderter Startzeit werden Erinnerungen neu geplant.</p>", fields: eventFields(e), submit: "Speichern", onSubmit: v => post(`/api/events/${id}/update`, { ...v, startsAt: v.startsAt === toLocalInput(e.starts_at) ? "" : fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null }) }); },
+  "event-create": () => openForm({ eyebrow: "EVENT-TEAM", title: "Event veröffentlichen", intro: "<p>Die Ankündigung erscheint im konfigurierten Event-Channel mit Anmeldebuttons.</p>", fields: eventFields(), submit: "Veröffentlichen", onSubmit: v => post("/api/events", { ...v, startsAt: fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null, minimum: v.minimum ? Number(v.minimum) : null }) }),
+  "event-edit": ({ id }) => { const e = state.cache.events[id]; openForm({ eyebrow: "EVENT BEARBEITEN", title: e.name, intro: "<p>Die Ankündigung in Discord wird automatisch aktualisiert. Bei geänderter Startzeit werden Erinnerungen neu geplant.</p>", fields: eventFields(e), submit: "Speichern", onSubmit: v => post(`/api/events/${id}/update`, { ...v, startsAt: v.startsAt === toLocalInput(e.starts_at) ? "" : fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null, minimum: v.minimum ? Number(v.minimum) : null }) }); },
   "event-attendance": ({ id }) => attendanceDialog(id),
   "att": async ({ event, user, status }) => { const r = await post(`/api/events/${event}/attendance`, { userId: user, status }); notify(r.message); await loadEvents(); attendanceDialog(event); },
   "event-end": ({ id }) => confirmAction("Event beenden?", "Die Anmeldung wird geschlossen. Anwesenheit kann weiterhin dokumentiert werden.", "Beenden", () => post(`/api/events/${id}/end`), false),

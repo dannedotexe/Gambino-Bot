@@ -224,6 +224,8 @@ export function createDashboard({ db, client, config, settings = null, series = 
             try {
               db.transaction(() => {
                 db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,announce_channel_id,announce_message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'scheduled',?)").run(id, event.guild_id, posted.channelId, posted.messageId, posted.announceChannelId, posted.announceMessageId, event.name, event.description, event.starts_at, event.location, event.host_id, event.equipment, event.notes, event.max_participants, now);
+                const minimum = Number(body.minimum);
+                if (Number.isInteger(minimum) && minimum >= 1 && minimum <= 500) db.prepare("UPDATE events SET min_participants=? WHERE id=?").run(minimum, id);
                 audit(db, config.DISCORD_GUILD_ID, member.id, "event.created", id, { name, startsAt: event.starts_at, channelId: posted.channelId });
               })();
             } catch (error) { await deleteEventPosts({ client, posted }); throw error; }

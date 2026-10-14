@@ -59,11 +59,12 @@ export async function createSeriesEvents({ db, client, config, series, reference
   let created = 0;
   for (const { series: item, startsAt } of due) {
     const id = randomUUID(), createdAt = new Date().toISOString();
-    const event = { id, guild_id: guildId, name: item.name, description: item.description || "", starts_at: startsAt.toISOString(), location: item.location, host_id: client.user.id, equipment: "", notes: "", max_participants: item.max_participants, series_id: item.id, status: "scheduled" };
+    const event = { id, guild_id: guildId, name: item.name, description: item.description || "", starts_at: startsAt.toISOString(), location: item.location, host_id: client.user.id, equipment: "", notes: "", max_participants: item.max_participants, min_participants: item.min_participants ?? null, series_id: item.id, status: "scheduled" };
     // Reservierung über den Unique-Index (series_id, starts_at): parallele Ticks oder Neustarts erzeugen kein Duplikat.
     const reserved = db.prepare("INSERT OR IGNORE INTO events(id,guild_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at,series_id) VALUES(?,?,?,?,?,?,?,?,?,?,'scheduled',?,?)")
       .run(id, guildId, event.name, event.description, event.starts_at, event.location, event.host_id, event.equipment, event.notes, event.max_participants, createdAt, item.id).changes;
     if (!reserved) continue;
+    if (event.min_participants) db.prepare("UPDATE events SET min_participants=? WHERE id=?").run(event.min_participants, id);
     try {
       const posted = await publishEvent({ db, client, config, event, fallbackChannel: channel });
       db.transaction(() => {
