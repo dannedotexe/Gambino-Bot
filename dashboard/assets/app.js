@@ -259,10 +259,10 @@ async function loadApplications() {
     const actions = [
       item.status === "open" ? btn("Übernehmen", "app-claim", { id: item.id }, "primary-action") : "",
       open ? btn("Annehmen", "app-accept", { id: item.id }, "accept") : "", open ? btn("Ablehnen", "app-reject", { id: item.id }, "reject") : "",
-      btn("💬 Notiz", "app-note", { id: item.id }),
-      item.kind === "rang" && item.status === "accepted" && caps.leaders && rankRoles.length && !item.granted_role ? btn("🏅 Rang-Rolle vergeben", "app-role", { id: item.id }, "primary-action") : "",
+      btn("Notiz", "app-note", { id: item.id }),
+      item.kind === "rang" && item.status === "accepted" && caps.leaders && rankRoles.length && !item.granted_role ? btn("Rang-Rolle vergeben", "app-role", { id: item.id }, "primary-action") : "",
     ].join("");
-    return `<article class="manage-card"><div class="manage-card-head"><div><span class="type-pill">${item.kind === "rang" ? "🏅 Rang-Antrag" : "🤝 Bewerbung"}</span><h3>${who(item.user_id)}</h3></div><span class="badge status-${item.status}">${statusLabels[item.status] ?? item.status}</span></div>
+    return `<article class="manage-card"><div class="manage-card-head"><div><span class="type-pill">${item.kind === "rang" ? "Rang-Antrag" : "Bewerbung"}</span><h3>${who(item.user_id)}</h3></div><span class="badge status-${item.status}">${statusLabels[item.status] ?? item.status}</span></div>
       <p class="manage-meta">Eingereicht ${date(item.created_at)}${item.reviewer_id ? ` · Bearbeitung: <b>${who(item.reviewer_id)}</b>` : ""}${item.review_note ? ` · Begründung: ${escapeHtml(item.review_note)}` : ""}${item.granted_role ? ` · Rolle vergeben` : ""}</p>
       <div class="answers">${facts || "Keine Angaben gespeichert."}</div>${notes}<div class="actions">${actions}</div></article>`;
   }).join("") || empty(status === "open" ? "Keine offenen Anträge." : "Keine abgeschlossenen Anträge.");
@@ -273,9 +273,9 @@ async function loadApplications() {
 async function loadTickets() {
   const status = $("tickets-filter").value;
   const data = await api(`/api/tickets?status=${status}`);
-  $("tickets-list").innerHTML = data.tickets.map(t => `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">🎫 ${escapeHtml(t.category_label)}</span><h3>${who(t.user_id)}</h3></div><span class="badge">${t.status === "closed" ? "Geschlossen" : t.claimed_by ? "In Bearbeitung" : "Offen"}</span></div>
+  $("tickets-list").innerHTML = data.tickets.map(t => `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${escapeHtml(t.category_label)}</span><h3>${who(t.user_id)}</h3></div><span class="badge">${t.status === "closed" ? "Geschlossen" : t.claimed_by ? "In Bearbeitung" : "Offen"}</span></div>
     <p class="manage-meta">Eröffnet ${date(t.created_at)}${t.claimed_by ? ` · Bearbeiter: <b>${who(t.claimed_by)}</b>` : " · wartet auf Staff"}${t.closed_at ? ` · geschlossen ${date(t.closed_at)} von ${who(t.closed_by)}` : ""}${t.channel_id ? "" : " · Channel gelöscht"}</p>
-    <div class="actions">${t.status === "open" && !t.claimed_by ? btn("Übernehmen", "ticket-claim", { id: t.id }, "primary-action") : ""}${t.status === "open" ? btn("Schließen", "ticket-close", { id: t.id }, "reject") : ""}${t.status === "closed" && t.channel_id ? btn("Wieder öffnen", "ticket-reopen", { id: t.id }) : ""}${t.has_transcript ? btn("📄 Transkript", "ticket-transcript", { id: t.id }) : ""}</div></article>`).join("") || empty(status === "open" ? "Keine offenen Tickets." : "Keine geschlossenen Tickets.");
+    <div class="actions">${t.status === "open" && !t.claimed_by ? btn("Übernehmen", "ticket-claim", { id: t.id }, "primary-action") : ""}${t.status === "open" ? btn("Schließen", "ticket-close", { id: t.id }, "reject") : ""}${t.status === "closed" && t.channel_id ? btn("Wieder öffnen", "ticket-reopen", { id: t.id }) : ""}${t.has_transcript ? btn("Transkript", "ticket-transcript", { id: t.id }) : ""}</div></article>`).join("") || empty(status === "open" ? "Keine offenen Tickets." : "Keine geschlossenen Tickets.");
   document.querySelectorAll("#tab-tickets .search").forEach(filterList);
 }
 
@@ -313,7 +313,7 @@ const seriesFields = (s = {}) => [
 async function loadSeries() {
   const data = await api("/api/series"), caps = state.me.capabilities;
   state.cache.series = Object.fromEntries(data.series.map(s => [s.id, s]));
-  const warn = !data.announcementChannel && data.series.some(s => s.active && s.kind === "scheduled") ? '<p class="warn-text">⚠️ Kein Event-Ankündigungs-Channel eingestellt – aktive Termine können nicht angekündigt werden (Einstellungen → Channels).</p>' : "";
+  const warn = !data.announcementChannel && data.series.some(s => s.active && s.kind === "scheduled") ? '<p class="warn-text">Kein Event-Ankündigungs-Channel eingestellt – aktive Termine können nicht angekündigt werden (Einstellungen → Channels).</p>' : "";
   $("series-list").innerHTML = warn + (data.series.map(s => `<div class="series ${s.active ? "on" : ""}"><button type="button" class="switch" role="switch" aria-checked="${s.active}" ${caps.events ? "" : "disabled"} data-action="series-toggle" data-id="${escapeHtml(s.id)}" data-active="${s.active ? "1" : "0"}" title="${s.active ? "Aktiv – klicken zum Deaktivieren" : "Inaktiv – klicken zum Aktivieren"}"><span></span></button>
     <div class="series-main"><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.schedule)}${s.next && s.active ? ` · nächster Termin ${date(s.next)}` : ""}</small></div>
     <span class="badge">${s.kind === "scheduled" ? "Fest" : "Flexibel"}</span>${caps.events ? `<span class="actions tight">${btn("Bearbeiten", "series-edit", { id: s.id })}${btn("Löschen", "series-delete", { id: s.id }, "reject")}</span>` : ""}</div>`).join("") || empty("Keine Aktivitäten angelegt."));
@@ -328,11 +328,11 @@ async function loadEvents() {
     const chips = e.participants.map(p => `<span class="chip chip-${p.status}">${who(p.user_id)}${p.status !== "signed_up" ? ` · ${statusLabels[p.status]}` : ""}</span>`).join("");
     const actions = caps.events ? [
       e.status === "scheduled" ? btn("Bearbeiten", "event-edit", { id: e.id }) : "",
-      e.status !== "cancelled" ? btn("📝 Anwesenheit", "event-attendance", { id: e.id }, "primary-action") : "",
+      e.status !== "cancelled" ? btn("Anwesenheit", "event-attendance", { id: e.id }, "primary-action") : "",
       e.status === "scheduled" ? btn("Beenden", "event-end", { id: e.id }, "accept") : "",
       e.status === "scheduled" ? btn("Absagen", "event-cancel", { id: e.id }, "reject") : "",
     ].join("") : "";
-    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">📅 ${statusLabels[e.status]}</span><h3>${escapeHtml(e.name)}</h3></div><span class="badge">${active.length}${e.max_participants ? `/${e.max_participants}` : ""} Teilnehmende</span></div>
+    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${statusLabels[e.status]}</span><h3>${escapeHtml(e.name)}</h3></div><span class="badge">${active.length}${e.max_participants ? `/${e.max_participants}` : ""} Teilnehmende</span></div>
       <p class="manage-meta">${date(e.starts_at)} · ${escapeHtml(e.location)} · Veranstalter: <b>${who(e.host_id)}</b>${e.equipment ? ` · Ausrüstung: ${escapeHtml(e.equipment)}` : ""}</p>
       ${e.description ? `<p class="desc">${escapeHtml(e.description)}</p>` : ""}<div class="chips">${chips || '<span class="muted">Noch keine Anmeldungen</span>'}</div><div class="actions">${actions}</div></article>`;
   }).join("") || empty(scope === "upcoming" ? "Keine geplanten Events." : "Keine vergangenen Events.");
@@ -347,7 +347,7 @@ function attendanceDialog(id) {
 // ------------------------------------------------------------------ Familienkonto
 async function loadFinance() {
   const data = await api("/api/accounts"), caps = state.me.capabilities;
-  $("finance-totals").innerHTML = [["Ausstehend (brutto)", money(data.totals.gross), "$"], ["Offene Sanktionen", money(data.totals.open), "⚑"], ["Voraussichtlich netto", money(data.totals.net), "→"], ["Mindestbetrag", data.minimumCents == null ? "keiner" : money(data.minimumCents), "⌁"]]
+  $("finance-totals").innerHTML = [["Ausstehend (brutto)", money(data.totals.gross), "$"], ["Offene Sanktionen", money(data.totals.open), ""], ["Voraussichtlich netto", money(data.totals.net), "→"], ["Mindestbetrag", data.minimumCents == null ? "keiner" : money(data.minimumCents), "⌁"]]
     .map(([label, value, symbol]) => `<div class="stat"><span class="symbol">${symbol}</span><div class="label">${label}</div><div class="value small">${value}</div></div>`).join("");
   $("accounts-list").innerHTML = data.accounts.length ? `<div class="table-row table-head"><span>Mitglied</span><span>Brutto</span><span>Sanktionen</span><span>Netto</span><span></span></div>` + data.accounts.map(a => `<div class="table-row"><span><b>${plink(a.userId)}</b>${a.eligible ? '<em class="ok">auszahlbar</em>' : a.gross > 0 ? '<em class="warn">unter Mindestbetrag</em>' : ""}</span><span data-label="Brutto">${money(a.gross)}</span><span data-label="Sanktionen">${a.openSanctions ? `${money(a.openSanctions)}${a.remainingAfter ? ` <small>(Rest danach ${money(a.remainingAfter)})</small>` : ""}` : "—"}</span><span data-label="Netto"><b>${money(a.net)}</b></span><span class="actions tight">${btn("Details", "account-details", { user: a.userId })}${caps.finance ? btn("+ Gutschrift", "credit", { user: a.userId }) : ""}${caps.finance && a.gross > 0 ? btn("Auszahlen", "payout", { user: a.userId }, "accept") : ""}${caps.leaders ? btn("Korrektur", "correction", { user: a.userId }) : ""}</span></div>`).join("") : empty("Noch keine Familienkonten.");
   document.querySelectorAll("#tab-finance .search").forEach(filterList);
@@ -373,19 +373,19 @@ async function loadSanctions() {
   const status = $("sanctions-filter").value, caps = state.me.capabilities;
   const data = await api(`/api/sanctions?status=${status}`);
   state.cache.sanctions = Object.fromEntries(data.sanctions.map(s => [s.id, s]));
-  $("sanctions-summary").innerHTML = `<div class="stat"><span class="symbol">⚑</span><div class="label">Summe offener Abzüge</div><div class="value small">${money(data.openTotal)}</div></div><div class="stat"><span class="symbol">#</span><div class="label">Einträge angezeigt</div><div class="value small">${data.sanctions.length}</div></div>`;
+  $("sanctions-summary").innerHTML = `<div class="stat"><span class="symbol"></span><div class="label">Summe offener Abzüge</div><div class="value small">${money(data.openTotal)}</div></div><div class="stat"><span class="symbol">#</span><div class="label">Einträge angezeigt</div><div class="value small">${data.sanctions.length}</div></div>`;
   $("sanctions-list").innerHTML = data.sanctions.map(s => {
     const refundable = s.collected_cents - s.refunded_cents;
     const actions = caps.leaders ? [s.status !== "void" ? btn("Korrigieren", "sanction-correct", { id: s.id }) : "", ["open", "partial"].includes(s.status) && s.collected_cents === 0 ? btn("Aufheben", "sanction-void", { id: s.id }, "reject") : "", refundable > 0 ? btn("Erstatten", "sanction-refund", { id: s.id }, "reject") : ""].join("") : "";
-    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">⚖️ ${money(s.amount_cents)}</span><h3>${plink(s.user_id)}</h3></div><span class="badge status-${s.status}">${statusLabels[s.status]}</span></div>
+    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${money(s.amount_cents)}</span><h3>${plink(s.user_id)}</h3></div><span class="badge status-${s.status}">${statusLabels[s.status]}</span></div>
       <p class="manage-meta">${escapeHtml(s.reason)}${s.case_ref ? ` · Fall: ${escapeHtml(s.case_ref)}` : ""}<br>Offen <b>${money(s.remaining_cents)}</b> · verrechnet ${money(s.collected_cents)}${s.refunded_cents ? ` · erstattet ${money(s.refunded_cents)}` : ""} · von ${who(s.actor_id)} · ${date(s.created_at)}</p><div class="actions">${actions}</div></article>`;
   }).join("") || empty("Keine Sanktionen.");
-  const warnState = { active: ["🟠 Aktiv", "status-open"], expired: ["⚪ Abgelaufen", "status-void"], revoked: ["↩️ Zurückgenommen", "status-void"] };
+  const warnState = { active: ["Aktiv", "status-open"], expired: ["Abgelaufen", "status-void"], revoked: ["Zurückgenommen", "status-void"] };
   const showAll = $("warnings-filter").value === "all";
   $("warnings-list").innerHTML = data.warnings.filter(w => showAll || w.state === "active").map(w => {
     const [label, cls] = warnState[w.state] ?? warnState.active;
     const canRevoke = caps.warnings && w.state === "active" && w.user_id !== state.me.member.id && (caps.sanctions || w.actor_id === state.me.member.id);
-    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">📝 ${w.activeCount} aktiv</span><h3>${plink(w.user_id)}</h3></div><span class="badge ${cls}">${label}</span></div>
+    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${w.activeCount} aktiv</span><h3>${plink(w.user_id)}</h3></div><span class="badge ${cls}">${label}</span></div>
       <p class="manage-meta">${escapeHtml(w.reason)}${w.case_ref ? ` · Fall: ${escapeHtml(w.case_ref)}` : ""}<br>von ${who(w.actor_id)} · ${date(w.created_at)}${w.revoked_at ? `<br>Zurückgenommen von ${who(w.revoked_by)} · ${date(w.revoked_at)} · ${escapeHtml(w.revoke_reason ?? "")}` : ""}</p>
       <div class="actions">${canRevoke ? btn("Zurücknehmen", "warning-revoke", { id: w.id }, "reject") : ""}</div></article>`;
   }).join("") || empty(showAll ? "Keine Verwarnungen." : "Keine aktiven Verwarnungen.");
@@ -394,9 +394,9 @@ async function loadSanctions() {
 // ------------------------------------------------------------------ Giveaways
 async function loadGiveaways() {
   const data = await api("/api/giveaways");
-  $("giveaways-list").innerHTML = data.giveaways.map(g => `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">🎉 ${statusLabels[g.status]}</span><h3>${escapeHtml(g.prize)}</h3></div><span class="badge">${g.entries} Teilnahmen</span></div>
+  $("giveaways-list").innerHTML = data.giveaways.map(g => `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${statusLabels[g.status]}</span><h3>${escapeHtml(g.prize)}</h3></div><span class="badge">${g.entries} Teilnahmen</span></div>
     <p class="manage-meta">${g.status === "active" ? `Endet ${date(g.ends_at)}` : `Beendet ${date(g.ended_at)}`} · ${g.winner_count} Gewinner · von ${who(g.created_by)}<br>${escapeHtml(g.conditions)}</p>
-    ${g.winners.length ? `<div class="chips">${g.winners.map(id => `<span class="chip chip-present">🏆 ${who(id)}</span>`).join("")}</div>` : g.status === "ended" ? '<p class="muted">Keine Teilnahmen, kein Gewinner.</p>' : ""}
+    ${g.winners.length ? `<div class="chips">${g.winners.map(id => `<span class="chip chip-present">${who(id)}</span>`).join("")}</div>` : g.status === "ended" ? '<p class="muted">Keine Teilnahmen, kein Gewinner.</p>' : ""}
     <div class="actions">${g.status === "active" ? btn("Jetzt auslosen", "giveaway-draw", { id: g.id }, "accept") + btn("Abbrechen", "giveaway-cancel", { id: g.id }, "reject") : ""}</div></article>`).join("") || empty("Keine Giveaways der letzten 60 Tage.");
 }
 
@@ -406,16 +406,16 @@ async function loadStats() {
   const block = (title, items) => `<section class="panel"><div class="panel-head"><h2>${title}</h2></div><div class="kv">${items.map(([k, v]) => `<div><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join("")}</div></section>`;
   const st = (map, keys) => keys.map(k => [statusLabels[k], map[k] ?? 0]);
   const blocks = [
-    block("👥 Mitglieder", [["Aktuell", data.memberCount ?? "—"], ["Beitritte", s.members.joins], ["Austritte", s.members.leaves]]),
-    block("🎫 Tickets", [["Erstellt", s.tickets.created], ["Geschlossen", s.tickets.closed], ["Aktuell offen", s.tickets.openNow], ["Ohne Bearbeiter", s.tickets.unclaimedNow], ["Ø Bearbeitung", s.tickets.avgCloseHours != null ? `${s.tickets.avgCloseHours.toFixed(1)} h` : "—"]]),
-    block("📅 Events", [...st(s.events.byStatus, ["scheduled", "ended", "cancelled"]), ["Anmeldungen", s.events.signups], ["Anwesend", s.events.present], ["Abwesend", s.events.absent]]),
-    block("🤝 Bewerbungen", st(s.applications.bewerbung, ["open", "review", "accepted", "rejected", "withdrawn"])),
-    block("🏅 Rang-Anträge", st(s.applications.rang, ["open", "review", "accepted", "rejected", "withdrawn"])),
-    block("⚖️ Sanktionen", [...st(s.sanctions.byStatus, ["open", "partial", "paid", "void"]), ["Verwarnungen", s.sanctions.warnings]]),
-    block("🎉 Giveaways", [["Erstellt", s.giveaways.created], ["Ausgelost", s.giveaways.ended], ["Teilnahmen", s.giveaways.entries], ["Aktiv", s.giveaways.activeNow]]),
-    block("👔 Staff-Aktivität", s.staffActions.length ? s.staffActions.map(a => [state.names[a.actor_id] ?? "Staff", a.n]) : [["Keine Aktionen", "—"]]),
+    block("Mitglieder", [["Aktuell", data.memberCount ?? "—"], ["Beitritte", s.members.joins], ["Austritte", s.members.leaves]]),
+    block("Tickets", [["Erstellt", s.tickets.created], ["Geschlossen", s.tickets.closed], ["Aktuell offen", s.tickets.openNow], ["Ohne Bearbeiter", s.tickets.unclaimedNow], ["Ø Bearbeitung", s.tickets.avgCloseHours != null ? `${s.tickets.avgCloseHours.toFixed(1)} h` : "—"]]),
+    block("Events", [...st(s.events.byStatus, ["scheduled", "ended", "cancelled"]), ["Anmeldungen", s.events.signups], ["Anwesend", s.events.present], ["Abwesend", s.events.absent]]),
+    block("Bewerbungen", st(s.applications.bewerbung, ["open", "review", "accepted", "rejected", "withdrawn"])),
+    block("Rang-Anträge", st(s.applications.rang, ["open", "review", "accepted", "rejected", "withdrawn"])),
+    block("Sanktionen", [...st(s.sanctions.byStatus, ["open", "partial", "paid", "void"]), ["Verwarnungen", s.sanctions.warnings]]),
+    block("Giveaways", [["Erstellt", s.giveaways.created], ["Ausgelost", s.giveaways.ended], ["Teilnahmen", s.giveaways.entries], ["Aktiv", s.giveaways.activeNow]]),
+    block("Staff-Aktivität", s.staffActions.length ? s.staffActions.map(a => [state.names[a.actor_id] ?? "Staff", a.n]) : [["Keine Aktionen", "—"]]),
   ];
-  if (s.finance) blocks.push(block("💰 Familienkonto (vertraulich)", [["Gutschriften", `${money(s.finance.credited.n)} (${s.finance.credited.c})`], ["Auszahlungen", s.finance.payouts.c], ["Brutto ausgezahlt", money(s.finance.payouts.gross)], ["Sanktionsabzüge", money(s.finance.payouts.deduction)], ["Netto ausgezahlt", money(s.finance.payouts.net)], ["Aktuell ausstehend", money(s.finance.balanceNow)], ["Offene Sanktionen", money(s.finance.openSanctionsNow)]]));
+  if (s.finance) blocks.push(block("Familienkonto (vertraulich)", [["Gutschriften", `${money(s.finance.credited.n)} (${s.finance.credited.c})`], ["Auszahlungen", s.finance.payouts.c], ["Brutto ausgezahlt", money(s.finance.payouts.gross)], ["Sanktionsabzüge", money(s.finance.payouts.deduction)], ["Netto ausgezahlt", money(s.finance.payouts.net)], ["Aktuell ausstehend", money(s.finance.balanceNow)], ["Offene Sanktionen", money(s.finance.openSanctionsNow)]]));
   $("stats-view").innerHTML = `<div class="columns three">${blocks.join("")}</div>`;
 }
 
@@ -428,7 +428,7 @@ async function loadAudit() {
 
 async function loadMembers() {
   const data = await api("/api/verifications"), caps = state.me.capabilities;
-  $("members-info").textContent = `${data.total} verifizierte Mitglieder.${data.panelChannel ? "" : " ⚠️ Noch kein Verifizierungs-Channel eingestellt (Einstellungen → Channels)."}${data.roleConfigured ? "" : " Ohne „Rolle nach Verifizierung“ wird nur der Name geändert."}`;
+  $("members-info").textContent = `${data.total} verifizierte Mitglieder.${data.panelChannel ? "" : " Noch kein Verifizierungs-Channel eingestellt (Einstellungen → Channels)."}${data.roleConfigured ? "" : " Ohne „Rolle nach Verifizierung“ wird nur der Name geändert."}`;
   $("members-list").innerHTML = data.verifications.length ? `<div class="table-row table-head members-row"><span>Discord</span><span>Ingame-ID</span><span>Name (Ingame)</span><span>Verifiziert</span><span></span></div>` + data.verifications.map(v => `<div class="table-row members-row"><span><b>${plink(v.user_id)}</b><small class="block">${escapeHtml(v.nickname)}</small></span><span data-label="Ingame-ID">${escapeHtml(v.ingame_id)}</span><span data-label="Name">${escapeHtml(`${v.first_name} ${v.last_name}`)}</span><span data-label="Verifiziert">${date(v.verified_at)}${v.updated_at !== v.verified_at ? `<small class="block">geändert ${date(v.updated_at)}</small>` : ""}</span><span class="actions tight">${btn("Profil", "profile", { user: v.user_id })}${caps.leaders ? btn("Zurücksetzen", "verification-reset", { user: v.user_id, name: v.nickname }) : ""}</span></div>`).join("") : empty("Noch niemand verifiziert.");
   document.querySelectorAll("#tab-members .search").forEach(filterList);
 }
@@ -447,7 +447,7 @@ const actions = {
   "ticket-reopen": ({ id }) => post(`/api/tickets/${id}/reopen`).then(r => notify(r.message)).then(refresh),
   "ticket-transcript": async ({ id }) => {
     const data = await api(`/api/tickets/${id}/transcript`);
-    openInfo(`Transkript · ${data.ticket.category}`, `<div class="transcript">${data.messages.map(m => `<div class="msg"><b>${escapeHtml(m.author)}</b> <small>${date(m.createdAt)}</small><p>${escapeHtml(m.content) || "<i>(ohne Text)</i>"}${m.attachments.length ? `<br><small>📎 ${escapeHtml(m.attachments.join(", "))}</small>` : ""}</p></div>`).join("") || empty("Keine Nachrichten gespeichert.")}</div>`, "TICKET");
+    openInfo(`Transkript · ${data.ticket.category}`, `<div class="transcript">${data.messages.map(m => `<div class="msg"><b>${escapeHtml(m.author)}</b> <small>${date(m.createdAt)}</small><p>${escapeHtml(m.content) || "<i>(ohne Text)</i>"}${m.attachments.length ? `<br><small>${escapeHtml(m.attachments.join(", "))}</small>` : ""}</p></div>`).join("") || empty("Keine Nachrichten gespeichert.")}</div>`, "TICKET");
   },
   "event-create": () => openForm({ eyebrow: "EVENT-TEAM", title: "Event veröffentlichen", intro: "<p>Die Ankündigung erscheint im konfigurierten Event-Channel mit Anmeldebuttons.</p>", fields: eventFields(), submit: "Veröffentlichen", onSubmit: v => post("/api/events", { ...v, startsAt: fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null }) }),
   "event-edit": ({ id }) => { const e = state.cache.events[id]; openForm({ eyebrow: "EVENT BEARBEITEN", title: e.name, intro: "<p>Die Ankündigung in Discord wird automatisch aktualisiert. Bei geänderter Startzeit werden Erinnerungen neu geplant.</p>", fields: eventFields(e), submit: "Speichern", onSubmit: v => post(`/api/events/${id}/update`, { ...v, startsAt: v.startsAt === toLocalInput(e.starts_at) ? "" : fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null }) }); },

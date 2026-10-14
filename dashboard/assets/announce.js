@@ -1,6 +1,6 @@
 // Ankündigungen: Editor mit Discord-Vorschau, sofort senden oder planen. Nutzt Hilfsfunktionen aus app.js/admin.js.
 const annState = { channels: [], roles: [], items: [], defaultChannel: null };
-const annStatus = { scheduled: ["🕒 Geplant", "status-open"], sending: ["⏳ Wird gesendet", "status-open"], sent: ["✅ Gesendet", "status-accepted"], failed: ["⚠️ Fehlgeschlagen", "status-rejected"], cancelled: ["✕ Abgebrochen", "status-void"] };
+const annStatus = { scheduled: ["Geplant", "status-open"], sending: ["Wird gesendet", "status-open"], sent: ["Gesendet", "status-accepted"], failed: ["Fehlgeschlagen", "status-rejected"], cancelled: ["Abgebrochen", "status-void"] };
 
 async function loadAnnouncements() {
   const [data, channels, roles] = await Promise.all([api("/api/announcements"), api("/api/channels"), api("/api/roles")]);
@@ -15,7 +15,7 @@ function renderAnnounceForm() {
   f.innerHTML = `
     <label>Channel<select name="channelId" required>${annState.defaultChannel ? "" : '<option value="">– Channel wählen –</option>'}${channelOptions}</select></label>
     <label>Text über der Karte <small>(optional, max. 1800 Zeichen)</small><textarea name="content" rows="2" maxlength="1800" placeholder="z. B. Wichtige Info für alle!"></textarea></label>
-    <label>Titel der Karte<input name="title" maxlength="256" placeholder="z. B. 📢 Familientreffen am Freitag"></label>
+    <label>Titel der Karte<input name="title" maxlength="256" placeholder="z. B. Familientreffen am Freitag"></label>
     <label>Beschreibung <small>(**fett**, Zeilenumbrüche wie in Discord)</small><textarea name="description" rows="6" maxlength="4000"></textarea></label>
     <div class="form-row"><label>Farbe<input name="color" type="color" value="#d4af37"></label><label>Fußzeile <small>(optional)</small><input name="footer" maxlength="200" placeholder="GAMBINOS  •  Leitung"></label></div>
     <label>Bild <small>(optional, https-Link zu einem Bild)</small><input name="imageUrl" maxlength="500" placeholder="https://…"></label>
@@ -39,7 +39,7 @@ function renderAnnouncePreview() {
   const content = [pings, v.content ? markdown(v.content) : ""].filter(Boolean).join("<br>");
   const hasEmbed = v.title || v.description;
   // Die Website lädt aus Sicherheitsgründen nur Discord-Bilder direkt; andere Links erscheinen als Platzhalter.
-  const image = !/^https:\/\//i.test(v.imageUrl) ? "" : /^https:\/\/cdn\.discordapp\.com\//i.test(v.imageUrl) ? `<img class="dc-image" src="${escapeHtml(v.imageUrl)}" alt="" referrerpolicy="no-referrer">` : `<div class="dc-image-placeholder">🖼️ Bild wird in Discord angezeigt</div>`;
+  const image = !/^https:\/\//i.test(v.imageUrl) ? "" : /^https:\/\/cdn\.discordapp\.com\//i.test(v.imageUrl) ? `<img class="dc-image" src="${escapeHtml(v.imageUrl)}" alt="" referrerpolicy="no-referrer">` : `<div class="dc-image-placeholder">Bild wird in Discord angezeigt</div>`;
   $("announce-preview").innerHTML = `<div class="sub-label">#${escapeHtml(annState.channels.find(c => c.id === v.channelId)?.name ?? "channel")}</div><div class="dc-head"><img src="/assets/gambinos-profile.gif" alt=""><b>Gambino Helper</b><span class="dc-app">APP</span></div>${content ? `<div class="dc-desc">${content}</div>` : ""}${hasEmbed ? `<div class="dc-embed">${v.title ? `<div class="dc-title">${escapeHtml(v.title)}</div>` : ""}${v.description ? `<div class="dc-desc">${markdown(v.description)}</div>` : ""}${image}${v.footer ? `<div class="dc-footer">${escapeHtml(v.footer)}</div>` : ""}</div>` : ""}${!content && !hasEmbed ? '<p class="muted">Schreib einen Text oder Titel – die Vorschau erscheint hier.</p>' : ""}`;
   // Farbe per CSSOM setzen: Inline-style-Attribute blockiert die Content-Security-Policy.
   const card = $("announce-preview").querySelector(".dc-embed"); if (card) card.style.borderLeftColor = /^#[0-9a-f]{6}$/i.test(v.color) ? v.color : "#d4af37";
