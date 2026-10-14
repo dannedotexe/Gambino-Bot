@@ -40,7 +40,7 @@ const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP
 const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit: "Korrektur (+)", correction_debit: "Korrektur (−)", sanction_refund: "Sanktions-Erstattung" };
 const TABS = [
   ["overview", "Übersicht", c => c.team], ["mine", "Mein Bereich", c => c.mine], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
-  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
+  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["payouts", "Auszahlungen", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
   ["announcements", "Ankündigungen", c => c.announcements], ["polls", "Abstimmungen", c => c.polls], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.admin], ["settings", "Einstellungen", c => c.settings],
 ];
 
@@ -50,6 +50,7 @@ const ICONS = {
   tickets: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z M13 5v2 M13 17v2 M13 11v2",
   events: "M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M16 2v4 M8 2v4 M3 10h18",
   finance: "M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
+  payouts: "M2 7h20v12H2z M2 11h20 M6 15h4 M16 3l3 4 M8 3L5 7",
   sanctions: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M12 8v4 M12 16h.01",
   giveaways: "M20 12v10H4V12 M2 7h20v5H2z M12 22V7 M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z",
   stats: "M3 3v18h18 M18 17V9 M13 17V5 M8 17v-3",
@@ -63,7 +64,7 @@ const ICONS = {
   settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
-const NAV_GROUPS = [["", ["overview", "mine"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
+const NAV_GROUPS = [["", ["overview", "mine"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "payouts", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });
@@ -374,6 +375,14 @@ async function loadFinance() {
   $("accounts-list").innerHTML = data.accounts.length ? `<div class="table-row table-head"><span>Mitglied</span><span>Brutto</span><span>Sanktionen</span><span>Netto</span><span></span></div>` + data.accounts.map(a => `<div class="table-row"><span><b>${plink(a.userId)}</b>${a.eligible ? '<em class="ok">auszahlbar</em>' : a.gross > 0 ? '<em class="warn">unter Mindestbetrag</em>' : ""}</span><span data-label="Brutto">${money(a.gross)}</span><span data-label="Sanktionen">${a.openSanctions ? `${money(a.openSanctions)}${a.remainingAfter ? ` <small>(Rest danach ${money(a.remainingAfter)})</small>` : ""}` : "—"}</span><span data-label="Netto"><b>${money(a.net)}</b></span><span class="actions tight">${btn("Details", "account-details", { user: a.userId })}${caps.finance ? btn("+ Gutschrift", "credit", { user: a.userId }) : ""}${caps.finance && a.gross > 0 ? btn("Auszahlen", "payout", { user: a.userId }, "accept") : ""}${caps.leaders ? btn("Korrektur", "correction", { user: a.userId }) : ""}</span></div>`).join("") : empty("Noch keine Familienkonten.");
   document.querySelectorAll("#tab-finance .search").forEach(filterList);
 }
+async function loadPayouts() {
+  const data = await api(`/api/payouts?days=${$("payouts-filter").value}`), t = data.totals;
+  $("payouts-totals").innerHTML = [["Auszahlungen", t.count, "#"], ["Brutto", money(t.gross), "$"], ["Sanktionen verrechnet", money(t.deduction), "−"], ["Ausgezahlt (netto)", money(t.net), "→"]]
+    .map(([label, value, symbol]) => `<div class="stat"><span class="symbol">${symbol}</span><div class="label">${label}</div><div class="value small">${value}</div></div>`).join("");
+  $("payouts-actors").innerHTML = data.byActor.length > 1 ? data.byActor.map(a => row(`Ausgezahlt von ${state.names[a.actorId] || "Unbekannt"}`, money(a.net))).join("") : "";
+  $("payouts-list").innerHTML = data.payouts.length ? `<div class="table-row table-head payout-row"><span>Datum</span><span>Mitglied</span><span>Brutto</span><span>Abzug</span><span>Ausgezahlt</span><span>Von</span></div>` + data.payouts.map(p => `<div class="table-row payout-row"><span data-label="Datum">${date(p.created_at)}<small class="block">${escapeHtml(p.id.slice(0, 8))}</small></span><span data-label="Mitglied"><b>${plink(p.user_id)}</b>${p.sanctions.length ? `<small class="block">${p.sanctions.map(s => `${escapeHtml(s.reason)} −${money(s.amount_cents)}`).join(" · ")}</small>` : ""}</span><span data-label="Brutto">${money(p.gross_cents)}</span><span data-label="Abzug">${p.deduction_cents ? `−${money(p.deduction_cents)}` : "—"}</span><span data-label="Ausgezahlt"><b>${money(p.net_cents)}</b></span><span data-label="Von">${who(p.actor_id)}</span></div>`).join("") : empty("Keine Auszahlungen in diesem Zeitraum.");
+  document.querySelectorAll("#tab-payouts .search").forEach(filterList);
+}
 async function accountDetails(userId) {
   const data = await api(`/api/accounts/${userId}`);
   const tx = data.transactions.map(t => `<div class="row"><div><div class="row-title">${txLabels[t.type] ?? t.type} · ${t.type === "payout" ? `Brutto ${money(t.gross_cents)} · Abzug ${money(t.deduction_cents)} · Netto ${money(t.net_cents)}` : `${["payout", "correction_debit"].includes(t.type) ? "−" : "+"}${money(t.amount_cents)}`}</div><div class="row-sub">${date(t.created_at)} · ${escapeHtml(t.reason)} · durch ${who(t.actor_id)} · ${escapeHtml(t.id.slice(0, 8))}</div></div></div>`).join("");
@@ -454,7 +463,7 @@ async function loadMembers() {
   document.querySelectorAll("#tab-members .search").forEach(filterList);
 }
 
-const loaders = { members: loadMembers, overview: loadOverview, applications: loadApplications, tickets: loadTickets, events: loadEvents, finance: loadFinance, sanctions: loadSanctions, giveaways: loadGiveaways, stats: loadStats, audit: loadAudit };
+const loaders = { members: loadMembers, overview: loadOverview, applications: loadApplications, tickets: loadTickets, events: loadEvents, finance: loadFinance, payouts: loadPayouts, sanctions: loadSanctions, giveaways: loadGiveaways, stats: loadStats, audit: loadAudit };
 
 // ------------------------------------------------------------------ Aktionen
 const actions = {
@@ -525,7 +534,7 @@ document.addEventListener("click", async event => {
   catch (error) { notify(error.message, "error"); }
   finally { busy = false; button.disabled = false; }
 });
-for (const [id, tab] of [["applications-filter", "applications"], ["tickets-filter", "tickets"], ["events-filter", "events"], ["sanctions-filter", "sanctions"], ["warnings-filter", "sanctions"], ["stats-filter", "stats"], ["audit-filter", "audit"]]) $(id).addEventListener("change", () => state.tab === tab && refresh());
+for (const [id, tab] of [["applications-filter", "applications"], ["tickets-filter", "tickets"], ["events-filter", "events"], ["sanctions-filter", "sanctions"], ["payouts-filter", "payouts"], ["warnings-filter", "sanctions"], ["stats-filter", "stats"], ["audit-filter", "audit"]]) $(id).addEventListener("change", () => state.tab === tab && refresh());
 $("menu-toggle").addEventListener("click", () => (document.body.classList.contains("menu-open") ? closeMenu() : openMenu()));
 $("scrim").addEventListener("click", closeMenu);
 document.addEventListener("keydown", event => { if (event.key === "Escape") closeMenu(); });

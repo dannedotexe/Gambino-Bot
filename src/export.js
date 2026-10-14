@@ -4,6 +4,7 @@ import { toXlsx } from "./xlsx.js";
 export const EXPORTS = {
   accounts: { label: "Kontostände", group: "financeView" },
   transactions: { label: "Buchungen", group: "financeView" },
+  payouts: { label: "Auszahlungen", group: "financeView" },
   sanctions: { label: "Sanktionen", group: "sanctionsView" },
   warnings: { label: "Verwarnungen", group: "moderation" },
   events: { label: "Event-Teilnahmen", group: "anyStaff" },
@@ -12,6 +13,7 @@ export const EXPORTS = {
   polls: { label: "Abstimmungen", group: "staff" },
 };
 
+const s_reason = text => String(text ?? "").slice(0, 80);
 const money = cents => cents == null ? null : Number(cents) / 100;
 const col = (label, type = "text") => ({ label, type });
 const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit: "Korrektur (+)", correction_debit: "Korrektur (−)", sanction_refund: "Sanktions-Erstattung" };
@@ -27,6 +29,11 @@ export function buildTable(kind, { db, guildId, name, finance }) {
     case "transactions":
       return { sheet: "Buchungen", columns: [col("Datum", "date"), col("Mitglied"), col("Art"), col("Betrag", "money"), col("Brutto", "money"), col("Sanktionsabzug", "money"), col("Netto", "money"), col("Grund"), col("Gebucht von"), col("Discord-ID"), col("Referenz")],
         rows: all("SELECT * FROM transactions WHERE guild_id=? ORDER BY created_at DESC,rowid DESC").map(t => { const payout = t.type === "payout"; return [t.created_at, name(t.user_id), txLabels[t.type] ?? t.type, money(["payout", "correction_debit"].includes(t.type) ? -t.amount_cents : t.amount_cents), payout ? money(t.gross_cents) : null, payout ? money(t.deduction_cents) : null, payout ? money(t.net_cents) : null, t.reason, name(t.actor_id), t.user_id, t.id.slice(0, 8)]; }) };
+    case "payouts":
+      return { sheet: "Auszahlungen", columns: [col("Datum", "date"), col("Mitglied"), col("Brutto", "money"), col("Sanktionsabzug", "money"), col("Ausgezahlt (netto)", "money"), col("Verrechnete Sanktionen"), col("Ausgezahlt von"), col("Notiz"), col("Discord-ID"), col("Referenz")],
+        rows: all("SELECT * FROM transactions WHERE guild_id=? AND type='payout' ORDER BY created_at DESC,rowid DESC").map(t => [t.created_at, name(t.user_id), money(t.gross_cents), money(t.deduction_cents), money(t.net_cents),
+          db.prepare("SELECT a.amount_cents,s.reason FROM payout_allocations a JOIN sanctions s ON s.id=a.sanction_id WHERE a.payout_id=?").all(t.id).map(a => `${s_reason(a.reason)} (−${(a.amount_cents / 100).toFixed(2)} $)`).join("; ") || null,
+          name(t.actor_id), t.reason, t.user_id, t.id.slice(0, 8)]) };
     case "sanctions":
       return { sheet: "Sanktionen", columns: [col("Datum", "date"), col("Mitglied"), col("Betrag", "money"), col("Noch offen", "money"), col("Status"), col("Grund"), col("Fallbezug"), col("Eingetragen von"), col("Discord-ID"), col("Referenz")],
         rows: all("SELECT * FROM sanctions WHERE guild_id=? ORDER BY created_at DESC").map(s => [s.created_at, name(s.user_id), money(s.amount_cents), money(s.remaining_cents), statusLabels[s.status] ?? s.status, s.reason, s.case_ref, name(s.actor_id), s.user_id, s.id.slice(0, 8)]) };

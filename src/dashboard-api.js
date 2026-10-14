@@ -340,6 +340,18 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const totals = accounts.reduce((sum, a) => ({ gross: sum.gross + a.gross, open: sum.open + a.openSanctions, net: sum.net + a.net }), { gross: 0, open: 0, net: 0 });
       return withNames({ accounts, totals, minimumCents: minimum }, ids);
     }],
+    // Auszahlungs-Log: jede Auszahlung mit Brutto, Sanktionsabzug, Netto, verrechneten Sanktionen und Auszahlendem.
+    [/^\/api\/payouts$/, async (member, url) => {
+      need(member, "financeView", "Finanzrolle");
+      const days = Math.min(3650, Math.max(0, Number(url.searchParams.get("days") ?? 30) || 0));
+      const since = days ? new Date(Date.now() - days * 86_400_000).toISOString() : "";
+      const rows = db.prepare("SELECT id,user_id,actor_id,gross_cents,deduction_cents,net_cents,reason,created_at FROM transactions WHERE guild_id=? AND type='payout' AND created_at>=? ORDER BY created_at DESC,rowid DESC LIMIT 1000").all(guildId, since);
+      const allocations = db.prepare("SELECT a.amount_cents,s.reason,s.case_ref FROM payout_allocations a JOIN sanctions s ON s.id=a.sanction_id WHERE a.payout_id=? ORDER BY a.created_at");
+      const payouts = rows.map(p => ({ ...p, sanctions: allocations.all(p.id) }));
+      const totals = payouts.reduce((t, p) => ({ count: t.count + 1, gross: t.gross + (p.gross_cents ?? 0), deduction: t.deduction + (p.deduction_cents ?? 0), net: t.net + (p.net_cents ?? 0) }), { count: 0, gross: 0, deduction: 0, net: 0 });
+      const byActor = Object.entries(payouts.reduce((m, p) => ({ ...m, [p.actor_id]: (m[p.actor_id] ?? 0) + (p.net_cents ?? 0) }), {})).map(([actorId, net]) => ({ actorId, net })).sort((a, b) => b.net - a.net);
+      return withNames({ payouts, totals, byActor, days }, payouts.flatMap(p => [p.user_id, p.actor_id]));
+    }],
     [/^\/api\/account-closures$/, async member => {
       need(member, "financeView", "Finanzrolle");
       const g = await guild().catch(() => null);
