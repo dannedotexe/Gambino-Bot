@@ -193,7 +193,7 @@ function renderTabs() {
     return `${group ? `<div class="nav-group">${escapeHtml(group)}</div>` : ""}${items.map(id => `<button type="button" class="nav-item ${state.tab === id ? "active" : ""}" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ""}>${icon(id)}<span>${escapeHtml(allowed.get(id))}</span>${badge(id)}</button>`).join("")}`;
   }).join("");
   $("page-title").textContent = allowed.get(state.tab) ?? "Übersicht";
-  document.title = `${allowed.get(state.tab) ?? "Übersicht"} · Gambinos Dashboard`;
+  document.title = `${allowed.get(state.tab) ?? "Übersicht"} · Gambinos`;
   for (const [id] of TABS) $(`tab-${id}`).classList.toggle("hidden", id !== state.tab);
   document.querySelectorAll(".needs-staff").forEach(el => el.classList.toggle("hidden", !caps.staff));
   document.querySelectorAll(".needs-events").forEach(el => el.classList.toggle("hidden", !caps.events));
