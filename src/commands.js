@@ -13,6 +13,7 @@ import { canHandleTicket, createTicketService } from "./services/tickets.js";
 import { APPLICATION_KINDS, assignRankRole, createApplicationService, questionsFor } from "./services/applications.js";
 import { collectStats, PERIODS } from "./services/stats.js";
 import { CHANNEL_BINDINGS } from "./channel-setup.js";
+import { SETTINGS } from "./services/settings.js";
 import { PANEL_SETTING_KEY, VIEWS, buildPanelPayload, buildView, statsEmbed } from "./staff-panel.js";
 import { syncNativeAutomod } from "./moderation.js";
 import { describeSchedule, nextOccurrence } from "./services/event-series.js";
@@ -216,7 +217,7 @@ export function buildCommands() {
   const settings = new SlashCommandBuilder().setName("einstellungen").setDescription("Bot-Einstellungen (Leitung)")
     .addSubcommand(s=>s.setName("anzeigen").setDescription("Aktive Rollen-, Channel- und Moduleinstellungen prüfen"))
     .addSubcommand(s=>s.setName("pruefen").setDescription("Prüft, ob alle Channels zu ihren Funktionen passen (Rechte, Sichtbarkeit, Name)"))
-    .addSubcommand(s=>s.setName("kanal").setDescription("Funktions-Channel festlegen").addStringOption(o=>o.setName("schluessel").setDescription("Funktion").setRequired(true).addChoices(...Object.keys(CHANNEL_BINDINGS).map(key=>({name:key,value:key})))).addChannelOption(o=>o.setName("kanal").setDescription("Channel oder Kategorie").setRequired(true).addChannelTypes(ChannelType.GuildText,ChannelType.GuildCategory,ChannelType.GuildAnnouncement)));
+    .addSubcommand(s=>s.setName("kanal").setDescription("Funktions-Channel festlegen").addStringOption(o=>o.setName("schluessel").setDescription("Funktion (tippen zum Suchen)").setRequired(true).setAutocomplete(true)).addChannelOption(o=>o.setName("kanal").setDescription("Channel oder Kategorie").setRequired(true).addChannelTypes(ChannelType.GuildText,ChannelType.GuildCategory,ChannelType.GuildAnnouncement)));
   const automod = new SlashCommandBuilder().setName("automod").setDescription("AutoMod und Raid-Schutz")
     .addSubcommand(s=>s.setName("status").setDescription("AutoMod-Einstellungen und letzte Maßnahmen (Staff)"))
     .addSubcommand(s=>s.setName("sync").setDescription("Gesperrte Begriffe als native Discord-AutoMod-Regel übernehmen (Leitung)"));
@@ -312,6 +313,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         else if(sub==="korrigieren")rows=db.prepare("SELECT s.id,s.user_id,s.amount_cents AS cents,s.reason FROM sanctions s WHERE s.guild_id=? AND s.status<>'void' ORDER BY s.created_at DESC LIMIT 100").all(g);
         else if(sub==="rueckerstatten")rows=db.prepare("SELECT s.id,s.user_id,s.reason,COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)-COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) AS cents FROM sanctions s WHERE s.guild_id=? AND COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)>COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) ORDER BY s.created_at DESC LIMIT 100").all(g);
         choices=rows.map(r=>({name:`${r.reason.slice(0,55)} · Mitglied …${r.user_id.slice(-5)} · ${formatMoney(r.cents)}`.slice(0,100),value:r.id}));
+      }else if(i.commandName==="einstellungen"&&can(i,"leaders")){
+        choices=Object.keys(CHANNEL_BINDINGS).map(key=>{const label=SETTINGS.find(s=>s.key===key)?.label;return {name:`${label?`${label} · `:""}${key}`.slice(0,100),value:key};});
       }else if(i.commandName==="unwarn"&&can(i,"moderation")){
         // Mit gewähltem Mitglied nur dessen Verwarnungen; die Suche läuft über Grund und Referenz statt über Namen.
         const target=i.options.get?.("mitglied")?.value??null;

@@ -7,6 +7,9 @@ import { CHANNEL_BINDINGS } from "./channel-setup.js";
  * expect: Namensbestandteile, die zur Funktion passen; avoid: Namen, die auf eine andere Funktion hindeuten.
  */
 export const CHANNEL_FUNCTIONS = [
+  { key: "CHANNEL_ANNOUNCEMENTS", label: "Ankündigungen", audience: "public", expect: ["ankünd", "news", "info"], avoid: ["log", "event"], perms: ["SendMessages", "EmbedLinks", "MentionEveryone"] },
+  { key: "CHANNEL_SANCTION_LIST", label: "Öffentliche Sanktionsliste", audience: "public", expect: ["sanktion"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
+  { key: "CHANNEL_WEEKLY_REPORT", label: "Wochenbericht (Leitung)", audience: "staff", expect: ["leitung", "bericht", "staff", "report", "dashboard"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_WELCOME", label: "Willkommensnachricht", audience: "public", expect: ["willkommen", "welcome", "neu", "spieler"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_ABSENCES", label: "Abmeldungen", audience: "public", expect: ["abmeld", "abwes", "urlaub"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_ACTIVITY_LOG", label: "Abmeldungs-/Inaktivitäts-Log", audience: "staff", expect: ["log", "abmeld", "aktiv", "abwes"], perms: ["SendMessages", "EmbedLinks"] },

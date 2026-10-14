@@ -6,6 +6,7 @@ import { PANEL_SETTING_KEY, buildPanelPayload } from "./staff-panel.js";
 import { BOARD_SETTING_KEY, buildActivityBoard } from "./activity-board.js";
 import { panelTexts } from "./services/texts.js";
 import { LEADERBOARD_SETTING_KEY, buildLeaderboard } from "./leaderboard.js";
+import { SANCTION_LIST_SETTING_KEY, buildSanctionList } from "./sanction-list.js";
 import { createActivityService } from "./services/activity.js";
 import { createAbsenceService } from "./services/absences.js";
 
@@ -19,9 +20,10 @@ const panelDefinitions = () => [
   { channelKey: "CHANNEL_STAFF_DASHBOARD", settingKey: PANEL_SETTING_KEY, label: "Staff-Dashboard", marker: "staffpanel:view", build: ctx => buildPanelPayload(ctx.db, ctx.config.DISCORD_GUILD_ID, panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "staffDashboard")) },
   { channelKey: "CHANNEL_ACTIVITY_BOARD", settingKey: BOARD_SETTING_KEY, label: "Aktivitäten-Übersicht", title: "AKTIVITÄTEN", build: ctx => buildActivityBoard(ctx.series.list(ctx.config.DISCORD_GUILD_ID), ctx.config.TIMEZONE, new Date(), panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "activityBoard")), needsSeries: true },
   { channelKey: "CHANNEL_ABSENCES", settingKey: "PANEL_ABSENCE", label: "Abmeldungs-Panel", marker: "absence:open", build: ctx => buildAbsencePanelPayload(panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "absence")) },
+  { channelKey: "CHANNEL_SANCTION_LIST", settingKey: SANCTION_LIST_SETTING_KEY, label: "Sanktionsliste", title: "SANKTIONSLISTE", build: ctx => buildSanctionList({ db: ctx.db, guildId: ctx.config.DISCORD_GUILD_ID, config: ctx.config, texts: panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "sanctionList") }) },
   { channelKey: "CHANNEL_LEADERBOARD", settingKey: LEADERBOARD_SETTING_KEY, label: "Rangliste", title: "RANGLISTE", build: ctx => buildLeaderboard({ activity: createActivityService(ctx.db), guildId: ctx.config.DISCORD_GUILD_ID, timezone: ctx.config.TIMEZONE, texts: panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "leaderboard") }) },
 ];
-export const PANEL_CHANNEL_KEYS = ["CHANNEL_ACCOUNT_PANEL", "CHANNEL_VERIFICATION_PANEL", "CHANNEL_TICKET_PANEL", "CHANNEL_APPLICATION_PANEL", "CHANNEL_STAFF_DASHBOARD", "CHANNEL_ACTIVITY_BOARD", "CHANNEL_LEADERBOARD", "CHANNEL_ABSENCES"];
+export const PANEL_CHANNEL_KEYS = ["CHANNEL_ACCOUNT_PANEL", "CHANNEL_VERIFICATION_PANEL", "CHANNEL_TICKET_PANEL", "CHANNEL_APPLICATION_PANEL", "CHANNEL_STAFF_DASHBOARD", "CHANNEL_ACTIVITY_BOARD", "CHANNEL_LEADERBOARD", "CHANNEL_ABSENCES", "CHANNEL_SANCTION_LIST"];
 
 /**
  * Stellt sicher, dass jedes Panel genau einmal im eingestellten Channel steht. Gepostet wird nur, wenn noch keines

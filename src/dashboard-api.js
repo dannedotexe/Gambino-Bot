@@ -26,6 +26,9 @@ import { createActivityService } from "./services/activity.js";
 import { createModerationLog } from "./services/moderation-log.js";
 import { postAbsence } from "./absence-posts.js";
 import { familyMembers, inactivityFor, remindInactive } from "./inactivity.js";
+import { AnnouncementError, createAnnouncementService, deliverAnnouncement, validateAnnouncement } from "./announcements.js";
+import { createRankHistory } from "./services/ranks.js";
+import { sendWeeklyReport } from "./weekly-report.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -59,6 +62,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const version = currentVersion();
   const verifications = createVerificationService(db), warningService = createWarningService(db);
   const absences = createAbsenceService(db), activity = createActivityService(db), modLog = createModerationLog(db);
+  const announcements = createAnnouncementService(db), rankHistory = createRankHistory(db);
   const today = () => localDay(new Date(), config.TIMEZONE);
   const startedAt = new Date().toISOString();
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
@@ -110,7 +114,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       capabilities: {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
-        sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
+        sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), announcements: can(member, "staff"), announceEveryone: can(member, "leaders"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
         settings: Boolean(settings) && can(member, "leaders"),
       },
       settings: {
@@ -174,6 +178,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         roles: roles.slice(0, 15), ranks,
         verification: verifications.byUser(guildId, userId),
         activity: { ...activity.eventStats(guildId, userId), lastMessage: activity.lastMessage(guildId, userId)?.last_message_at ?? null, messages: activity.lastMessage(guildId, userId)?.messages ?? 0, trackingSince: activity.trackingSince(guildId) },
+        rankHistory: rankHistory.forUser(guildId, userId, 20),
         absences: absences.forUser(guildId, userId, 10), absentNow: absences.absentUserIds(guildId, today()).has(userId),
         events: db.prepare("SELECT e.id,e.name,e.starts_at,e.status AS event_status,p.status FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status<>'left' ORDER BY e.starts_at DESC LIMIT 15").all(guildId, userId)
           .map(e => ({ ...e, excused: e.status === "absent" && absences.wasAbsent(guildId, userId, e.starts_at, config.TIMEZONE), upcoming: e.starts_at > iso })),
@@ -185,7 +190,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         sanctions: can(member, "staff") || can(member, "financeView") ? finance.sanctionDetails(guildId, userId, { limit: 10 }) : null,
       };
       if (profile.discord.name) names.set(userId, profile.verification?.nickname ?? profile.discord.name);
-      const ids = [userId, ...(profile.applications ?? []).map(a => a.reviewer_id), ...(profile.tickets ?? []).map(t => t.claimed_by), ...(profile.warnings?.items ?? []).flatMap(w => [w.actor_id, w.revoked_by]), ...(profile.moderation ?? []).map(m => m.actor_id), ...(profile.sanctions ?? []).map(s => s.actor_id), ...profile.absences.flatMap(a => [a.created_by, a.ended_by])];
+      const ids = [userId, ...(profile.applications ?? []).map(a => a.reviewer_id), ...(profile.tickets ?? []).map(t => t.claimed_by), ...(profile.warnings?.items ?? []).flatMap(w => [w.actor_id, w.revoked_by]), ...(profile.moderation ?? []).map(m => m.actor_id), ...(profile.sanctions ?? []).map(s => s.actor_id), ...profile.absences.flatMap(a => [a.created_by, a.ended_by]), ...profile.rankHistory.map(r => r.actor_id)];
       return withNames({ profile }, ids);
     }],
     [/^\/api\/status$/, async member => {
@@ -208,6 +213,11 @@ export function createDashboardApi({ db, client, config, settings = null, series
         logs: { failedLast24h: failedLogs },
         warnings: configWarnings(config),
       };
+    }],
+    [/^\/api\/announcements$/, async member => {
+      need(member, "staff", "Staff-Rolle");
+      const items = announcements.list(guildId, 40);
+      return withNames({ announcements: items, defaultChannel: config.CHANNEL_ANNOUNCEMENTS ?? null, timezone: config.TIMEZONE }, items.map(a => a.created_by));
     }],
     [/^\/api\/reset$/, async member => {
       need(member, "leaders", "Leitungsrolle");
@@ -458,6 +468,40 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const id = finance.sanction({ guildId, userId, actorId: member.id, cents: money(body.amount), reason: text(body.reason, { min: 3, max: 300, label: "Grund" }), caseRef: text(body.caseRef, { max: 100, label: "Fallbezug" }) || null });
       return { message: "Sanktion vorgemerkt. Sie wird erst bei der nächsten Auszahlung verrechnet.", id };
     }],
+    [/^\/api\/announcements$/, async (member, body) => {
+      need(member, "staff", "Staff-Rolle");
+      const data = validateAnnouncement(body, { allowEveryone: can(member, "leaders"), timezone: config.TIMEZONE });
+      const g = await guild();
+      const target = await g.channels.fetch(data.channelId).catch(() => null);
+      if (!target?.isTextBased?.() || target.isThread?.()) throw new HttpError(400, "Dieser Channel ist kein Text-Channel des Servers.");
+      if (g.members.me && target.permissionsFor?.(g.members.me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]) === false) throw new HttpError(400, "Der Bot darf in diesem Channel nicht schreiben.");
+      for (const roleId of data.pingRoleIds) if (!(await g.roles.fetch(roleId).catch(() => null))) throw new HttpError(400, "Eine ausgewählte Rolle existiert nicht mehr.");
+      const row = announcements.create({ guildId, actorId: member.id, data });
+      if (data.scheduledAt) return { message: "Ankündigung geplant. Sie wird automatisch zum gewählten Zeitpunkt gesendet." };
+      const result = await deliverAnnouncement({ db, client, row });
+      if (!result.ok) throw new HttpError(502, `Senden fehlgeschlagen: ${result.error ?? "unbekannter Fehler"}`);
+      return { message: "Ankündigung gesendet." };
+    }],
+    [/^\/api\/announcements\/([\w-]+)\/cancel$/, async (member, body, [, id]) => {
+      need(member, "staff", "Staff-Rolle");
+      announcements.cancel({ guildId, id, actorId: member.id });
+      return { message: "Geplante Ankündigung abgebrochen." };
+    }],
+    [/^\/api\/members\/(\d{17,20})\/rank$/, async (member, body, [, userId]) => {
+      need(member, "leaders", "Leitungsrolle");
+      if (!["promotion", "demotion", "change"].includes(body.kind)) throw new HttpError(400, "Bitte Beförderung, Degradierung oder Änderung wählen.");
+      const from = text(body.from, { max: 80, label: "Bisheriger Rang" }) || null, to = text(body.to, { min: 1, max: 80, label: "Neuer Rang" });
+      try { rankHistory.record({ guildId, userId, actorId: member.id, from, to, kind: body.kind, reason: text(body.reason, { max: 300, label: "Grund" }), source: "website" }); }
+      catch (error) { throw new HttpError(400, error.message); }
+      return { message: "Rangänderung eingetragen." };
+    }],
+    [/^\/api\/weekly-report\/send$/, async member => {
+      need(member, "leaders", "Leitungsrolle");
+      if (!config.CHANNEL_WEEKLY_REPORT) throw new HttpError(409, "Bitte zuerst unter Einstellungen → Channels den Wochenbericht-Channel festlegen.");
+      const result = await sendWeeklyReport({ db, client, config, force: true });
+      if (!result.sent) throw new HttpError(502, "Der Wochenbericht konnte nicht gesendet werden (Channel nicht erreichbar oder keine Rechte).");
+      return { message: "Wochenbericht der Vorwoche gesendet." };
+    }],
     [/^\/api\/reset$/, async (member, body) => {
       need(member, "leaders", "Leitungsrolle");
       if (String(body.confirm ?? "").trim().toUpperCase() !== RESET_CONFIRM_WORD) throw new HttpError(400, `Zur Bestätigung bitte genau „${RESET_CONFIRM_WORD}“ eintippen.`);
@@ -661,6 +705,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       try { return { status: 200, body: await handler(member, ...args.slice(1), match) }; }
       catch (error) {
         if (error instanceof HttpError) return { status: error.status, body: { error: error.message } };
+        if (error instanceof AnnouncementError) return { status: 400, body: { error: error.message } };
         if (error instanceof AbsenceError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "OVERLAP" || error.code === "ALREADY_ENDED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof WarningError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_REVOKED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof FinanceError) return { status: ["PREVIEW_MISMATCH", "CONCURRENT_CHANGE", "SANCTION_CONFLICT"].includes(error.code) ? 409 : 400, body: { error: error.message, code: error.code } };

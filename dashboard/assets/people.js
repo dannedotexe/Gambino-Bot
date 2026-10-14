@@ -56,16 +56,18 @@ async function openProfile(userId) {
     ...(p.finance ? [["Familienguthaben", p.finance.hasAccount ? `${money(p.finance.plan.gross)} · netto ${money(p.finance.plan.net)}` : "kein Konto"]] : []),
   ];
   const chips = [p.absentNow ? '<span class="chip chip-absent">🚫 gerade abgemeldet</span>' : "", p.discord.timeoutUntil ? `<span class="chip chip-absent">🔇 Timeout bis ${date(p.discord.timeoutUntil)}</span>` : "", !p.inGuild ? '<span class="chip">nicht auf dem Server</span>' : ""].join("");
-  const head = `<div class="profile-head">${p.discord.avatar ? `<img src="${escapeHtml(p.discord.avatar)}" alt="">` : '<div class="avatar-fallback">👤</div>'}<div><b>${escapeHtml(name)}</b><small>${escapeHtml(p.discord.username ?? "")} · ID ${escapeHtml(userId)}</small><div class="chips">${chips}${p.roles.slice(0, 8).map(r => `<span class="chip"${r.color ? ` style="border-color:${escapeHtml(r.color)}"` : ""}>${escapeHtml(r.name)}</span>`).join("")}</div></div></div>`;
+  const head = `<div class="profile-head">${p.discord.avatar ? `<img src="${escapeHtml(p.discord.avatar)}" alt="">` : '<div class="avatar-fallback">👤</div>'}<div><b>${escapeHtml(name)}</b><small>${escapeHtml(p.discord.username ?? "")} · ID ${escapeHtml(userId)}</small><div class="chips">${chips}${p.roles.slice(0, 8).map(r => `<span class="chip" data-color="${escapeHtml(r.color ?? "")}">${escapeHtml(r.name)}</span>`).join("")}</div></div></div>`;
   const actions = [
     caps.warnings ? btn("Verwarnen", "warning-create-for", { user: userId }) : "",
     caps.absences ? btn("Abmeldung eintragen", "absence-create", { user: userId }) : "",
+    caps.leaders ? btn("Rangänderung eintragen", "rank-record", { user: userId, current: p.ranks[0] ?? "" }) : "",
     caps.finance ? btn("+ Gutschrift", "credit", { user: userId }) : "",
     caps.financeView && p.finance?.hasAccount ? btn("Kontodetails", "account-details", { user: userId }) : "",
   ].join("");
   const sections = [
     `<div class="kv profile-facts">${facts.map(([k, v]) => `<div><span>${escapeHtml(k)}</span><b>${v}</b></div>`).join("")}</div>`,
     actions ? `<div class="actions">${actions}</div>` : "",
+    section("🏅 Rang-Historie", list((p.rankHistory ?? []).map(r => line(`${{ promotion: "⬆️ Beförderung", demotion: "⬇️ Degradierung", change: "↔️ Rangänderung" }[r.kind]}: ${escapeHtml(r.from_label ?? "—")} → ${escapeHtml(r.to_label ?? "—")}`, `${date(r.created_at)}${r.actor_id ? ` · von ${who(r.actor_id)}` : ""}${r.reason ? ` · ${escapeHtml(r.reason)}` : ""}${r.source === "website" ? " · manuell eingetragen" : ""}`)))),
     section("📅 Events", list(p.events.map(e => line(escapeHtml(e.name), `${date(e.starts_at)}${e.event_status === "cancelled" ? " · abgesagt" : ""}`, e.excused ? "entschuldigt" : e.upcoming && e.status === "signed_up" ? "angemeldet" : statusLabels[e.status] ?? e.status)))),
     section("🚫 Abmeldungen", list(p.absences.map(a => line(`${day(a.starts_on)} – ${day(a.ends_on)}`, `${escapeHtml(a.reason)}${a.ended_at ? ` · beendet ${date(a.ended_at)}` : ""}`)))),
     p.warnings ? section(`📝 Verwarnungen (${p.warnings.active} aktiv)`, list(p.warnings.items.map(w => line(escapeHtml(w.reason), `${date(w.created_at)} · von ${who(w.actor_id)}${w.revoked_at ? ` · zurückgenommen: ${escapeHtml(w.revoke_reason ?? "")}` : ""}`, warnStateLabels[w.state])))) : "",
@@ -76,10 +78,12 @@ async function openProfile(userId) {
     p.tickets ? section("🎫 Tickets", list(p.tickets.map(t => line(escapeHtml(t.category_label), `${date(t.created_at)}${t.claimed_by ? ` · ${who(t.claimed_by)}` : ""}`, statusLabels[t.status])))) : "",
   ].join("");
   openInfo(name, `${head}${sections}`, "MITGLIEDERPROFIL", true);
+  document.querySelectorAll("#dialog .chip[data-color]").forEach(chip => { if (/^#[0-9a-f]{6}$/i.test(chip.dataset.color)) chip.style.borderColor = chip.dataset.color; });
 }
 
 // ------------------------------------------------------------------ Status
 async function loadStatus() {
+  document.querySelectorAll(".needs-leaders").forEach(el => el.classList.toggle("hidden", !state.me.capabilities.leaders));
   const s = await api("/api/status");
   const card = (label, value, ok, hint) => `<div class="stat status-${ok === true ? "ok" : ok === false ? "bad" : "warn"}"><span class="symbol">${ok === true ? "✓" : ok === false ? "✕" : "!"}</span><div class="label">${escapeHtml(label)}</div><div class="value small">${escapeHtml(value)}</div>${hint ? `<small class="muted">${escapeHtml(hint)}</small>` : ""}</div>`;
   const backupAge = s.backups.latest ? (Date.now() - Date.parse(s.backups.latest.at)) / 3_600_000 : null;
@@ -101,6 +105,7 @@ Object.assign(actions, {
   "profile": ({ user }) => openProfile(user),
   "profile-find": () => openForm({ eyebrow: "MITGLIEDERPROFIL", title: "Profil öffnen", intro: "<p>Verifizierung, Rang, Konto, Sanktionen, Verwarnungen, Events, Anträge und Tickets auf einen Blick.</p>", fields: [memberField()], submit: "Profil öffnen", onSubmit: async v => { $("dialog").close(); await openProfile(v.userId); return { keepOpen: true }; } }),
   "status-refresh": () => loadStatus(),
+  "rank-record": ({ user, current }) => openForm({ eyebrow: "RANG", title: "Rangänderung eintragen", intro: "<p>Für Ränge, die nicht als Discord-Rolle vergeben werden. Wechsel von Rang-Rollen in Discord werden automatisch protokolliert.</p>", fields: [{ name: "kind", label: "Art", type: "select", options: [["promotion", "⬆️ Beförderung"], ["demotion", "⬇️ Degradierung"], ["change", "↔️ Änderung"]] }, { name: "from", label: "Bisheriger Rang", hint: "(optional)", max: 80, value: current }, { name: "to", label: "Neuer Rang", required: true, max: 80 }, { name: "reason", label: "Grund", hint: "(optional)", max: 300 }], submit: "Eintragen", onSubmit: async v => { const r = await post(`/api/members/${user}/rank`, v); notify(r.message); await openProfile(user); return { keepOpen: true }; } }),
   "absence-create": ({ user } = {}) => openForm({ eyebrow: "ABMELDUNG", title: "Abmeldung eintragen", intro: "<p>Für Mitglieder, die sich nicht selbst abmelden können. Die Person zählt in der Zeit nicht als inaktiv; Fehlen bei Events gilt als entschuldigt.</p>", fields: [memberField(user ?? ""), { name: "from", label: "Von", required: true, placeholder: "heute oder 20.10.", value: "heute", max: 20 }, { name: "until", label: "Bis (inklusive)", required: true, placeholder: "z. B. 27.10.", max: 20 }, { name: "reason", label: "Grund", required: true, max: 300 }], submit: "Eintragen", onSubmit: v => post("/api/absences", v) }),
   "absence-end": ({ id }) => confirmAction("Abmeldung beenden?", "Die Person gilt ab sofort wieder als anwesend. Geplante Abmeldungen werden storniert.", "Beenden", () => post(`/api/absences/${id}/end`), false),
   "activity-remind": ({ user, days }) => confirmAction("Per DM erinnern?", `${who(user)} bekommt eine freundliche Nachricht mit dem Hinweis, sich bei einer Pause abzumelden.`, "Erinnerung senden", () => post(`/api/activity/${user}/remind`, { days }), false),

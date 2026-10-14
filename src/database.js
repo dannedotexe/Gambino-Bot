@@ -109,6 +109,17 @@ export const MIGRATIONS = [
       ${appendOnly("moderation_actions", "Moderationsmaßnahmen")}
     `),
   },
+  {
+    version: 6,
+    name: "ankuendigungen-rang-historie",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS announcements (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', embed TEXT NOT NULL DEFAULT '{}', ping_role_ids TEXT NOT NULL DEFAULT '', ping_everyone INTEGER NOT NULL DEFAULT 0, scheduled_at TEXT, status TEXT NOT NULL CHECK(status IN ('scheduled','sending','sent','failed','cancelled')), message_id TEXT, error TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL, sent_at TEXT);
+      CREATE INDEX IF NOT EXISTS announcements_due ON announcements(status,scheduled_at);
+      CREATE TABLE IF NOT EXISTS rank_changes (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, actor_id TEXT, from_label TEXT, to_label TEXT, kind TEXT NOT NULL CHECK(kind IN ('promotion','demotion','change')), reason TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS rank_changes_user ON rank_changes(guild_id,user_id,created_at);
+      ${appendOnly("rank_changes", "Rangänderungen")}
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

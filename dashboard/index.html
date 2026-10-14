@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#111114"><meta name="description" content="Gambinos – Staff-Dashboard"><title>Gambinos · Dashboard</title>
-  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script>
+  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script><script src="/assets/announce.js" defer></script>
 </head>
 <body>
   <div id="progress" class="progress" aria-hidden="true"></div>
@@ -63,8 +63,15 @@
         <div id="absences-recent" class="rows panel"></div>
       </section>
 
+      <section id="tab-announcements" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">COMMUNITY</div><h2>Ankündigungen</h2><p>Text und/oder Karte schreiben, Vorschau prüfen und sofort oder zu einem späteren Zeitpunkt posten. Erwähnt werden nur die Rollen, die du auswählst.</p></div></div>
+        <section class="panel"><div class="texts-grid"><form id="announce-form" class="event-form" novalidate></form><div><div class="sub-label">Vorschau</div><div id="announce-preview" class="dc-preview"></div></div></div></section>
+        <h3 class="subhead">Geplant & gesendet</h3>
+        <div id="announce-list" class="queue grid2"></div>
+      </section>
+
       <section id="tab-status" class="tab-panel hidden">
-        <div class="section-intro"><div><div class="eyebrow">VERWALTUNG</div><h2>Systemstatus</h2><p>Läuft der Bot, wann kam das letzte Update, gibt es ein aktuelles Backup? Aktualisiert sich beim Öffnen.</p></div><div class="section-tools"><button class="secondary" data-action="status-refresh">Neu laden</button></div></div>
+        <div class="section-intro"><div><div class="eyebrow">VERWALTUNG</div><h2>Systemstatus</h2><p>Läuft der Bot, wann kam das letzte Update, gibt es ein aktuelles Backup? Aktualisiert sich beim Öffnen.</p></div><div class="section-tools"><button class="secondary needs-leaders" data-action="weekly-report-send">Wochenbericht jetzt senden</button><button class="secondary" data-action="status-refresh">Neu laden</button></div></div>
         <div id="status-cards" class="stats status-cards"></div>
         <section class="panel"><div class="panel-head"><div><div class="eyebrow">DETAILS</div><h2>System</h2></div></div><div id="status-details" class="kv"></div></section>
         <section class="panel"><div class="panel-head"><div><div class="eyebrow">KONFIGURATION</div><h2>Hinweise</h2></div></div><div id="status-warnings" class="rows"></div></section>

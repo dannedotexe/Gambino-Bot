@@ -52,11 +52,17 @@ export const RESET_AREAS = {
     "DELETE FROM audit_log_deliveries WHERE audit_id IN (SELECT id FROM audit_logs WHERE guild_id=@g)",
     "DELETE FROM audit_logs WHERE guild_id=@g",
   ] },
+  announcements: { label: "Ankündigungen (geplante und gesendete; Nachrichten in Discord bleiben)", default: true, sql: [
+    "DELETE FROM announcements WHERE guild_id=@g",
+  ] },
+  ranks: { label: "Rang-Historie (Beförderungen/Degradierungen)", default: true, sql: [
+    "DELETE FROM rank_changes WHERE guild_id=@g",
+  ] },
   verifications: { label: "Verifizierungen (Discord-Namen und Rollen bleiben, Spieler müssten sich neu verifizieren)", default: false, sql: [
     "DELETE FROM member_verifications WHERE guild_id=@g",
   ] },
 };
-const PROTECTED = ["transactions", "payout_allocations", "sanction_refunds", "sanction_changes", "audit_logs", "moderation_actions"];
+const PROTECTED = ["transactions", "payout_allocations", "sanction_refunds", "sanction_changes", "audit_logs", "moderation_actions", "rank_changes"];
 export const RESET_CONFIRM_WORD = "ZURÜCKSETZEN";
 
 /** Zählt, was ein Reset je Bereich löschen würde (für die Vorschau). */
@@ -72,6 +78,8 @@ export function resetPreview(db, guildId) {
     activity: "SELECT (SELECT COUNT(*) FROM member_absences WHERE guild_id=@g)+(SELECT COUNT(*) FROM member_activity WHERE guild_id=@g) n",
     stats: "SELECT (SELECT COUNT(*) FROM member_stats_daily WHERE guild_id=@g)+(SELECT COUNT(*) FROM automod_actions WHERE guild_id=@g) n",
     audit: "SELECT COUNT(*) n FROM audit_logs WHERE guild_id=@g",
+    announcements: "SELECT COUNT(*) n FROM announcements WHERE guild_id=@g",
+    ranks: "SELECT COUNT(*) n FROM rank_changes WHERE guild_id=@g",
     verifications: "SELECT COUNT(*) n FROM member_verifications WHERE guild_id=@g",
   };
   return Object.entries(RESET_AREAS).map(([id, area]) => ({ id, label: area.label, default: area.default, count: count(counters[id]) }));

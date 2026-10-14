@@ -99,6 +99,17 @@ export const PANEL_TEXTS = {
       buttonBack: { label: "Button: Wieder da", max: 80, required: true, default: "✅  Wieder da" },
     },
   },
+  sanctionList: {
+    label: "Öffentliche Sanktionsliste", channelKey: "CHANNEL_SANCTION_LIST",
+    fields: {
+      color: { label: "Farbe", type: "color", default: "#c0392b" },
+      author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  SANKTIONSLISTE" },
+      title: { label: "Titel", max: 256, default: "⚖️  Offene Sanktionen" },
+      description: { label: "Text über der Liste", max: 1000, multiline: true, default: "Offene Sanktionen werden bei der nächsten Auszahlung verrechnet. Fragen dazu bitte per Ticket." },
+      emptyText: { label: "Text ohne offene Sanktionen", max: 300, required: true, default: "✅ Zurzeit gibt es keine offenen Sanktionen." },
+      footer: { label: "Fußzeile", max: 200, default: "GAMBINOS  •  Aktualisiert sich automatisch" },
+    },
+  },
   welcome: {
     label: "Willkommensnachricht", channelKey: "CHANNEL_WELCOME",
     fields: {

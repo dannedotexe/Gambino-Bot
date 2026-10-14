@@ -13,6 +13,7 @@ import { createDashboard } from "./src/dashboard.js";
 import { createTicketService } from "./src/services/tickets.js";
 import { createActivityService } from "./src/services/activity.js";
 import { sendWelcome } from "./src/welcome.js";
+import { trackRankChange } from "./src/rank-tracking.js";
 
 let config;
 try { config=loadConfig(); }
@@ -73,6 +74,7 @@ client.on(Events.InteractionCreate,async interaction=>{
   }
 });
 // Neue Familienmitglieder (Mitglieder-Rolle erhalten) bekommen automatisch ein Familienkonto.
+client.on(Events.GuildMemberUpdate,(oldMember,newMember)=>{void trackRankChange({db,config,oldMember,newMember}).catch(error=>console.warn("Rangänderung nicht protokolliert:",error.message));});
 client.on(Events.GuildMemberUpdate,(_old,member)=>{
   try{
     if(!config.ACCOUNT_AUTO_OPEN_FOR_MEMBERS||member.user?.bot)return;

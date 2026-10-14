@@ -215,3 +215,8 @@ footer{text-align:center;color:var(--faint);font-size:10px;letter-spacing:.14em;
 .login-foot{position:relative;z-index:1;color:var(--faint);font-size:10px;letter-spacing:.3em}.login-foot span{color:var(--red)}
 @media (max-width:480px){.login-card{padding:30px 20px 24px;border-radius:18px}.login-card h1{font-size:27px}.login-beams{gap:9vw}}
 @media (prefers-reduced-motion:reduce){.login-beams i{animation:none}}
+.form-row{display:grid;grid-template-columns:120px 1fr;gap:10px}.form-row input[type=color]{height:38px;padding:3px;width:100%}
+.role-checks{max-height:190px;overflow:auto}
+.dc-mention{background:#5865f24d;color:#c9cdfb;border-radius:3px;padding:0 3px;font-weight:600}
+.dc-image{display:block;max-width:100%;border-radius:4px;margin-top:8px}.dc-image-placeholder{margin-top:8px;padding:18px;border-radius:4px;background:#1e1f22;color:#949ba4;text-align:center;font-size:12px}
+.role-checks .check{white-space:nowrap}

@@ -10,6 +10,8 @@ import { sendEventReminder } from "./event-posts.js";
 import { panelTexts } from "./services/texts.js";
 import { syncAbsenceRoles } from "./absence-posts.js";
 import { runDailyInactivity } from "./inactivity.js";
+import { sendDueAnnouncements } from "./announcements.js";
+import { sendWeeklyReport } from "./weekly-report.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
 /**
@@ -51,6 +53,7 @@ export function startScheduler({db,client,config,series=null}) {
         await endSeriesEvents({db,client,config,reference:now,onEnded:event=>postEventResult({db,client,config,event})}).catch(error=>console.error("Aktivitäten konnten nicht beendet werden:",error.message));
       }
       await sendReminders(db,client,config,now);
+      await sendDueAnnouncements({db,client,reference:now}).catch(error=>console.warn("Ankündigungen konnten nicht gesendet werden:",error.message));
       if(Date.now()-lastTicketCheck>60_000){
         lastTicketCheck=Date.now();
         const open=db.prepare("SELECT id,channel_id FROM tickets WHERE status='open' AND channel_id IS NOT NULL ORDER BY created_at LIMIT 100").all();
@@ -71,6 +74,7 @@ export function startScheduler({db,client,config,series=null}) {
       if(Date.now()-lastAbsence>60_000){
         lastAbsence=Date.now();
         await syncAbsenceRoles({db,client,config,reference:now}).catch(error=>console.warn("Abmelde-Rollen konnten nicht abgeglichen werden:",error.message));
+        await sendWeeklyReport({db,client,config,reference:now}).catch(error=>console.warn("Wochenbericht fehlgeschlagen:",error.message));
         await runDailyInactivity({db,client,config,reference:now}).catch(error=>console.warn("Inaktivitätsprüfung fehlgeschlagen:",error.message));
       }
       client.gambinoSchedulerTick=Date.now();
