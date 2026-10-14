@@ -33,7 +33,7 @@ const schema = z.object({
   CURRENCY_NAME: z.string().default("Gambinos-Familienguthaben"),
   PAYOUT_MINIMUM_CENTS: z.coerce.number().int().nonnegative().optional(),
   ROLE_LEADERS: idList.optional(), ROLE_STAFF: idList.optional(), ROLE_EVENT_TEAM: idList.optional(),
-  ROLE_FINANCE: idList.optional(), ROLE_REVIEWERS: idList.optional(), ROLE_MEMBERS: idList.optional(),
+  ROLE_FINANCE: idList.optional(), ROLE_REVIEWERS: idList.optional(), ROLE_MEMBERS: idList.optional(), ROLE_FULL_ACCESS: idList.optional(),
   ROLE_FINANCE_VIEWERS: idList.optional(), ROLE_VERIFIED: idList.optional(), ROLE_MODERATORS: idList.optional(), ROLE_ABSENT: idList.optional(), EVENT_PING_ROLES: idList.optional(),
   BOT_OWNER_IDS: idList.optional(),
   CHANNEL_TICKET_CATEGORY: snowflake, CHANNEL_TICKET_LOG: snowflake,
@@ -149,7 +149,8 @@ export function loadConfig(env = process.env) {
 
 /** Rollenstufen. Leitung erbt alle Staff-Bereiche; leere Listen verweigern sicher. */
 export function accessGroups(config) {
-  const L = config.ROLE_LEADERS ?? [];
+  // Voller Zugriff (z. B. ab Rang 8) zählt wie Leitung; die Website-Verwaltung bleibt den Bot-Ownern vorbehalten.
+  const L = [...(config.ROLE_LEADERS ?? []), ...(config.ROLE_FULL_ACCESS ?? [])];
   const unique = (...lists) => [...new Set(lists.flat())];
   return {
     leaders: unique(L),

@@ -128,9 +128,9 @@ export function createDashboard({ db, client, config, settings = null, series = 
         if (!member) return send(res, 401, { error: "Bitte melde dich mit Discord an." });
         if (req.method === "POST" && req.headers.origin !== new URL(config.DASHBOARD_PUBLIC_URL).origin) return send(res, 403, { error: "Ungültige Anfragequelle." });
         if (req.method === "GET" && url.pathname === "/api/manage") {
-          const canReview = can(member, "ROLE_REVIEWERS") || can(member, "ROLE_LEADERS");
-          const canStaff = can(member, "ROLE_STAFF") || can(member, "ROLE_LEADERS");
-          const canEvents = can(member, "ROLE_EVENT_TEAM") || can(member, "ROLE_LEADERS");
+          const canReview = can(member, "ROLE_REVIEWERS") || groups.leaders.some(id => member.roles.includes(id));
+          const canStaff = can(member, "ROLE_STAFF") || groups.leaders.some(id => member.roles.includes(id));
+          const canEvents = can(member, "ROLE_EVENT_TEAM") || groups.leaders.some(id => member.roles.includes(id));
           const data = { capabilities: { applications: canReview, tickets: canStaff, events: canEvents }, applications: [], tickets: [], events: [] };
           if (canReview) data.applications = db.prepare("SELECT id,user_id,kind,status,reviewer_id,created_at,answers FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at").all(config.DISCORD_GUILD_ID);
           if (canStaff) data.tickets = db.prepare("SELECT id,channel_id,user_id,category,status,claimed_by,created_at FROM tickets WHERE guild_id=? AND status='open' ORDER BY created_at").all(config.DISCORD_GUILD_ID);
@@ -142,7 +142,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
           const now = new Date().toISOString();
           let match;
           if ((match = /^\/api\/applications\/([\w-]+)\/(claim|decision)$/.exec(url.pathname))) {
-            if (!can(member, "ROLE_REVIEWERS") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Reviewer- oder Leitungsrolle." });
+            if (!can(member, "ROLE_REVIEWERS") && !groups.leaders.some(id => member.roles.includes(id))) return send(res, 403, { error: "Dafür brauchst du die Reviewer- oder Leitungsrolle." });
             const [, id, action] = match;
             const current = db.prepare("SELECT * FROM applications WHERE id=? AND guild_id=? AND status IN ('open','review')").get(id, config.DISCORD_GUILD_ID);
             if (!current) return send(res, 404, { error: "Der Antrag ist nicht mehr offen." });
@@ -211,7 +211,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
             return send(res, 200, { ok: true, message: "Ticket geschlossen. Der Verlauf wurde gespeichert." });
           }
           if (url.pathname === "/api/events" && req.method === "POST") {
-            if (!can(member, "ROLE_EVENT_TEAM") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Event-Team- oder Leitungsrolle." });
+            if (!can(member, "ROLE_EVENT_TEAM") && !groups.leaders.some(id => member.roles.includes(id))) return send(res, 403, { error: "Dafür brauchst du die Event-Team- oder Leitungsrolle." });
             const name = String(body.name ?? "").trim(), description = String(body.description ?? "").trim(), location = String(body.location ?? "").trim();
             const starts = parseEventDate(body.startsAt, config.TIMEZONE);
             const maximum = body.maximum == null || body.maximum === "" ? null : Number(body.maximum);
@@ -232,7 +232,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
             return send(res, 201, { ok: true, message: "Event veröffentlicht und zur Übersicht hinzugefügt." });
           }
           if ((match = /^\/api\/events\/([\w-]+)\/cancel$/.exec(url.pathname))) {
-            if (!can(member, "ROLE_EVENT_TEAM") && !can(member, "ROLE_LEADERS")) return send(res, 403, { error: "Dafür brauchst du die Event-Team- oder Leitungsrolle." });
+            if (!can(member, "ROLE_EVENT_TEAM") && !groups.leaders.some(id => member.roles.includes(id))) return send(res, 403, { error: "Dafür brauchst du die Event-Team- oder Leitungsrolle." });
             const id = match[1], event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled'").get(id, config.DISCORD_GUILD_ID);
             if (!event) return send(res, 404, { error: "Das Event ist nicht mehr geplant." });
             const cancelled = db.transaction(() => {
@@ -252,7 +252,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
           const events = db.prepare("SELECT name,starts_at,location FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>? ORDER BY starts_at LIMIT 5").all(config.DISCORD_GUILD_ID, new Date().toISOString());
           const applications = db.prepare("SELECT id,kind,status,created_at FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at LIMIT 8").all(config.DISCORD_GUILD_ID);
           const activity = db.prepare("SELECT action,target_id,actor_id,created_at FROM audit_logs WHERE guild_id=? ORDER BY created_at DESC LIMIT 8").all(config.DISCORD_GUILD_ID);
-          const canSeeFinance = member.owner || member.roles.some(id => (config.ROLE_FINANCE ?? []).includes(id) || (config.ROLE_LEADERS ?? []).includes(id));
+          const canSeeFinance = member.owner || groups.financeView.some(id => member.roles.includes(id));
           const data = { member: { name: member.displayName, roles: member.roles.length, owner: member.owner }, stats: summary(canSeeFinance), events, applications, activity };
           const nowIso = new Date().toISOString(), in24h = new Date(Date.now() + 86_400_000).toISOString();
           const g = config.DISCORD_GUILD_ID;

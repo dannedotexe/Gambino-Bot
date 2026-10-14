@@ -83,6 +83,8 @@ export function createDashboardApi({ db, client, config, settings = null, series
     if (member.owner) { audit(db, guildId, member.id, "admin.override", null, { command: "webdashboard", group }); return; }
     throw new HttpError(403, `Dafür brauchst du die ${label}.`);
   };
+  // Verwaltung (Status, Einstellungen, Texte, Reset) ist nur für Bot-Owner.
+  const needOwner = member => { if (!member.owner) throw new HttpError(403, "Die Verwaltung ist nur für Bot-Owner."); };
   const ticketAllowed = (member, ticket) => canHandleTicket({ memberRoleIds: member.roles, isOwner: member.owner }, ticket, config, groups.staff);
   const categoryLabel = id => (config.TICKET_CATEGORIES_JSON ?? []).find(category => category.id === id)?.label ?? id;
 
@@ -120,7 +122,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
         sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), announcements: can(member, "staff"), announceEveryone: can(member, "leaders"), polls: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
-        settings: Boolean(settings) && can(member, "leaders"),
+        settings: Boolean(settings) && member.owner, admin: member.owner,
       },
       settings: {
         timezone: config.TIMEZONE, minimumCents: config.PAYOUT_MINIMUM_CENTS ?? null,
@@ -200,7 +202,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       return withNames({ profile }, ids);
     }],
     [/^\/api\/status$/, async member => {
-      need(member, "anyStaff", "Staff-Rolle");
+      needOwner(member);
       const backupDir = path.resolve(process.env.BACKUP_DIR ?? "./backups");
       let backups = [];
       try { backups = fs.readdirSync(backupDir).filter(name => /^gambino-.*\.sqlite$/.test(name)).map(name => { const stat = fs.statSync(path.join(backupDir, name)); return { at: stat.mtime.toISOString(), size: stat.size }; }).sort((a, b) => b.at.localeCompare(a.at)); } catch { backups = []; }
@@ -244,7 +246,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       return withNames({ announcements: items, defaultChannel: config.CHANNEL_ANNOUNCEMENTS ?? null, timezone: config.TIMEZONE }, items.map(a => a.created_by));
     }],
     [/^\/api\/reset$/, async member => {
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       return { areas: resetPreview(db, guildId), confirmWord: RESET_CONFIRM_WORD };
     }],
     [/^\/api\/roles$/, async member => {
@@ -356,12 +358,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
     }],
     [/^\/api\/settings$/, async member => {
       if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       return { settings: settings.describe() };
     }],
     [/^\/api\/texts$/, async member => {
       if (!texts) throw new HttpError(409, "Panel-Texte brauchen DISCORD_GUILD_ID in der .env.");
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       return { panels: texts.describe().map(panel => ({ ...panel, channelSet: Boolean(config[panel.channelKey]) })) };
     }],
     [/^\/api\/verifications$/, async member => {
@@ -371,7 +373,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       return withNames({ verifications: rows, total, roleConfigured: Boolean(config.ROLE_VERIFIED?.length), panelChannel: config.CHANNEL_VERIFICATION_PANEL ?? null }, rows.map(r => r.user_id));
     }],
     [/^\/api\/channel-check$/, async member => {
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       return checkChannels({ guild: await guild(), config });
     }],
     [/^\/api\/series$/, async member => {
@@ -551,14 +553,14 @@ export function createDashboardApi({ db, client, config, settings = null, series
       return { message: "Rangänderung eingetragen." };
     }],
     [/^\/api\/weekly-report\/send$/, async member => {
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       if (!config.CHANNEL_WEEKLY_REPORT) throw new HttpError(409, "Bitte zuerst unter Einstellungen → Channels den Wochenbericht-Channel festlegen.");
       const result = await sendWeeklyReport({ db, client, config, force: true });
       if (!result.sent) throw new HttpError(502, "Der Wochenbericht konnte nicht gesendet werden (Channel nicht erreichbar oder keine Rechte).");
       return { message: "Wochenbericht der Vorwoche gesendet." };
     }],
     [/^\/api\/reset$/, async (member, body) => {
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       if (String(body.confirm ?? "").trim().toUpperCase() !== RESET_CONFIRM_WORD) throw new HttpError(400, `Zur Bestätigung bitte genau „${RESET_CONFIRM_WORD}“ eintippen.`);
       const areas = Array.isArray(body.areas) ? body.areas.map(String) : [];
       let backup = null;
@@ -689,7 +691,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
     }],
     [/^\/api\/settings$/, async (member, body) => {
       if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       try { settings.update({ key: String(body.key ?? ""), value: body.value, actorId: member.id, actorRoleIds: member.roles, actorIsOwner: member.owner }); }
       catch (error) { throw new HttpError(400, error.message); }
       const key = String(body.key);
@@ -703,14 +705,14 @@ export function createDashboardApi({ db, client, config, settings = null, series
     }],
     [/^\/api\/settings\/reset$/, async (member, body) => {
       if (!settings) throw new HttpError(409, "Einstellungen über die Website brauchen DISCORD_GUILD_ID in der .env.");
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       try { settings.reset({ key: String(body.key ?? ""), actorId: member.id, actorRoleIds: member.roles, actorIsOwner: member.owner }); }
       catch (error) { throw new HttpError(400, error.message); }
       return { message: "Zurückgesetzt auf den Wert aus der .env bzw. den Standard.", settings: settings.describe() };
     }],
     [/^\/api\/texts(\/reset)?$/, async (member, body, [, reset]) => {
       if (!texts) throw new HttpError(409, "Panel-Texte brauchen DISCORD_GUILD_ID in der .env.");
-      need(member, "leaders", "Leitungsrolle");
+      needOwner(member);
       const panel = String(body.panel ?? "");
       if (!PANEL_TEXTS[panel]) throw new HttpError(400, "Unbekanntes Panel.");
       try { reset ? texts.reset({ panel, actorId: member.id }) : texts.update({ panel, values: body.values ?? {}, actorId: member.id }); }

@@ -226,7 +226,8 @@ test("Website: Aktivität, Profil mit Rechten, Status, Abmeldung eintragen und E
   assert.equal((await get(as(OTHER), `/api/members/${MEMBER}/profile`)).status, 403);
   const leaderProfile = await get(as(LEADER, "leaders"), `/api/members/${MEMBER}/profile`);
   assert.ok(leaderProfile.body.profile.finance);
-  const status = await get(as(STAFF, "staff"), "/api/status");
+  assert.equal((await get(as(LEADER, "leaders"), "/api/status")).status, 403, "Status nur für Bot-Owner");
+  const status = await get({ ...as(STAFF), owner: true }, "/api/status");
   assert.equal(status.status, 200);
   assert.equal(status.body.bot.online, true);
   assert.equal(typeof status.body.database.schema, "number");

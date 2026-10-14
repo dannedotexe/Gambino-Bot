@@ -41,7 +41,7 @@ const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit
 const TABS = [
   ["overview", "Übersicht", () => true], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
   ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
-  ["announcements", "Ankündigungen", c => c.announcements], ["polls", "Abstimmungen", c => c.polls], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.staff], ["settings", "Einstellungen", c => c.settings],
+  ["announcements", "Ankündigungen", c => c.announcements], ["polls", "Abstimmungen", c => c.polls], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.admin], ["settings", "Einstellungen", c => c.settings],
 ];
 
 const ICONS = {

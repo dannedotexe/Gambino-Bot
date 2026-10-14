@@ -51,16 +51,18 @@ test("Reset löscht Testdaten, behält Einstellungen, Vorlagen und (standardmä�
   assert.throws(() => db.prepare("DELETE FROM audit_logs").run(), /dürfen nicht gelöscht werden|unveränderlich/);
 });
 
-test("Reset über die Website nur für die Leitung und nur mit Bestätigungswort", async () => {
+test("Reset über die Website nur für Bot-Owner und nur mit Bestätigungswort", async () => {
   const { db } = seed();
   const config = loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: G, ROLE_LEADERS: LEAD_ROLE, ROLE_STAFF: "20000000000000002" });
   const guild = { id: G, members: { cache: new Map(), fetch: async () => null }, channels: { fetch: async () => null }, roles: { fetch: async () => new Map() } };
   const client = { guilds: { cache: new Map([[G, guild]]), fetch: async () => guild }, channels: { fetch: async () => null }, users: { fetch: async () => null } };
   const api = createDashboardApi({ db, client, config });
-  const leader = { id: STAFF, owner: false, roles: [LEAD_ROLE] }, staff = { id: STAFF, owner: false, roles: ["20000000000000002"] };
+  const owner = { id: STAFF, owner: true, roles: [] }, leaderOnly = { id: STAFF, owner: false, roles: [LEAD_ROLE] }, staff = { id: STAFF, owner: false, roles: ["20000000000000002"] };
+  const leader = owner;
   const post = (m, body) => api.post(m, new URL("/api/reset", "https://x"), body);
   assert.equal((await api.get(staff, new URL("/api/reset", "https://x"))).status, 403);
   assert.equal((await post(staff, { areas: ["finance"], confirm: "ZURÜCKSETZEN" })).status, 403);
+  assert.equal((await post(leaderOnly, { areas: ["finance"], confirm: "ZURÜCKSETZEN" })).status, 403, "Verwaltung nur für Bot-Owner");
   assert.equal((await post(leader, { areas: ["finance"], confirm: "ja" })).status, 400);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM accounts").get().n, 1, "ohne Bestätigung passiert nichts");
   const ok = await post(leader, { areas: ["finance", "giveaways"], confirm: "zurücksetzen" });

@@ -117,7 +117,9 @@ Alle Berechtigungen hängen an Discord-Rollen-IDs aus der `.env`. Jede Aktion wi
 
 | Gruppe | Variablen | Darf |
 | --- | --- | --- |
-| Leitung | `ROLE_LEADERS` | alles unten, zusätzlich Korrekturbuchungen, Sanktionen korrigieren/aufheben/erstatten, Einstellungen, AutoMod-Sync, Rang-Rollen vergeben |
+| Bot-Owner | `BOT_OWNER_IDS` | alles, zusätzlich die **Verwaltung** auf der Website (Status, Einstellungen, Panel-Texte, Channel-Prüfung, Testdaten-Reset, Wochenbericht sofort senden) – die sieht sonst niemand |
+| Leitung | `ROLE_LEADERS` | alles unten, zusätzlich Korrekturbuchungen, Sanktionen korrigieren/aufheben/erstatten, AutoMod-Sync, Rang-Rollen vergeben |
+| Voller Zugriff | `ROLE_FULL_ACCESS` | wie Leitung (z. B. „ab Rang 8“: Rang 8 und alle höheren Rang-Rollen anhaken), ohne Verwaltung |
 | Staff | `ROLE_STAFF` (+ Leitung) | Tickets, Sanktionen und Verwarnungen erstellen, Giveaways, Dashboard-Panel |
 | Moderation | `ROLE_MODERATORS` (+ Staff, Leitung) | `/warn`, `/warnings @mitglied`, `/unwarn` (nur eigene Verwarnungen), Sanktionen-Tab der Website ansehen |
 | Finanzen | `ROLE_FINANCE` (+ Leitung) | Gutschriften, Auszahlungen, Auszahlungsliste, fremde Konten |
@@ -149,7 +151,7 @@ Beim Start wird die Konfiguration validiert: Fehlen notwendige Werte oder sind s
 
 ## Konfiguration
 
-**Fast alles lässt sich über die Website einstellen** (Tab *Einstellungen*, nur Leitung oder Bot-Owner). Die Werte werden in der Datenbank gespeichert, mit derselben Prüfung wie beim Start validiert und gelten sofort ohne Neustart. Jede Änderung landet als `config.changed` im Protokoll. Die `.env` liefert nur die Startwerte; mit „Zurücksetzen“ gilt wieder der `.env`-Wert. Ein ungültiger gespeicherter Wert wird beim Start übersprungen und gemeldet. Die Leitung kann sich nicht selbst aussperren (eine eigene Rolle muss in `ROLE_LEADERS` bleiben).
+**Fast alles lässt sich über die Website einstellen** (Tab *Einstellungen*, nur Bot-Owner). Die Werte werden in der Datenbank gespeichert, mit derselben Prüfung wie beim Start validiert und gelten sofort ohne Neustart. Jede Änderung landet als `config.changed` im Protokoll. Die `.env` liefert nur die Startwerte; mit „Zurücksetzen“ gilt wieder der `.env`-Wert. Ein ungültiger gespeicherter Wert wird beim Start übersprungen und gemeldet. Die Leitung kann sich nicht selbst aussperren (eine eigene Rolle muss in `ROLE_LEADERS` bleiben).
 
 Aus Sicherheitsgründen **nur in der `.env`** und nicht über die Website änderbar: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `BOT_OWNER_IDS`, `DATABASE_PATH` sowie alle `DASHBOARD_*`-Werte und `DISCORD_CLIENT_SECRET`. Website-Einstellungen setzen `DISCORD_GUILD_ID` voraus.
 
@@ -157,7 +159,7 @@ Aus Sicherheitsgründen **nur in der `.env`** und nicht über die Website änder
 Vollständige Liste mit Kommentaren: [`.env.example`](.env.example). Die wichtigsten Gruppen:
 
 - **Pflicht:** `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`. Dringend empfohlen: `DISCORD_GUILD_ID`.
-- **Rollen:** `ROLE_LEADERS`, `ROLE_STAFF`, `ROLE_FINANCE`, `ROLE_FINANCE_VIEWERS`, `ROLE_MODERATORS`, `ROLE_REVIEWERS`, `ROLE_EVENT_TEAM`, `ROLE_MEMBERS`, `BOT_OWNER_IDS`; jeweils kommaseparierte IDs.
+- **Rollen:** `ROLE_LEADERS`, `ROLE_FULL_ACCESS`, `ROLE_STAFF`, `ROLE_FINANCE`, `ROLE_FINANCE_VIEWERS`, `ROLE_MODERATORS`, `ROLE_REVIEWERS`, `ROLE_EVENT_TEAM`, `ROLE_MEMBERS`, `BOT_OWNER_IDS`; jeweils kommaseparierte IDs.
 - **Channels:** `CHANNEL_TICKET_CATEGORY` (Kategorie), `CHANNEL_TICKET_LOG`, `CHANNEL_APPLICATION_REVIEW`, `CHANNEL_RANK_REVIEW`, `CHANNEL_EVENT_ANNOUNCEMENTS`, `CHANNEL_AUDIT_LOG`, `CHANNEL_AUTOMOD_LOG`, `CHANNEL_STATS`. Alternativ lassen sie sich mit `/einstellungen kanal` setzen; das wird in der Datenbank gespeichert und hat Vorrang vor der `.env`.
 - **Tickets:** `TICKET_CATEGORIES_JSON`, `TICKET_COOLDOWN_SECONDS`, `TICKET_MAX_OPEN_PER_USER`, `TICKET_TRANSCRIPT_LIMIT`.
 - **Events:** `EVENT_MIN_PARTICIPANTS`, `EVENT_MIN_CHECK_MINUTES`, `EVENT_MIN_AUTO_CANCEL`, `NOSHOW_THRESHOLD`, `NOSHOW_WINDOW_DAYS`, `NOSHOW_ACTION`, `TIMEZONE` (Standard `Europe/Vienna`; Datumseingaben wie `31.12.2026 19:00` gelten in dieser Zone, gespeichert wird UTC), `EVENT_REMINDER_MINUTES`.

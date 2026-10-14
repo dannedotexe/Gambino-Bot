@@ -8,7 +8,8 @@ import { loadConfig } from "../config.js";
  */
 const ACTIONS = [["warn", "Hinweis"], ["delete", "Löschen"], ["timeout", "Timeout"], ["alert", "Staff-Meldung"]];
 export const SETTINGS = [
-  { key: "ROLE_LEADERS", group: "Rollen", label: "Leitung", type: "roles", help: "Vollzugriff inkl. Einstellungen, Korrekturen und Aufhebungen." },
+  { key: "ROLE_LEADERS", group: "Rollen", label: "Leitung", type: "roles", help: "Alle Rechte: Korrekturen, Aufhebungen, Löschungen. Die Verwaltung (Status, Einstellungen) sehen nur Bot-Owner." },
+  { key: "ROLE_FULL_ACCESS", group: "Rollen", label: "Voller Zugriff (z. B. ab Rang 8)", type: "roles", help: "Alle Rollen ab dem Rang anhaken, der alles sehen und bearbeiten darf (also Rang 8 und jeder höhere Rang). Gleiche Rechte wie die Leitung – außer der Verwaltung, die nur Bot-Owner sehen." },
   { key: "ROLE_STAFF", group: "Rollen", label: "Staff", type: "roles", help: "Tickets, Sanktionen, Giveaways." },
   { key: "ROLE_MODERATORS", group: "Rollen", label: "Moderation", type: "roles", help: "Optional: darf verwarnen (/warn) und Verwarnungen zurücknehmen (/unwarn) – ohne weitere Staff-Rechte." },
   { key: "ROLE_FINANCE", group: "Rollen", label: "Finanzen", type: "roles", help: "Gutschriften und Auszahlungen buchen." },
