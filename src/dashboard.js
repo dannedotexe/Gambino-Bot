@@ -44,7 +44,10 @@ export function createDashboard({ db, client, config, settings = null, series = 
     const owner = config.BOT_OWNER_IDS?.includes(userId) ?? false;
     // Server-Profilbild bevorzugt, sonst globales Discord-Profilbild (nur Bilder von cdn.discordapp.com).
     const avatar = typeof member.displayAvatarURL === "function" ? member.displayAvatarURL({ size: 64, extension: "png" }) : null;
-    return roles.length || owner ? { id: member.id, tag: member.user.tag, displayName: member.displayName, roles, owner, avatar } : null;
+    // Reine Familienmitglieder (ohne Team-Rolle) sehen nur „Mein Bereich“; ihre Rollenliste bleibt leer, damit keine Team-Prüfung greift.
+    const family = Boolean(config.DASHBOARD_MEMBER_AREA) && groups.members.some(id => member.roles.cache.has(id));
+    const team = roles.length > 0 || owner;
+    return team || family ? { id: member.id, tag: member.user.tag, displayName: member.displayName, roles, owner, avatar, family, team } : null;
   };
   const can = (member, group) => member.owner || (config[group] ?? []).some(id => member.roles.includes(id));
   const readBody = req => new Promise((resolve, reject) => {
@@ -116,7 +119,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
         if (!tokenResponse.ok) return loginFailure("Discord-Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
         const userResponse = await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${token.access_token}` } });
         const user = await userResponse.json();
-        if (!userResponse.ok || !await memberFor(user.id)) return loginFailure("Dieses Dashboard ist nur für berechtigte Gambinos-Staffmitglieder.");
+        if (!userResponse.ok || !await memberFor(user.id)) return loginFailure("Die Website ist nur für Mitglieder der Gambinos-Familie.");
         const payload = Buffer.from(JSON.stringify({ sub: user.id, exp: Date.now() + 8 * 60 * 60_000 })).toString("base64url");
         res.writeHead(302, { Location: "/", "Cache-Control": "no-store", "Set-Cookie": cookie(`${payload}.${sign(payload)}`, 8 * 60 * 60) }); return res.end();
       }
@@ -249,6 +252,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
           return send(res, 404, { error: "Nicht gefunden." });
         }
         if (req.method === "GET" && url.pathname === "/api/overview") {
+          if (!member.team) return send(res, 403, { error: "Die Übersicht ist nur für das Team." });
           const events = db.prepare("SELECT name,starts_at,location FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>? ORDER BY starts_at LIMIT 5").all(config.DISCORD_GUILD_ID, new Date().toISOString());
           const applications = db.prepare("SELECT id,kind,status,created_at FROM applications WHERE guild_id=? AND status IN ('open','review') ORDER BY created_at LIMIT 8").all(config.DISCORD_GUILD_ID);
           const activity = db.prepare("SELECT action,target_id,actor_id,created_at FROM audit_logs WHERE guild_id=? ORDER BY created_at DESC LIMIT 8").all(config.DISCORD_GUILD_ID);

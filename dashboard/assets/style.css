@@ -246,3 +246,4 @@ button.danger#dialog-submit{background:var(--red);border-color:var(--red);color:
 .poll-form .checks{gap:8px}
 a.action{text-decoration:none;display:inline-flex;align-items:center}
 .closures{margin-bottom:18px;padding:14px;border:1px solid var(--line2);border-radius:10px}.closures .subhead{margin-top:0}
+#tab-mine>.panel{margin-top:16px}

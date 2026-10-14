@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#111114"><meta name="description" content="Gambinos – Staff-Dashboard"><title>Gambinos · Dashboard</title>
-  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script><script src="/assets/announce.js" defer></script><script src="/assets/polls.js" defer></script>
+  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script><script src="/assets/announce.js" defer></script><script src="/assets/polls.js" defer></script><script src="/assets/mine.js" defer></script>
 </head>
 <body>
   <div id="progress" class="progress" aria-hidden="true"></div>
@@ -29,6 +29,16 @@
     <div id="scrim" class="scrim"></div>
     <main class="content">
       <header class="topbar"><button id="menu-toggle" class="icon-btn" type="button" aria-label="Menü öffnen" aria-controls="sidebar" aria-expanded="false"><span></span><span></span><span></span></button><div class="crumb"><b id="page-title">Übersicht</b></div><div class="live"><i></i>Live<span id="updated-at"></span></div></header>
+
+      <section id="tab-mine" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">NUR FÜR DICH</div><h2>Mein Bereich</h2><p>Deine eigenen Daten bei den Gambinos. Andere sehen hier nichts von dir, und du nichts von anderen.</p></div><div class="section-tools"><button class="secondary" data-action="my-reminders" id="my-reminder-label">Erinnerungen</button><button class="primary-btn" data-action="my-absence" id="my-absence-label">Abmelden</button></div></div>
+        <div id="my-stats" class="stats"></div>
+        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">FAMILIENKONTO</div><h2>Buchungen</h2></div></div><div id="my-transactions" class="rows scroll"></div></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">DISZIPLIN</div><h2>Sanktionen & Verwarnungen</h2></div></div><div id="my-discipline" class="rows scroll"></div></section></div>
+        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">EVENTS</div><h2>Deine Events</h2></div></div><div id="my-events" class="rows scroll"></div></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">RANG & ABMELDUNG</div><h2>Rang-Historie</h2></div></div><div id="my-ranks" class="rows scroll"></div><h3 class="subhead">Abmeldungen</h3><div id="my-absences" class="rows scroll"></div></section></div>
+        <section class="panel"><div class="panel-head"><div><div class="eyebrow">EVENT-TEILNAHMEN</div><h2>Rangliste</h2></div><select id="my-board-period" aria-label="Zeitraum"><option value="week">Diese Woche</option><option value="month">Dieser Monat</option><option value="all">Gesamt</option></select></div><div id="my-board" class="rows"></div></section>
+      </section>
 
       <section id="tab-overview" class="tab-panel">
         <div class="hero"><div><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1 id="greeting">Willkommen</h1><p>Das Wichtigste auf einen Blick.</p></div><div id="quick-actions" class="quick"></div></div>

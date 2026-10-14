@@ -237,3 +237,26 @@ test("Website: Aktivität, Profil mit Rechten, Status, Abmeldung eintragen und E
   const id = x.db.prepare("SELECT id FROM member_absences").get().id;
   assert.equal((await post(as(STAFF, "staff"), `/api/absences/${id}/end`, {})).status, 200);
 });
+
+test("Mein Bereich: nur eigene Daten, eigene Abmeldung und DM-Erinnerung; Team-Bereiche bleiben gesperrt", async () => {
+  const x = setup();
+  const api = createDashboardApi({ db: x.db, client: x.client, config: x.config });
+  const me = { id: MEMBER, displayName: "Web", owner: false, roles: [], family: true, team: false };
+  const get = p => api.get(me, new URL(p, "https://dash.example"));
+  const post = (p, b) => api.post(me, new URL(p, "https://dash.example"), b);
+  createFinance(x.db).credit({ guildId: GUILD, userId: MEMBER, actorId: LEADER, cents: 12_345, reason: "Event", key: "my-1" });
+  createFinance(x.db).credit({ guildId: GUILD, userId: OTHER, actorId: LEADER, cents: 99_999, reason: "Event", key: "my-2" });
+  const mine = await get("/api/my");
+  assert.equal(mine.status, 200);
+  assert.equal(mine.body.account.gross, 12_345);
+  assert.equal(mine.body.account.transactions.length, 1);
+  assert.ok(!JSON.stringify(mine.body).includes("99999"), "keine fremden Kontodaten");
+  assert.equal((await get("/api/me")).body.capabilities.team, false);
+  for (const p of ["/api/accounts", "/api/sanctions", "/api/activity", "/api/status", `/api/members/${OTHER}/profile`]) assert.equal((await get(p)).status, 403, p);
+  assert.equal((await post("/api/my/absence", { from: "heute", until: "morgen", reason: "Urlaub" })).status, 200);
+  assert.equal((await get("/api/my")).body.absences.open.reason, "Urlaub");
+  assert.equal((await post("/api/my/absence/end", {})).status, 200);
+  assert.equal((await post("/api/my/reminders", { dm: true })).status, 200);
+  assert.equal((await get("/api/my")).body.reminders.dm, true);
+  assert.equal((await post("/api/absences", { userId: OTHER, from: "heute", until: "morgen", reason: "x" })).status, 403);
+});

@@ -55,6 +55,7 @@ const schema = z.object({
   EVENT_SERIES_AUTO_END_MINUTES: z.coerce.number().int().min(15).max(1440).default(120),
   APPLICATION_QUESTIONS_JSON: jsonValue("{}").pipe(applicationQuestionsSchema),
   RANK_ROLE_ASSIGNMENT_ENABLED: bool("false"),
+  DASHBOARD_MEMBER_AREA: bool("true"),
   RANK_ROLES_JSON: jsonValue("[]").pipe(z.array(z.object({ label: z.string().min(1).max(80), roleId: z.string().regex(SNOWFLAKE) })).max(25)),
   EVENT_MIN_PARTICIPANTS: z.coerce.number().int().min(0).max(500).default(0),
   EVENT_MIN_CHECK_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),

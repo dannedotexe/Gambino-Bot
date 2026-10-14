@@ -10,6 +10,7 @@ const ACTIONS = [["warn", "Hinweis"], ["delete", "Löschen"], ["timeout", "Timeo
 export const SETTINGS = [
   { key: "ROLE_LEADERS", group: "Rollen", label: "Leitung", type: "roles", help: "Alle Rechte: Korrekturen, Aufhebungen, Löschungen. Die Verwaltung (Status, Einstellungen) sehen nur Bot-Owner." },
   { key: "ROLE_FULL_ACCESS", group: "Rollen", label: "Voller Zugriff (z. B. ab Rang 8)", type: "roles", help: "Alle Rollen ab dem Rang anhaken, der alles sehen und bearbeiten darf (also Rang 8 und jeder höhere Rang). Gleiche Rechte wie die Leitung – außer der Verwaltung, die nur Bot-Owner sehen." },
+  { key: "DASHBOARD_MEMBER_AREA", group: "Rollen", label: "„Mein Bereich“ für Familienmitglieder", type: "bool", help: "Mitglieder mit der Familienmitglieder-Rolle können sich auf der Website anmelden und sehen dort nur ihre eigenen Daten (Konto, Sanktionen, Verwarnungen, Events, Rang, Abmeldung) und die Rangliste." },
   { key: "ROLE_STAFF", group: "Rollen", label: "Staff", type: "roles", help: "Tickets, Sanktionen, Giveaways." },
   { key: "ROLE_MODERATORS", group: "Rollen", label: "Moderation", type: "roles", help: "Optional: darf verwarnen (/warn) und Verwarnungen zurücknehmen (/unwarn) – ohne weitere Staff-Rechte." },
   { key: "ROLE_FINANCE", group: "Rollen", label: "Finanzen", type: "roles", help: "Gutschriften und Auszahlungen buchen." },

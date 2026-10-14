@@ -39,7 +39,7 @@ const statusLabels = { open: "Offen", review: "In Prüfung", accepted: "Angenomm
 const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP-Erfahrung", motivation: "Motivation", aktivitaet: "Aktivität", aktueller_rang: "Aktueller Rang", ziel_rang: "Beantragter Rang", begruendung: "Begründung" };
 const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit: "Korrektur (+)", correction_debit: "Korrektur (−)", sanction_refund: "Sanktions-Erstattung" };
 const TABS = [
-  ["overview", "Übersicht", () => true], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
+  ["overview", "Übersicht", c => c.team], ["mine", "Mein Bereich", c => c.mine], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
   ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
   ["announcements", "Ankündigungen", c => c.announcements], ["polls", "Abstimmungen", c => c.polls], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.admin], ["settings", "Einstellungen", c => c.settings],
 ];
@@ -59,10 +59,11 @@ const ICONS = {
   announcements: "M3 11l18-8v18L3 13z M11.6 16.8a3 3 0 1 1-5.8-1.6",
   polls: "M4 20V10 M10 20V4 M16 20v-7 M22 20H2",
   status: "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M9 12l2 2 4-4",
+  mine: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8",
   settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
-const NAV_GROUPS = [["", ["overview"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
+const NAV_GROUPS = [["", ["overview", "mine"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });
@@ -551,15 +552,15 @@ async function start() {
       img.src = state.me.member.avatar;
     }
     const caps = state.me.capabilities;
-    const roleLabel = state.me.member.owner ? "Bot-Owner" : caps.leaders ? "Leitung" : caps.finance ? "Finanzen" : caps.applications ? "Reviewer" : caps.events ? "Event-Team" : "Staff";
+    const roleLabel = state.me.member.owner ? "Bot-Owner" : caps.leaders ? "Leitung" : caps.finance ? "Finanzen" : caps.applications ? "Reviewer" : caps.events ? "Event-Team" : caps.team ? "Staff" : "Familienmitglied";
     $("staff-role").textContent = parts ? `${roleLabel} · ID ${parts[1]}` : roleLabel;
     const wanted = location.hash.slice(1);
-    state.tab = TABS.some(([id, , allowed]) => id === wanted && allowed(state.me.capabilities)) ? wanted : "overview";
+    state.tab = TABS.some(([id, , allowed]) => id === wanted && allowed(state.me.capabilities)) ? wanted : caps.team ? "overview" : "mine";
     renderTabs(); await refresh();
     // Automatische Aktualisierung, solange kein Dialog offen ist.
     setInterval(() => { if (!$("dialog").open && document.visibilityState === "visible") refresh(); }, 60_000);
-    if (state.tab !== "overview") api("/api/overview").then(applyBadges).catch(() => {});
-    setInterval(() => { if (state.tab !== "overview" && document.visibilityState === "visible") api("/api/overview").then(applyBadges).catch(() => {}); }, 60_000);
+    if (caps.team && state.tab !== "overview") api("/api/overview").then(applyBadges).catch(() => {});
+    if (caps.team) setInterval(() => { if (state.tab !== "overview" && document.visibilityState === "visible") api("/api/overview").then(applyBadges).catch(() => {}); }, 60_000);
   } catch (error) { $("boot")?.remove(); login.classList.remove("hidden"); message.textContent = error.message; }
 }
 document.addEventListener("DOMContentLoaded", start);

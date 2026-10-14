@@ -120,6 +120,7 @@ Alle Berechtigungen hängen an Discord-Rollen-IDs aus der `.env`. Jede Aktion wi
 | Bot-Owner | `BOT_OWNER_IDS` | alles, zusätzlich die **Verwaltung** auf der Website (Status, Einstellungen, Panel-Texte, Channel-Prüfung, Testdaten-Reset, Wochenbericht sofort senden) – die sieht sonst niemand |
 | Leitung | `ROLE_LEADERS` | alles unten, zusätzlich Korrekturbuchungen, Sanktionen korrigieren/aufheben/erstatten, AutoMod-Sync, Rang-Rollen vergeben |
 | Voller Zugriff | `ROLE_FULL_ACCESS` | wie Leitung (z. B. „ab Rang 8“: Rang 8 und alle höheren Rang-Rollen anhaken), ohne Verwaltung |
+| Familienmitglied | `ROLE_MEMBERS` (+ `DASHBOARD_MEMBER_AREA`, Standard an) | nur **Mein Bereich** auf der Website: eigenes Guthaben und Buchungen, eigene Sanktionen und Verwarnungen, eigene Events und No-Shows, Rang und Rang-Historie, Abmeldung eintragen/beenden, Event-Erinnerung per DM umschalten, Rangliste. Keine Daten anderer Mitglieder (außer Namen in der Rangliste). |
 | Staff | `ROLE_STAFF` (+ Leitung) | Tickets, Sanktionen und Verwarnungen erstellen, Giveaways, Dashboard-Panel |
 | Moderation | `ROLE_MODERATORS` (+ Staff, Leitung) | `/warn`, `/warnings @mitglied`, `/unwarn` (nur eigene Verwarnungen), Sanktionen-Tab der Website ansehen |
 | Finanzen | `ROLE_FINANCE` (+ Leitung) | Gutschriften, Auszahlungen, Auszahlungsliste, fremde Konten |

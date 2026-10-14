@@ -27,7 +27,7 @@ import { createModerationLog } from "./services/moderation-log.js";
 import { postAbsence } from "./absence-posts.js";
 import { familyMembers, inactivityFor, remindInactive } from "./inactivity.js";
 import { AnnouncementError, createAnnouncementService, deliverAnnouncement, validateAnnouncement } from "./announcements.js";
-import { createRankHistory } from "./services/ranks.js";
+import { createRankHistory, rankFor } from "./services/ranks.js";
 import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
@@ -122,7 +122,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
         sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), announcements: can(member, "staff"), announceEveryone: can(member, "leaders"), polls: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
-        settings: Boolean(settings) && member.owner, admin: member.owner,
+        settings: Boolean(settings) && member.owner, admin: member.owner, team: member.team !== false, mine: true,
       },
       settings: {
         timezone: config.TIMEZONE, minimumCents: config.PAYOUT_MINIMUM_CENTS ?? null,
@@ -131,6 +131,32 @@ export function createDashboardApi({ db, client, config, settings = null, series
         giveawayChannel: config.CHANNEL_GIVEAWAYS ?? null,
       },
     })],
+    // „Mein Bereich“: ausschließlich die eigenen Daten der angemeldeten Person, ohne Staff-Interna.
+    [/^\/api\/my$/, async member => {
+      const userId = member.id, day = today();
+      const hasAccount = Boolean(db.prepare("SELECT 1 FROM accounts WHERE guild_id=? AND user_id=?").get(guildId, userId));
+      const plan = finance.previewPayout(guildId, userId);
+      const transactions = db.prepare("SELECT type,amount_cents,gross_cents,deduction_cents,net_cents,reason,created_at FROM transactions WHERE guild_id=? AND user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 20").all(guildId, userId);
+      const sanctions = finance.sanctionDetails(guildId, userId, { limit: 20 }).map(s => ({ amount_cents: s.amount_cents, remaining_cents: s.remaining_cents, collected_cents: s.collected_cents, status: s.status, reason: s.reason, created_at: s.created_at }));
+      const warnings = warningService.list(guildId, userId, { limit: 20, expireDays: config.WARN_EXPIRE_DAYS }).map(w => ({ reason: w.reason, created_at: w.created_at, state: w.state, revoke_reason: w.revoke_reason }));
+      const upcoming = db.prepare("SELECT e.id,e.name,e.starts_at,e.location,p.status FROM events e LEFT JOIN event_participants p ON p.event_id=e.id AND p.user_id=? WHERE e.guild_id=? AND e.status='scheduled' ORDER BY e.starts_at LIMIT 10").all(userId, guildId);
+      const past = db.prepare("SELECT e.name,e.starts_at,e.status AS event_status,p.status FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND e.status IN ('ended','cancelled') AND p.status<>'left' ORDER BY e.starts_at DESC LIMIT 10").all(guildId, userId);
+      const g = await guild().catch(() => null);
+      const discordMember = g ? await g.members.fetch(userId).catch(() => null) : null;
+      const roleIds = [...(discordMember?.roles?.cache?.keys?.() ?? [])];
+      const rank = rankFor(roleIds, config.RANK_ROLES_JSON ?? [], id => g?.roles?.cache?.get?.(id)?.position ?? null);
+      const top = period => activity.leaderboard(guildId, { period, timezone: config.TIMEZONE, limit: 10 });
+      const leaderboard = { week: top("week"), month: top("month"), all: top("all") };
+      return withNames({
+        userId, account: { hasAccount, gross: plan.gross, openSanctions: plan.openCents, net: plan.net, transactions },
+        sanctions, warnings,
+        events: { upcoming, past, stats: activity.eventStats(guildId, userId), noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
+        rank: { current: rank?.label ?? null, history: rankHistory.forUser(guildId, userId, 15).map(r => ({ from: r.from_label, to: r.to_label, kind: r.kind, created_at: r.created_at })) },
+        absences: { open: absences.openFor(guildId, userId, day), list: absences.forUser(guildId, userId, 10).map(a => ({ id: a.id, starts_on: a.starts_on, ends_on: a.ends_on, reason: a.reason, ended_at: a.ended_at })), maxDays: config.ABSENCE_MAX_DAYS },
+        reminders: { dm: createReminderPrefs(db).wantsDm(guildId, userId) },
+        leaderboard,
+      }, [userId, ...Object.values(leaderboard).flat().map(r => r.userId)]);
+    }],
     [/^\/api\/members$/, async (member, url) => {
       need(member, "anyStaff", "Staff-Rolle");
       const q = String(url.searchParams.get("q") ?? "").trim().slice(0, 50);
@@ -572,6 +598,24 @@ export function createDashboardApi({ db, client, config, settings = null, series
       await ensurePanels({ db, client, config, series }).catch(() => {});
       const total = Object.values(result.removed).reduce((a, b) => a + b, 0);
       return { message: `Zurückgesetzt: ${result.areas.length} Bereiche, ${total} Einträge entfernt.${backup ? ` Backup: ${path.basename(backup)}` : ""}` };
+    }],
+    [/^\/api\/my\/absence$/, async (member, body) => {
+      if (!member.family && member.team === false) throw new HttpError(403, "Abmeldungen gibt es nur für Familienmitglieder.");
+      const row = absences.create({ guildId, userId: member.id, actorId: member.id, startsOn: parseDay(body.from, config.TIMEZONE), endsOn: parseDay(body.until, config.TIMEZONE), reason: text(body.reason, { min: 2, max: 300, label: "Grund" }), timezone: config.TIMEZONE, maxDays: config.ABSENCE_MAX_DAYS });
+      await postAbsence({ client, config, row });
+      return { message: "Abmeldung eingetragen. Das Team sieht sie sofort." };
+    }],
+    [/^\/api\/my\/absence\/end$/, async member => {
+      const open = absences.openFor(guildId, member.id, today());
+      if (!open) throw new HttpError(404, "Du hast gerade keine offene Abmeldung.");
+      const row = absences.end({ guildId, absenceId: open.id, actorId: member.id });
+      if (open.starts_on <= today()) await postAbsence({ client, config, row, kind: "ended" });
+      return { message: "Abmeldung beendet – willkommen zurück!" };
+    }],
+    [/^\/api\/my\/reminders$/, async (member, body) => {
+      const dm = body.dm === true;
+      createReminderPrefs(db).set(guildId, member.id, dm);
+      return { message: dm ? "Event-Erinnerungen kommen jetzt per privater Nachricht." : "Event-Erinnerungen kommen wieder im Event-Channel." };
     }],
     [/^\/api\/absences$/, async (member, body) => {
       need(member, "staff", "Staff-Rolle");
