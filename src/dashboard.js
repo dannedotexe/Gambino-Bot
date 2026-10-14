@@ -97,6 +97,11 @@ export function createDashboard({ db, client, config, settings = null, series = 
       ...(includeFinance ? { sanctions: count("SELECT COUNT(*) n FROM sanctions WHERE guild_id=? AND status IN ('open','partial')", config.DISCORD_GUILD_ID) } : {}),
     };
   };
+  const liveStreams = new Map();
+  const pushLive = (userId, type) => { for (const res of liveStreams.get(userId) ?? []) res.write(`event: ${type}\ndata: {}\n\n`); };
+  const onMemberChange = member => { if (member?.guild?.id === config.DISCORD_GUILD_ID) pushLive(member.id, "access"); };
+  client.on?.("guildMemberUpdate", (_old, member) => onMemberChange(member));
+  client.on?.("guildMemberRemove", onMemberChange);
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, config.DASHBOARD_PUBLIC_URL);
     try {
@@ -130,6 +135,16 @@ export function createDashboard({ db, client, config, settings = null, series = 
         const member = await sessionFor(req);
         if (!member) return send(res, 401, { error: "Bitte melde dich mit Discord an." });
         if (req.method === "POST" && req.headers.origin !== new URL(config.DASHBOARD_PUBLIC_URL).origin) return send(res, 403, { error: "Ungültige Anfragequelle." });
+        // Live-Kanal: meldet dem Browser sofort, wenn sich Rollen der angemeldeten Person ändern.
+        if (req.method === "GET" && url.pathname === "/api/live") {
+          res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff", Connection: "keep-alive" });
+          res.write("retry: 5000\n\n");
+          const set = liveStreams.get(member.id) ?? new Set();
+          set.add(res); liveStreams.set(member.id, set);
+          const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+          req.on("close", () => { clearInterval(ping); set.delete(res); if (!set.size) liveStreams.delete(member.id); });
+          return;
+        }
         if (req.method === "GET" && url.pathname === "/api/manage") {
           const canReview = can(member, "ROLE_REVIEWERS") || groups.leaders.some(id => member.roles.includes(id));
           const canStaff = can(member, "ROLE_STAFF") || groups.leaders.some(id => member.roles.includes(id));
@@ -295,5 +310,5 @@ export function createDashboard({ db, client, config, settings = null, series = 
   });
   server.on("error", error => console.error("Staff-Dashboard konnte nicht starten:", error.message));
   server.listen(config.DASHBOARD_PORT, config.DASHBOARD_BIND, () => console.log(`Gambinos Staff-Dashboard lauscht auf ${config.DASHBOARD_BIND}:${config.DASHBOARD_PORT}.`));
-  return { close: () => new Promise(resolve => server.close(resolve)) };
+  return { close: () => new Promise(resolve => { for (const set of liveStreams.values()) for (const res of set) res.end(); liveStreams.clear(); server.close(resolve); }), pushLive };
 }

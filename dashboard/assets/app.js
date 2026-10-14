@@ -69,6 +69,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });
   const data = response.status === 204 ? {} : await response.json().catch(() => ({}));
   if (response.status === 401) { location.reload(); throw new Error("Bitte melde dich erneut an."); }
+  if (response.status === 403 && path !== "/api/me") recheckAccess();
   if (!response.ok) throw new Error(data.error || "Die Aktion konnte nicht ausgeführt werden.");
   if (data.names) Object.assign(state.names, data.names);
   return data;
@@ -222,9 +223,10 @@ function applyBadges(data) {
 async function loadOverview() {
   const data = await api("/api/overview"), caps = state.me.capabilities, todo = data.todo ?? {};
   applyBadges(data);
-  const hour = Number(new Intl.DateTimeFormat("de-AT", { hour: "numeric", hourCycle: "h23", timeZone: state.timezone }).format(new Date()));
+  // formatToParts statt format: „de-AT“ liefert sonst „18 Uhr“ und daraus wird keine Zahl.
+  const hour = Number(new Intl.DateTimeFormat("de-AT", { hour: "numeric", hourCycle: "h23", timeZone: state.timezone }).formatToParts(new Date()).find(p => p.type === "hour")?.value);
   const firstName = String(state.me.member.name ?? "").replace(/^\d+\s*\|\s*/, "").split(" ")[0] || state.me.member.name;
-  $("greeting").textContent = `${hour < 11 ? "Guten Morgen" : hour < 18 ? "Hallo" : "Guten Abend"}, ${firstName}`;
+  $("greeting").textContent = `${hour >= 5 && hour < 11 ? "Guten Morgen" : hour >= 11 && hour < 18 ? "Guten Tag" : hour >= 18 && hour < 23 ? "Guten Abend" : "Hallo"}, ${firstName}`;
   const quick = [
     caps.events && ["event-create", "Event planen", "events"], caps.finance && ["credit", "Gutschrift", "finance"],
     caps.sanctions && ["sanction-create", "Sanktion", "sanctions"], caps.giveaways && ["giveaway-create", "Giveaway", "giveaways"],
@@ -556,11 +558,43 @@ async function start() {
     $("staff-role").textContent = parts ? `${roleLabel} · ID ${parts[1]}` : roleLabel;
     const wanted = location.hash.slice(1);
     state.tab = TABS.some(([id, , allowed]) => id === wanted && allowed(state.me.capabilities)) ? wanted : caps.team ? "overview" : "mine";
-    renderTabs(); await refresh();
+    renderTabs(); await refresh(); startLive();
     // Automatische Aktualisierung, solange kein Dialog offen ist.
     setInterval(() => { if (!$("dialog").open && document.visibilityState === "visible") refresh(); }, 60_000);
     if (caps.team && state.tab !== "overview") api("/api/overview").then(applyBadges).catch(() => {});
     if (caps.team) setInterval(() => { if (state.tab !== "overview" && document.visibilityState === "visible") api("/api/overview").then(applyBadges).catch(() => {}); }, 60_000);
   } catch (error) { $("boot")?.remove(); login.classList.remove("hidden"); message.textContent = error.message; }
+}
+// ------------------------------------------------------------------ Live-Rechte
+// Ändern sich die Rollen (Rang weg, neue Rolle), lädt die Seite die Rechte neu und zeigt sofort nur noch das Erlaubte.
+// Der Server prüft ohnehin jede Anfrage einzeln; das hier sorgt nur dafür, dass die Anzeige mitzieht.
+async function recheckAccess() {
+  const response = await fetch("/api/me", { credentials: "same-origin" }).catch(() => null);
+  if (!response) return;
+  if (response.status === 401) return location.reload();
+  if (!response.ok) return;
+  const next = await response.json();
+  if (JSON.stringify(next.capabilities) === JSON.stringify(state.me.capabilities)) return;
+  state.me = next;
+  const caps = next.capabilities;
+  if ($("dialog").open) $("dialog").close();
+  if (!TABS.some(([id, , allowed]) => id === state.tab && allowed(caps))) { state.tab = caps.team ? "overview" : "mine"; history.replaceState(null, "", `#${state.tab}`); }
+  const roleLabel = next.member.owner ? "Bot-Owner" : caps.leaders ? "Leitung" : caps.finance ? "Finanzen" : caps.applications ? "Reviewer" : caps.events ? "Event-Team" : caps.team ? "Staff" : "Familienmitglied";
+  $("staff-role").textContent = $("staff-role").textContent.replace(/^[^·]+/, `${roleLabel} `).trim();
+  renderTabs(); await refresh().catch(() => {});
+  notify("Deine Rechte haben sich geändert – die Ansicht wurde angepasst.");
+}
+function startLive() {
+  let source = null;
+  const connect = () => {
+    if (!window.EventSource) return;
+    source = new EventSource("/api/live");
+    source.addEventListener("access", () => recheckAccess());
+    source.onerror = () => { source.close(); setTimeout(connect, 10_000); };
+  };
+  connect();
+  // Rückfallebene, falls der Live-Kanal unterwegs geblockt wird.
+  setInterval(() => { if (document.visibilityState === "visible") recheckAccess(); }, 20_000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") recheckAccess(); });
 }
 document.addEventListener("DOMContentLoaded", start);
