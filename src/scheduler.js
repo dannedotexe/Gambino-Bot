@@ -8,6 +8,8 @@ import { createSeriesEvents, endSeriesEvents, refreshActivityBoard } from "./act
 import { ensurePanels, postEventResult } from "./panels.js";
 import { sendEventReminder } from "./event-posts.js";
 import { panelTexts } from "./services/texts.js";
+import { syncAbsenceRoles } from "./absence-posts.js";
+import { runDailyInactivity } from "./inactivity.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
 /**
@@ -26,12 +28,12 @@ export function dueReminder(startsAt, reminderMinutes, sentSlots, now = new Date
 
 /** Bereichs-Logs: Sanktionen, Finanzen und Events in ihre eigenen Channels, alles andere ins Audit-Log. */
 export function auditChannelFor(action,config){
-  const area=action.startsWith("sanction.")?config.CHANNEL_SANCTION_LOG:action.startsWith("finance.")?config.CHANNEL_FINANCE_LOG:action.startsWith("event.")?config.CHANNEL_EVENT_LOG:null;
+  const area=action.startsWith("sanction.")||action.startsWith("moderation.")?config.CHANNEL_SANCTION_LOG:action.startsWith("absence.")||action.startsWith("activity.")?config.CHANNEL_ACTIVITY_LOG:action.startsWith("finance.")?config.CHANNEL_FINANCE_LOG:action.startsWith("event.")?config.CHANNEL_EVENT_LOG:null;
   return area||config.CHANNEL_AUDIT_LOG||null;
 }
 
 export function startScheduler({db,client,config,series=null}) {
-  let running=false,lastTicketCheck=0,lastPanel=0,lastStats=0;
+  let running=false,lastTicketCheck=0,lastPanel=0,lastStats=0,lastAbsence=0;
   const giveaways=createGiveawayService(db),tickets=createTicketService(db);
   const tick=async()=>{
     if(running)return;running=true;
@@ -66,6 +68,12 @@ export function startScheduler({db,client,config,series=null}) {
         if(config.DASHBOARD_PANEL_REFRESH_MINUTES>0){if(!config.CHANNEL_STAFF_DASHBOARD)await refreshStaffPanel(db,client,config);if(series&&!config.CHANNEL_ACTIVITY_BOARD)await refreshActivityBoard({db,client,config,series});}
       }
       if(config.STATS_CHANNEL_UPDATE_MINUTES>0&&config.CHANNEL_STATS&&Date.now()-lastStats>config.STATS_CHANNEL_UPDATE_MINUTES*60_000){lastStats=Date.now();await refreshStatsChannel(db,client,config);}
+      if(Date.now()-lastAbsence>60_000){
+        lastAbsence=Date.now();
+        await syncAbsenceRoles({db,client,config,reference:now}).catch(error=>console.warn("Abmelde-Rollen konnten nicht abgeglichen werden:",error.message));
+        await runDailyInactivity({db,client,config,reference:now}).catch(error=>console.warn("Inaktivitätsprüfung fehlgeschlagen:",error.message));
+      }
+      client.gambinoSchedulerTick=Date.now();
       await deliverAuditLogs(db,client,config,now);
     }catch(error){console.error("Scheduler tick failed:",error);}finally{running=false;}
   };

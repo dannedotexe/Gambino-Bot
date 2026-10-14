@@ -87,6 +87,44 @@ export const PANEL_TEXTS = {
       emptyText: { label: "Text ohne aktive Aktivitäten", max: 1000, default: "Zurzeit sind keine Aktivitäten aktiv." },
     },
   },
+  absence: {
+    label: "Abmeldungs-Panel", channelKey: "CHANNEL_ABSENCES",
+    fields: {
+      color: { label: "Farbe", type: "color", default: "#d4af37" },
+      author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  ABMELDUNGEN" },
+      title: { label: "Titel", max: 256, default: "🚫  Abmeldung bei der Familie" },
+      description: { label: "Beschreibung", max: 4000, multiline: true, default: "Du bist im Urlaub, krank oder brauchst eine Pause? Melde dich hier kurz ab.\n\n**Abmelden:** Zeitraum und Grund angeben (z. B. `heute` bis `20.10.`).\n**Wieder da:** beendet deine Abmeldung vorzeitig.\n\nWährend einer Abmeldung zählst du nicht als inaktiv, und Fehlen bei Events gilt als entschuldigt." },
+      footer: { label: "Fußzeile", max: 2048, default: "GAMBINOS  •  Den Grund sieht nur das Team" },
+      buttonAbsent: { label: "Button: Abmelden", max: 80, required: true, default: "🚫  Abmelden" },
+      buttonBack: { label: "Button: Wieder da", max: 80, required: true, default: "✅  Wieder da" },
+    },
+  },
+  welcome: {
+    label: "Willkommensnachricht", channelKey: "CHANNEL_WELCOME",
+    fields: {
+      color: { label: "Farbe", type: "color", default: "#d4af37" },
+      content: { label: "Text über der Karte (Platzhalter erlaubt)", max: 500, default: "{user}" },
+      author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  WILLKOMMEN" },
+      title: { label: "Titel", max: 256, default: "👋  Willkommen, {name}!" },
+      description: { label: "Beschreibung", max: 4000, multiline: true, default: "Schön, dass du auf dem **Gambinos-Discord** bist!\n\n✅ **Erster Schritt:** Verifiziere dich in {verifizierung} mit deiner Ingame-ID und deinem Ingame-Namen. Danach kannst du im Chat schreiben.\n🤝 Du willst zur Familie? Bewirb dich im Bewerbungs-Panel.\n🎫 Fragen? Öffne einfach ein Ticket." },
+      footer: { label: "Fußzeile", max: 2048, default: "GAMBINOS  •  Du bist Mitglied Nr. {mitglieder}" },
+      button: { label: "Button zur Verifizierung (leer = kein Button)", max: 80, default: "✅  Zur Verifizierung" },
+      dm: { label: "Private Nachricht (nur wenn aktiviert)", max: 2000, multiline: true, default: "Willkommen bei den Gambinos, {name}! Bitte verifiziere dich zuerst in {verifizierung}, damit du im Chat schreiben kannst." },
+    },
+  },
+  leaderboard: {
+    label: "Rangliste", channelKey: "CHANNEL_LEADERBOARD",
+    fields: {
+      color: { label: "Farbe", type: "color", default: "#d4af37" },
+      author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  RANGLISTE" },
+      title: { label: "Titel", max: 256, default: "🏆  Aktivste Familienmitglieder" },
+      description: { label: "Beschreibung", max: 2000, multiline: true, default: "Gezählt werden Event-Teilnahmen (anwesend oder angemeldet und nicht als abwesend markiert). Aktualisiert sich automatisch." },
+      weekTitle: { label: "Überschrift Woche", max: 256, required: true, default: "📅  Diese Woche" },
+      monthTitle: { label: "Überschrift Monat", max: 256, required: true, default: "🗓️  Dieser Monat" },
+      emptyText: { label: "Text ohne Teilnahmen", max: 200, required: true, default: "Noch keine Teilnahmen – ab zum nächsten Event!" },
+      footer: { label: "Fußzeile", max: 2048, default: "GAMBINOS  •  Zuletzt aktualisiert" },
+    },
+  },
   staffDashboard: {
     label: "Staff-Dashboard-Panel", channelKey: "CHANNEL_STAFF_DASHBOARD",
     fields: {

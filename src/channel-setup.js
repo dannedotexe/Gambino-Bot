@@ -15,7 +15,11 @@ export const displayChannelName = channel => `${channel.emoji}・${channel.name}
 
 // Funktion -> [Kategorie, Channel] im Gambinos-Layout. Wird für Empfehlungen und /einstellungen kanal genutzt.
 export const CHANNEL_BINDINGS = {
+  CHANNEL_WELCOME: ["INFORMATION", "willkommen"],
   CHANNEL_VERIFICATION_PANEL: ["INFORMATION", "neue-spieler"],
+  CHANNEL_ABSENCES: ["SUPPORT", "abmeldungen"],
+  CHANNEL_ACTIVITY_LOG: ["STAFF", "bot-logs"],
+  CHANNEL_LEADERBOARD: ["EVENTS", "event-ergebnisse"],
   CHANNEL_ACCOUNT_PANEL: ["Familie", "konto"],
   CHANNEL_TICKET_PANEL: ["SUPPORT", "ticket"],
   CHANNEL_TICKET_CATEGORY: ["SUPPORT", null],

@@ -15,3 +15,13 @@ export function currentVersion() {
     return packed ? packed.slice(0, 7) : "unbekannt";
   } catch { return "unbekannt"; }
 }
+
+/** Zeitpunkt und Beschreibung der letzten Code-Aktualisierung (letzter Eintrag im Git-Reflog, ohne Namen/E-Mail). */
+export function lastUpdate() {
+  try {
+    const gitDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.git");
+    const lines = fs.readFileSync(path.join(gitDir, "logs", "HEAD"), "utf8").trim().split("\n");
+    const match = /> (\d+) [+-]\d{4}\t(.*)$/.exec(lines.at(-1) ?? "");
+    return match ? { at: new Date(Number(match[1]) * 1000).toISOString(), message: match[2].slice(0, 120) } : null;
+  } catch { return null; }
+}

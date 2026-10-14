@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#111114"><meta name="description" content="Gambinos Familienverwaltung – Staff Dashboard"><title>Gambinos · Familienbüro</title>
-  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script>
+  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script>
 </head>
 <body>
   <div id="progress" class="progress" aria-hidden="true"></div>
@@ -35,8 +35,25 @@
       </section>
 
       <section id="tab-members" class="tab-panel hidden">
-        <div class="section-intro"><div><div class="eyebrow">VERIFIZIERUNG</div><h2>Verifizierte Mitglieder</h2><p id="members-info">Mitglieder verifizieren sich im Verifizierungs-Panel mit Ingame-ID, Vor- und Nachname. Der Discord-Name wird zu „ID | Vorname Nachname“.</p></div><div class="section-tools"><input class="search" data-target="members-list" type="search" placeholder="Name oder ID suchen …" aria-label="Suchen"></div></div>
+        <div class="section-intro"><div><div class="eyebrow">VERIFIZIERUNG</div><h2>Mitglieder</h2><p id="members-info">Mitglieder verifizieren sich im Verifizierungs-Panel mit Ingame-ID, Vor- und Nachname. Der Discord-Name wird zu „ID | Vorname Nachname“.</p></div><div class="section-tools"><input class="search" data-target="members-list" type="search" placeholder="Name oder ID suchen …" aria-label="Suchen"><button class="primary-btn" data-action="profile-find">Profil öffnen …</button></div></div>
         <div id="members-list" class="table"></div>
+      </section>
+
+      <section id="tab-activity" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">FAMILIE</div><h2>Abmeldungen & Aktivität</h2><p id="activity-info">Wer gerade abgemeldet ist, wer länger inaktiv ist und wer bei Events am aktivsten ist.</p></div><div class="section-tools"><button class="primary-btn needs-absences" data-action="absence-create">+ Abmeldung eintragen</button></div></div>
+        <div id="activity-stats" class="stats"></div>
+        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">ABGEMELDET</div><h2>Gerade weg</h2></div></div><div id="absences-current" class="rows"></div><h3 class="subhead">Geplant</h3><div id="absences-upcoming" class="rows"></div></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">RANGLISTE</div><h2>Aktivste Mitglieder</h2></div><select id="leaderboard-filter" aria-label="Zeitraum"><option value="week">Diese Woche</option><option value="month">Dieser Monat</option><option value="all">Gesamt</option></select></div><div id="leaderboard" class="rows"></div></section></div>
+        <section class="panel"><div class="panel-head"><div><div class="eyebrow">INAKTIVITÄT</div><h2 id="inactive-title">Inaktive Mitglieder</h2><p id="inactive-info" class="subtle"></p></div><input class="search" data-target="inactive-list" type="search" placeholder="Suchen …" aria-label="Suchen"></div><div id="inactive-list" class="table"></div></section>
+        <h3 class="subhead">Zuletzt beendet</h3>
+        <div id="absences-recent" class="rows panel"></div>
+      </section>
+
+      <section id="tab-status" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">VERWALTUNG</div><h2>Systemstatus</h2><p>Läuft der Bot, wann kam das letzte Update, gibt es ein aktuelles Backup? Aktualisiert sich beim Öffnen.</p></div><div class="section-tools"><button class="secondary" data-action="status-refresh">Neu laden</button></div></div>
+        <div id="status-cards" class="stats status-cards"></div>
+        <section class="panel"><div class="panel-head"><div><div class="eyebrow">DETAILS</div><h2>System</h2></div></div><div id="status-details" class="kv"></div></section>
+        <section class="panel"><div class="panel-head"><div><div class="eyebrow">KONFIGURATION</div><h2>Hinweise</h2></div></div><div id="status-warnings" class="rows"></div></section>
       </section>
 
       <section id="tab-tickets" class="tab-panel hidden">
@@ -61,7 +78,7 @@
         <div class="section-intro"><div><div class="eyebrow">DISZIPLIN</div><h2>Sanktionen & Verwarnungen</h2><p>Sanktionen sind offene Auszahlungsabzüge. Verwarnungen haben keine Geldwirkung.</p></div><div class="section-tools"><select id="sanctions-filter" aria-label="Filter"><option value="active">Offen & teilweise</option><option value="all">Alle</option></select><button class="secondary needs-warnings" data-action="warning-create">+ Verwarnung</button><button class="primary-btn needs-sanctions" data-action="sanction-create">+ Sanktion</button></div></div>
         <div id="sanctions-summary" class="stats"></div>
         <div id="sanctions-list" class="queue grid2"></div>
-        <h3 class="subhead">Verwarnungen</h3>
+        <div class="subhead-row"><h3 class="subhead">Verwarnungen</h3><select id="warnings-filter" aria-label="Verwarnungen filtern"><option value="active">Nur aktive</option><option value="all">Alle (auch zurückgenommene/abgelaufene)</option></select></div>
         <div id="warnings-list" class="queue grid2"></div>
       </section>
 
@@ -91,6 +108,7 @@
         </section>
         <nav id="settings-groups" class="chips group-nav"></nav>
         <div id="settings-view"></div>
+        <section class="panel danger-zone"><div class="panel-head"><div><div class="eyebrow">GEFAHRENZONE</div><h2>Testdaten zurücksetzen</h2><p class="subtle">Löscht z. B. nach der Testphase Konten, Buchungen, Auszahlungen, Sanktionen, Verwarnungen, Tickets, Anträge, Events, Giveaways und das Protokoll. <b>Channels, Rollen, Panel-Texte, Panels und die Aktivitäten-Vorlagen bleiben erhalten.</b> Vorher wird automatisch ein Backup der Datenbank angelegt.</p></div><button type="button" class="danger" data-action="reset-open">Daten zurücksetzen …</button></div></section>
       </section>
 
       <footer>GAMBINOS <span>·</span> Nur für autorisierte Staffmitglieder <span>·</span> Jede Aktion wird mit deinem Discord-Konto protokolliert <span>·</span> Version <b id="app-version">–</b></footer>

@@ -7,6 +7,10 @@ import { CHANNEL_BINDINGS } from "./channel-setup.js";
  * expect: Namensbestandteile, die zur Funktion passen; avoid: Namen, die auf eine andere Funktion hindeuten.
  */
 export const CHANNEL_FUNCTIONS = [
+  { key: "CHANNEL_WELCOME", label: "Willkommensnachricht", audience: "public", expect: ["willkommen", "welcome", "neu", "spieler"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
+  { key: "CHANNEL_ABSENCES", label: "Abmeldungen", audience: "public", expect: ["abmeld", "abwes", "urlaub"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
+  { key: "CHANNEL_ACTIVITY_LOG", label: "Abmeldungs-/Inaktivitäts-Log", audience: "staff", expect: ["log", "abmeld", "aktiv", "abwes"], perms: ["SendMessages", "EmbedLinks"] },
+  { key: "CHANNEL_LEADERBOARD", label: "Rangliste", audience: "public", expect: ["rang", "leader", "top", "ergebnis", "bestenliste"], avoid: ["log", "anträge"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_VERIFICATION_PANEL", label: "Verifizierungs-Panel", audience: "public", expect: ["neu", "verif", "willkommen", "spieler"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_ACCOUNT_PANEL", label: "„Mein Konto“-Panel", audience: "public", expect: ["konto", "geld", "bank", "auszahl"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_TICKET_PANEL", label: "Ticket-Panel", audience: "public", expect: ["ticket", "support"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"], important: true },

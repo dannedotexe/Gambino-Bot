@@ -1,0 +1,108 @@
+// Mitgliederprofil, Abmeldungen/Inaktivität/Rangliste und Systemstatus. Nutzt die Hilfsfunktionen aus app.js.
+const day = value => value ? value.split("-").reverse().join(".") : "—";
+const ago = iso => {
+  if (!iso) return "nie";
+  const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
+  return days <= 0 ? "heute" : days === 1 ? "gestern" : `vor ${days} Tagen`;
+};
+const bytes = n => n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+const duration = seconds => { const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60); return d ? `${d} T ${h} Std` : h ? `${h} Std ${m} Min` : `${m} Min`; };
+const MEDAL = ["🥇", "🥈", "🥉"];
+const modLabels = { timeout: "🔇 Timeout", untimeout: "🔊 Timeout aufgehoben", kick: "👢 Kick", ban: "⛔ Bann", unban: "✅ Entbannt" };
+const warnStateLabels = { active: "🟠 Aktiv", expired: "⚪ Abgelaufen", revoked: "↩️ Zurückgenommen" };
+
+// ------------------------------------------------------------------ Aktivität
+async function loadActivity() {
+  const data = await api("/api/activity"), caps = state.me.capabilities;
+  state.cache.activity = data;
+  document.querySelectorAll(".needs-absences").forEach(el => el.classList.toggle("hidden", !caps.absences));
+  const s = data.settings;
+  $("activity-stats").innerHTML = [["Gerade abgemeldet", data.current.length, "🚫"], ["Geplante Abmeldungen", data.upcoming.length, "📅"], [`Inaktiv (≥ ${s.days} Tage)`, data.inactive.length, "💤"], ["Erfasste Mitglieder", data.population, "👥"]]
+    .map(([label, value, symbol]) => `<div class="stat"><span class="symbol">${symbol}</span><div class="label">${escapeHtml(label)}</div><div class="value small">${escapeHtml(value)}</div></div>`).join("");
+  const absenceRow = (a, actions = true) => `<div class="row"><div><div class="row-title">${plink(a.user_id)} · ${day(a.starts_on)} – ${day(a.ends_on)}</div><div class="row-sub">${escapeHtml(a.reason)}${a.created_by !== a.user_id ? ` · eingetragen von ${who(a.created_by)}` : ""}${a.ended_at ? ` · beendet ${date(a.ended_at)}${a.ended_by && a.ended_by !== a.user_id ? ` von ${who(a.ended_by)}` : ""}` : ""}</div></div>${actions && caps.absences && !a.ended_at ? `<div class="actions tight">${btn(a.starts_on > data.today ? "Stornieren" : "Beenden", "absence-end", { id: a.id }, "reject")}</div>` : ""}</div>`;
+  $("absences-current").innerHTML = data.current.map(a => absenceRow(a)).join("") || empty("Niemand ist gerade abgemeldet.");
+  $("absences-upcoming").innerHTML = data.upcoming.map(a => absenceRow(a)).join("") || empty("Keine geplanten Abmeldungen.");
+  $("absences-recent").innerHTML = data.recent.map(a => absenceRow(a, false)).join("") || empty("Noch keine beendeten Abmeldungen.");
+  renderLeaderboard();
+  const base = s.membersRole ? "Gezählt werden alle mit der Familienmitglieder-Rolle." : "Gezählt werden alle mit Familienkonto (keine Familienmitglieder-Rolle eingestellt).";
+  $("inactive-title").textContent = `Inaktive Mitglieder (${data.inactive.length})`;
+  $("inactive-info").textContent = `Kein Chat und keine Event-Teilnahme seit ${s.days} Tagen; Abgemeldete zählen nicht. ${base} Nachrichten werden seit ${date(s.trackingSince)} erfasst. Automatische DM: ${s.dm ? "an" : "aus"} · tägliche Meldung: ${s.alert ? "an" : "aus"} (Einstellungen → Abmeldungen & Aktivität).`;
+  $("inactive-list").innerHTML = data.inactive.length ? `<div class="table-row table-head inactive-row"><span>Mitglied</span><span>Letzte Nachricht</span><span>Letztes Event</span><span>Inaktiv seit</span><span></span></div>` + data.inactive.map(r => `<div class="table-row inactive-row"><span><b>${plink(r.userId)}</b>${r.notifiedAt ? `<small class="block">erinnert ${ago(r.notifiedAt)}</small>` : ""}</span><span data-label="Letzte Nachricht">${ago(r.lastMessage)}</span><span data-label="Letztes Event">${ago(r.lastEvent)}</span><span data-label="Inaktiv"><b>${r.inactiveDays} Tagen</b></span><span class="actions tight">${caps.absences ? btn("Erinnern", "activity-remind", { user: r.userId, days: r.inactiveDays }) : ""}</span></div>`).join("") : empty("Niemand ist inaktiv. 🎉");
+  document.querySelectorAll("#tab-activity .search").forEach(filterList);
+}
+function renderLeaderboard() {
+  const data = state.cache.activity; if (!data) return;
+  const rows = data.leaderboard[$("leaderboard-filter").value] ?? [];
+  $("leaderboard").innerHTML = rows.map((r, n) => `<div class="row"><div><div class="row-title">${MEDAL[n] ?? `${n + 1}.`} ${plink(r.userId)}</div><div class="row-sub">${r.present} davon als anwesend bestätigt</div></div><span class="badge">${r.count} ${r.count === 1 ? "Teilnahme" : "Teilnahmen"}</span></div>`).join("") || empty("Noch keine Event-Teilnahmen in diesem Zeitraum.");
+}
+$("leaderboard-filter").addEventListener("change", renderLeaderboard);
+
+// ------------------------------------------------------------------ Mitgliederprofil
+async function openProfile(userId) {
+  const { profile: p } = await api(`/api/members/${userId}/profile`);
+  const caps = state.me.capabilities;
+  const name = p.verification?.nickname ?? p.discord.name ?? who(userId);
+  const section = (title, body) => `<section class="profile-section"><h3>${title}</h3>${body}</section>`;
+  const list = items => items.length ? `<div class="rows compact">${items.join("")}</div>` : `<p class="muted">Keine Einträge.</p>`;
+  const line = (title, sub, badge = "") => `<div class="row"><div><div class="row-title">${title}</div><div class="row-sub">${sub}</div></div>${badge ? `<span class="badge">${badge}</span>` : ""}</div>`;
+  const facts = [
+    ["Ingame-ID", p.verification ? escapeHtml(p.verification.ingame_id) : "nicht verifiziert"],
+    ["Ingame-Name", p.verification ? escapeHtml(`${p.verification.first_name} ${p.verification.last_name}`) : "—"],
+    ["Rang", p.ranks.length ? escapeHtml(p.ranks.join(", ")) : "—"],
+    ["Auf dem Server seit", p.discord.joinedAt ? date(p.discord.joinedAt) : p.inGuild ? "—" : "nicht mehr auf dem Server"],
+    ["Letzte Nachricht", p.activity.lastMessage ? `${ago(p.activity.lastMessage)} (${p.activity.messages} erfasst)` : "keine erfasst"],
+    ["Event-Teilnahmen", `${p.activity.participations}${p.activity.lastEvent ? ` · zuletzt ${ago(p.activity.lastEvent)}` : ""}`],
+    ...(p.warnings ? [["Aktive Verwarnungen", String(p.warnings.active)]] : []),
+    ...(p.finance ? [["Familienguthaben", p.finance.hasAccount ? `${money(p.finance.plan.gross)} · netto ${money(p.finance.plan.net)}` : "kein Konto"]] : []),
+  ];
+  const chips = [p.absentNow ? '<span class="chip chip-absent">🚫 gerade abgemeldet</span>' : "", p.discord.timeoutUntil ? `<span class="chip chip-absent">🔇 Timeout bis ${date(p.discord.timeoutUntil)}</span>` : "", !p.inGuild ? '<span class="chip">nicht auf dem Server</span>' : ""].join("");
+  const head = `<div class="profile-head">${p.discord.avatar ? `<img src="${escapeHtml(p.discord.avatar)}" alt="">` : '<div class="avatar-fallback">👤</div>'}<div><b>${escapeHtml(name)}</b><small>${escapeHtml(p.discord.username ?? "")} · ID ${escapeHtml(userId)}</small><div class="chips">${chips}${p.roles.slice(0, 8).map(r => `<span class="chip"${r.color ? ` style="border-color:${escapeHtml(r.color)}"` : ""}>${escapeHtml(r.name)}</span>`).join("")}</div></div></div>`;
+  const actions = [
+    caps.warnings ? btn("Verwarnen", "warning-create-for", { user: userId }) : "",
+    caps.absences ? btn("Abmeldung eintragen", "absence-create", { user: userId }) : "",
+    caps.finance ? btn("+ Gutschrift", "credit", { user: userId }) : "",
+    caps.financeView && p.finance?.hasAccount ? btn("Kontodetails", "account-details", { user: userId }) : "",
+  ].join("");
+  const sections = [
+    `<div class="kv profile-facts">${facts.map(([k, v]) => `<div><span>${escapeHtml(k)}</span><b>${v}</b></div>`).join("")}</div>`,
+    actions ? `<div class="actions">${actions}</div>` : "",
+    section("📅 Events", list(p.events.map(e => line(escapeHtml(e.name), `${date(e.starts_at)}${e.event_status === "cancelled" ? " · abgesagt" : ""}`, e.excused ? "entschuldigt" : e.upcoming && e.status === "signed_up" ? "angemeldet" : statusLabels[e.status] ?? e.status)))),
+    section("🚫 Abmeldungen", list(p.absences.map(a => line(`${day(a.starts_on)} – ${day(a.ends_on)}`, `${escapeHtml(a.reason)}${a.ended_at ? ` · beendet ${date(a.ended_at)}` : ""}`)))),
+    p.warnings ? section(`📝 Verwarnungen (${p.warnings.active} aktiv)`, list(p.warnings.items.map(w => line(escapeHtml(w.reason), `${date(w.created_at)} · von ${who(w.actor_id)}${w.revoked_at ? ` · zurückgenommen: ${escapeHtml(w.revoke_reason ?? "")}` : ""}`, warnStateLabels[w.state])))) : "",
+    p.moderation ? section("🛡️ Moderation", list(p.moderation.map(m => line(modLabels[m.action] ?? m.action, `${date(m.created_at)} · ${escapeHtml(m.reason)} · von ${who(m.actor_id)}${m.duration_minutes ? ` · ${m.duration_minutes} Min.` : ""}`, m.result === "applied" ? "" : "fehlgeschlagen")))) : "",
+    p.sanctions ? section("⚖️ Sanktionen", list(p.sanctions.map(s => line(`${money(s.amount_cents)} · ${statusLabels[s.status] ?? s.status}`, `${escapeHtml(s.reason)} · offen ${money(s.remaining_cents)} · ${date(s.created_at)}`)))) : "",
+    p.finance ? section("💰 Letzte Buchungen", list(p.finance.transactions.map(t => line(`${txLabels[t.type] ?? t.type} · ${money(t.type === "payout" ? t.net_cents : t.amount_cents)}`, `${date(t.created_at)} · ${escapeHtml(t.reason)}`)))) : "",
+    p.applications ? section("📨 Anträge", list(p.applications.map(a => line(a.kind === "rang" ? "🏅 Rang-Antrag" : "🤝 Bewerbung", `${date(a.created_at)}${a.reviewer_id ? ` · bearbeitet von ${who(a.reviewer_id)}` : ""}`, statusLabels[a.status])))) : "",
+    p.tickets ? section("🎫 Tickets", list(p.tickets.map(t => line(escapeHtml(t.category_label), `${date(t.created_at)}${t.claimed_by ? ` · ${who(t.claimed_by)}` : ""}`, statusLabels[t.status])))) : "",
+  ].join("");
+  openInfo(name, `${head}${sections}`, "MITGLIEDERPROFIL", true);
+}
+
+// ------------------------------------------------------------------ Status
+async function loadStatus() {
+  const s = await api("/api/status");
+  const card = (label, value, ok, hint) => `<div class="stat status-${ok === true ? "ok" : ok === false ? "bad" : "warn"}"><span class="symbol">${ok === true ? "✓" : ok === false ? "✕" : "!"}</span><div class="label">${escapeHtml(label)}</div><div class="value small">${escapeHtml(value)}</div>${hint ? `<small class="muted">${escapeHtml(hint)}</small>` : ""}</div>`;
+  const backupAge = s.backups.latest ? (Date.now() - Date.parse(s.backups.latest.at)) / 3_600_000 : null;
+  const tickAge = s.scheduler.lastTick ? (Date.now() - Date.parse(s.scheduler.lastTick)) / 1000 : null;
+  $("status-cards").innerHTML = [
+    card("Discord-Verbindung", s.bot.online ? `Online${s.bot.ping != null && s.bot.ping >= 0 ? ` · ${s.bot.ping} ms` : ""}` : "Getrennt", s.bot.online, s.bot.readySince ? `verbunden seit ${date(s.bot.readySince)}` : ""),
+    card("Letztes Update", s.version.update ? ago(s.version.update.at) : "unbekannt", s.version.update ? true : null, `Version ${s.version.commit}${s.version.update ? ` · ${date(s.version.update.at)}` : ""}`),
+    card("Letztes Backup", s.backups.latest ? ago(s.backups.latest.at) : "keines gefunden", backupAge == null ? false : backupAge < 36 ? true : null, s.backups.latest ? `${date(s.backups.latest.at)} · ${s.backups.count} Backups` : "Backups entstehen bei jedem Auto-Update oder mit „npm run backup“"),
+    card("Hintergrund-Aufgaben", tickAge == null ? "noch nicht gelaufen" : tickAge < 120 ? "laufen" : `seit ${Math.round(tickAge / 60)} Min. still`, tickAge != null && tickAge < 120 ? true : tickAge == null ? null : false, "Erinnerungen, Aktivitäten, Panels, Logs"),
+  ].join("");
+  const kv = [["Bot", s.bot.tag ?? "—"], ["Mitglieder auf dem Server", s.bot.guildMembers ?? "—"], ["Prozess läuft seit", `${duration(s.process.uptimeSeconds)} (${date(s.process.startedAt)})`], ["Arbeitsspeicher", `${s.process.memoryMb} MB`], ["Node.js", s.process.node], ["Datenbank", `${bytes(s.database.sizeBytes)} · Schema v${s.database.schema}`], ["Letzte Änderung", s.version.update?.message ?? "—"], ["Log-Zustellung (24 h)", s.logs.failedLast24h ? `${s.logs.failedLast24h} fehlgeschlagen` : "ohne Fehler"]];
+  $("status-details").innerHTML = kv.map(([k, v]) => `<div><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join("");
+  $("status-warnings").innerHTML = s.warnings.map(w => row("⚠️ Hinweis", w)).join("") || empty("Keine offenen Konfigurationspunkte. ✅");
+}
+
+loaders.activity = loadActivity;
+loaders.status = loadStatus;
+Object.assign(actions, {
+  "profile": ({ user }) => openProfile(user),
+  "profile-find": () => openForm({ eyebrow: "MITGLIEDERPROFIL", title: "Profil öffnen", intro: "<p>Verifizierung, Rang, Konto, Sanktionen, Verwarnungen, Events, Anträge und Tickets auf einen Blick.</p>", fields: [memberField()], submit: "Profil öffnen", onSubmit: async v => { $("dialog").close(); await openProfile(v.userId); return { keepOpen: true }; } }),
+  "status-refresh": () => loadStatus(),
+  "absence-create": ({ user } = {}) => openForm({ eyebrow: "ABMELDUNG", title: "Abmeldung eintragen", intro: "<p>Für Mitglieder, die sich nicht selbst abmelden können. Die Person zählt in der Zeit nicht als inaktiv; Fehlen bei Events gilt als entschuldigt.</p>", fields: [memberField(user ?? ""), { name: "from", label: "Von", required: true, placeholder: "heute oder 20.10.", value: "heute", max: 20 }, { name: "until", label: "Bis (inklusive)", required: true, placeholder: "z. B. 27.10.", max: 20 }, { name: "reason", label: "Grund", required: true, max: 300 }], submit: "Eintragen", onSubmit: v => post("/api/absences", v) }),
+  "absence-end": ({ id }) => confirmAction("Abmeldung beenden?", "Die Person gilt ab sofort wieder als anwesend. Geplante Abmeldungen werden storniert.", "Beenden", () => post(`/api/absences/${id}/end`), false),
+  "activity-remind": ({ user, days }) => confirmAction("Per DM erinnern?", `${who(user)} bekommt eine freundliche Nachricht mit dem Hinweis, sich bei einer Pause abzumelden.`, "Erinnerung senden", () => post(`/api/activity/${user}/remind`, { days }), false),
+  "warning-create-for": ({ user }) => actions["warning-create"]({ user }),
+});

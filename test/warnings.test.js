@@ -118,10 +118,10 @@ test("/warnings und /unwarn: eigene Ansicht für alle, Rücknahme nur durch Mode
   const foreign = interaction(x, { userId: MEMBER, command: "warnings", options: { mitglied: MOD } });
   await x.handler.command(foreign);
   assert.match(text(foreign.replies[0]), /Moderation/);
-  const denied = interaction(x, { userId: MEMBER, command: "unwarn", options: { warnung: id, grund: "bitte" } });
+  const denied = interaction(x, { userId: MEMBER, command: "unwarn", options: { mitglied: MEMBER, warnung: id, grund: "bitte" } });
   await x.handler.command(denied);
   assert.match(text(denied.replies[0]), /Moderations- oder Staff-Rolle/);
-  const ok = interaction(x, { userId: MOD, command: "unwarn", options: { warnung: id, grund: "Missverständnis" } });
+  const ok = interaction(x, { userId: MOD, command: "unwarn", options: { mitglied: MEMBER, grund: "Missverständnis" } });
   await x.handler.command(ok);
   assert.match(text(ok.replies[0]), /zurückgenommen/);
   assert.ok(x.db.prepare("SELECT revoked_at FROM member_warnings WHERE id=?").get(id).revoked_at);
@@ -151,4 +151,35 @@ test("Website: verwarnen und zurücknehmen mit Rechteprüfung", async () => {
   assert.equal(w.state, "active"); assert.equal(w.activeCount, 1);
   assert.equal((await post(as(LEADER, "leaders"), `/api/warnings/${w.id}/revoke`, { reason: "Irrtum" })).status, 200);
   assert.equal((await post(as(LEADER, "leaders"), `/api/warnings/${w.id}/revoke`, { reason: "Irrtum" })).status, 409);
+});
+
+test("/unwarn findet die Verwarnung auch ohne Auswahl, per Referenz oder Grund", async () => {
+  const x = setup();
+  for (const grund of ["Spam im Chat", "Beleidigung"]) await x.handler.command(interaction(x, { userId: MOD, command: "warn", options: { mitglied: MEMBER, grund } }));
+  const rows = x.db.prepare("SELECT id,reason FROM member_warnings ORDER BY rowid").all();
+  const typed = interaction(x, { userId: STAFF, command: "unwarn", options: { mitglied: MEMBER, warnung: "Tony", grund: "Test" } });
+  await x.handler.command(typed);
+  assert.match(text(typed.replies[0]), /nicht gefunden/, "eingetippter Name ohne Treffer");
+  const byReason = interaction(x, { userId: STAFF, command: "unwarn", options: { mitglied: MEMBER, warnung: "spam", grund: "Irrtum" } });
+  await x.handler.command(byReason);
+  assert.ok(x.db.prepare("SELECT revoked_at FROM member_warnings WHERE id=?").get(rows[0].id).revoked_at);
+  const byRef = interaction(x, { userId: STAFF, command: "unwarn", options: { mitglied: MEMBER, warnung: rows[1].id.slice(0, 8), grund: "Irrtum" } });
+  await x.handler.command(byRef);
+  assert.ok(x.db.prepare("SELECT revoked_at FROM member_warnings WHERE id=?").get(rows[1].id).revoked_at);
+  const none = interaction(x, { userId: STAFF, command: "unwarn", options: { mitglied: MEMBER, grund: "nochmal" } });
+  await x.handler.command(none);
+  assert.match(text(none.replies[0]), /keine aktiven Verwarnungen/);
+  const wrongPerson = interaction(x, { userId: STAFF, command: "unwarn", options: { mitglied: LEADER, warnung: rows[0].id, grund: "x y z" } });
+  await x.handler.command(wrongPerson);
+  assert.match(text(wrongPerson.replies[0]), /gehört nicht/);
+});
+
+test("/unwarn-Vorschläge zeigen die Verwarnungen des gewählten Mitglieds", async () => {
+  const x = setup();
+  await x.handler.command(interaction(x, { userId: MOD, command: "warn", options: { mitglied: MEMBER, grund: "Spam im Chat" } }));
+  let choices = null;
+  await x.handler.autocomplete({ guildId: GUILD, guild: x.guild, commandName: "unwarn", user: { id: STAFF }, member: { roles: { cache: new Map([[ROLE.staff, true]]) } }, inGuild: () => true,
+    options: { getSubcommand: () => null, getFocused: () => ({ name: "warnung", value: "" }), get: name => name === "mitglied" ? { value: MEMBER } : null }, respond: async c => { choices = c; } });
+  assert.equal(choices.length, 1);
+  assert.match(choices[0].name, /Spam im Chat/);
 });

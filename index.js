@@ -11,6 +11,8 @@ import { ensurePanels } from "./src/panels.js";
 import { currentVersion } from "./src/version.js";
 import { createDashboard } from "./src/dashboard.js";
 import { createTicketService } from "./src/services/tickets.js";
+import { createActivityService } from "./src/services/activity.js";
+import { sendWelcome } from "./src/welcome.js";
 
 let config;
 try { config=loadConfig(); }
@@ -38,6 +40,7 @@ client.once(Events.ClientReady,ready=>{
 });
 // Von der Leitung genannte IDs einmalig übernehmen, falls noch nichts eingestellt ist. Gesetzt wird nur, was
 // auf dem konfigurierten Server wirklich existiert und den richtigen Typ hat; jede Übernahme wird protokolliert.
+const ADOPT_NAMES={CHANNEL_WELCOME:/^\W*willkommen$/i,CHANNEL_ABSENCES:/^\W*abmeldungen$/i};
 const ADOPT_HINTS={CHANNEL_TICKET_CLOSED_CATEGORY:"1559680452980113479",ROLE_VERIFIED:"1559685681465397289"};
 async function adoptLeadershipDefaults(){
   if(!settings)return;
@@ -46,6 +49,14 @@ async function adoptLeadershipDefaults(){
   const adopt=(key,value,label)=>{try{settings.update({key,value,actorId:client.user.id,actorIsOwner:true});console.log(`${label} eingestellt.`);return true;}catch(error){console.warn(`${label} konnte nicht eingestellt werden:`,error.message);return false;}};
   if(!config.CHANNEL_TICKET_CLOSED_CATEGORY){const category=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_TICKET_CLOSED_CATEGORY).catch(()=>null);if(category?.type===4)adopt("CHANNEL_TICKET_CLOSED_CATEGORY",category.id,`Kategorie für geschlossene Tickets (${category.name})`);}
   if(!config.ROLE_VERIFIED?.length){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_VERIFIED).catch(()=>null);if(role)adopt("ROLE_VERIFIED",[role.id],`Verifiziert-Rolle (${role.name})`);}
+  // Willkommens- und Abmeldungs-Channel aus dem Gambinos-Layout übernehmen, wenn es genau einen passenden gibt.
+  const allChannels=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.isTextBased?.());
+  for(const [key,pattern] of Object.entries(ADOPT_NAMES)){
+    if(config[key])continue;
+    const plain=ch=>String(ch.name).replace(/^[^a-z0-9äöüß]+/i,"");
+    const matches=allChannels.filter(ch=>pattern.test(plain(ch)));
+    if(matches.length===1&&adopt(key,matches[0].id,`${key==="CHANNEL_WELCOME"?"Willkommens":"Abmeldungs"}-Channel (#${matches[0].name})`)&&key==="CHANNEL_ABSENCES")await ensurePanels({db,client,config,series,only:["CHANNEL_ABSENCES"]}).catch(()=>{});
+  }
   if(!config.CHANNEL_VERIFICATION_PANEL){
     const matches=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.isTextBased?.()&&/neue-spieler/i.test(ch.name));
     if(matches.length===1&&adopt("CHANNEL_VERIFICATION_PANEL",matches[0].id,`Verifizierungs-Panel-Channel (#${matches[0].name})`))await ensurePanels({db,client,config,series,only:["CHANNEL_VERIFICATION_PANEL"]}).catch(()=>{});
@@ -69,6 +80,17 @@ client.on(Events.GuildMemberUpdate,(_old,member)=>{
     if(!(config.ROLE_MEMBERS??[]).some(id=>member.roles.cache.has(id)))return;
     finance.openAccount({guildId:member.guild.id,userId:member.id,actorId:client.user?.id??"system",note:"Familienmitglieder-Rolle erhalten"});
   }catch(error){console.error("Familienkonto konnte nicht automatisch angelegt werden:",error.message);}
+});
+// Begrüßung neuer Spieler (Channel CHANNEL_WELCOME, optional DM). Texte über die Website änderbar.
+client.on(Events.GuildMemberAdd,member=>{void sendWelcome({db,client,config,member}).catch(error=>console.warn("Begrüßung fehlgeschlagen:",error.message));});
+// Aktivität: nur Zeitpunkt und Anzahl der Nachrichten, nie Inhalte (für Inaktivitäts-Check und Mitgliederprofil).
+const activity=createActivityService(db);
+client.on(Events.MessageCreate,message=>{
+  try{
+    if(!message.guildId||message.author?.bot||message.webhookId)return;
+    if(config.DISCORD_GUILD_ID&&message.guildId!==config.DISCORD_GUILD_ID)return;
+    activity.recordMessage(message.guildId,message.author.id,message.createdAt??new Date());
+  }catch(error){console.warn("Aktivität konnte nicht gespeichert werden:",error.message);}
 });
 // Gelöschte Ticket-Channels: Ticket wird geschlossen und protokolliert, Daten und Transkript bleiben erhalten.
 const ticketService=createTicketService(db);

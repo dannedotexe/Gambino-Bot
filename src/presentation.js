@@ -138,6 +138,7 @@ const ACTIONS = {
   "sanction.warning_timeout": "Automatischer Timeout nach Verwarnungen",
   "sanction.warning_timeout_failed": "Timeout nach Verwarnungen nicht möglich",
   "admin.override": "Bot-Owner-Override genutzt",
+  "admin.data_reset": "Testdaten zurückgesetzt",
   "config.changed": "Einstellung geändert",
   "config.panel_published": "Dashboard-Panel veröffentlicht",
   "config.automod_synced": "Native AutoMod-Regel synchronisiert",

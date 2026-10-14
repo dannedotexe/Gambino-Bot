@@ -95,6 +95,20 @@ export const MIGRATIONS = [
       CREATE UNIQUE INDEX IF NOT EXISTS member_verifications_ingame ON member_verifications(guild_id,ingame_id);
     `),
   },
+  {
+    version: 5,
+    name: "abmeldungen-aktivitaet-moderation",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS member_absences (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, starts_on TEXT NOT NULL, ends_on TEXT NOT NULL, reason TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, ended_at TEXT, ended_by TEXT, role_applied INTEGER NOT NULL DEFAULT 0 CHECK(role_applied IN (0,1)), CHECK(ends_on>=starts_on));
+      CREATE INDEX IF NOT EXISTS member_absences_user ON member_absences(guild_id,user_id,ends_on);
+      CREATE INDEX IF NOT EXISTS member_absences_period ON member_absences(guild_id,starts_on,ends_on);
+      CREATE TABLE IF NOT EXISTS member_activity (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, last_message_at TEXT, messages INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(guild_id,user_id));
+      CREATE TABLE IF NOT EXISTS inactivity_notices (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, notified_at TEXT NOT NULL, PRIMARY KEY(guild_id,user_id));
+      CREATE TABLE IF NOT EXISTS moderation_actions (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, actor_id TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('timeout','untimeout','kick','ban','unban')), reason TEXT NOT NULL, duration_minutes INTEGER, result TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS moderation_actions_user ON moderation_actions(guild_id,user_id,created_at);
+      ${appendOnly("moderation_actions", "Moderationsmaßnahmen")}
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

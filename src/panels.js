@@ -1,10 +1,13 @@
 import { EmbedBuilder } from "discord.js";
 import { getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
-import { buildAccountPanelPayload, buildApplicationPanelPayload, buildTicketPanelPayload, buildVerificationPanelPayload } from "./commands.js";
+import { buildAbsencePanelPayload, buildAccountPanelPayload, buildApplicationPanelPayload, buildTicketPanelPayload, buildVerificationPanelPayload } from "./commands.js";
 import { PANEL_SETTING_KEY, buildPanelPayload } from "./staff-panel.js";
 import { BOARD_SETTING_KEY, buildActivityBoard } from "./activity-board.js";
 import { panelTexts } from "./services/texts.js";
+import { LEADERBOARD_SETTING_KEY, buildLeaderboard } from "./leaderboard.js";
+import { createActivityService } from "./services/activity.js";
+import { createAbsenceService } from "./services/absences.js";
 
 /** Dauerhafte Panels: Channel-Einstellung -> gespeicherte Nachricht -> Inhalt. */
 // Erst beim Aufruf aufgebaut: vermeidet Probleme mit zirkulären Modul-Importen (commands <-> panels).
@@ -15,8 +18,10 @@ const panelDefinitions = () => [
   { channelKey: "CHANNEL_APPLICATION_PANEL", settingKey: "PANEL_APPLICATION", label: "Bewerbungs-Panel", marker: "application:open:bewerbung", build: ctx => buildApplicationPanelPayload(panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "application")) },
   { channelKey: "CHANNEL_STAFF_DASHBOARD", settingKey: PANEL_SETTING_KEY, label: "Staff-Dashboard", marker: "staffpanel:view", build: ctx => buildPanelPayload(ctx.db, ctx.config.DISCORD_GUILD_ID, panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "staffDashboard")) },
   { channelKey: "CHANNEL_ACTIVITY_BOARD", settingKey: BOARD_SETTING_KEY, label: "Aktivitäten-Übersicht", title: "AKTIVITÄTEN", build: ctx => buildActivityBoard(ctx.series.list(ctx.config.DISCORD_GUILD_ID), ctx.config.TIMEZONE, new Date(), panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "activityBoard")), needsSeries: true },
+  { channelKey: "CHANNEL_ABSENCES", settingKey: "PANEL_ABSENCE", label: "Abmeldungs-Panel", marker: "absence:open", build: ctx => buildAbsencePanelPayload(panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "absence")) },
+  { channelKey: "CHANNEL_LEADERBOARD", settingKey: LEADERBOARD_SETTING_KEY, label: "Rangliste", title: "RANGLISTE", build: ctx => buildLeaderboard({ activity: createActivityService(ctx.db), guildId: ctx.config.DISCORD_GUILD_ID, timezone: ctx.config.TIMEZONE, texts: panelTexts(ctx.db, ctx.config.DISCORD_GUILD_ID, "leaderboard") }) },
 ];
-export const PANEL_CHANNEL_KEYS = ["CHANNEL_ACCOUNT_PANEL", "CHANNEL_VERIFICATION_PANEL", "CHANNEL_TICKET_PANEL", "CHANNEL_APPLICATION_PANEL", "CHANNEL_STAFF_DASHBOARD", "CHANNEL_ACTIVITY_BOARD"];
+export const PANEL_CHANNEL_KEYS = ["CHANNEL_ACCOUNT_PANEL", "CHANNEL_VERIFICATION_PANEL", "CHANNEL_TICKET_PANEL", "CHANNEL_APPLICATION_PANEL", "CHANNEL_STAFF_DASHBOARD", "CHANNEL_ACTIVITY_BOARD", "CHANNEL_LEADERBOARD", "CHANNEL_ABSENCES"];
 
 /**
  * Stellt sicher, dass jedes Panel genau einmal im eingestellten Channel steht. Gepostet wird nur, wenn noch keines
@@ -74,7 +79,9 @@ export async function postEventResult({ db, client, config, event }) {
   const channel = await client.channels.fetch(config.CHANNEL_EVENT_RESULTS).catch(() => null);
   if (!channel?.isTextBased?.()) return false;
   const rows = db.prepare("SELECT user_id,status FROM event_participants WHERE event_id=? AND status<>'left' ORDER BY updated_at").all(event.id);
-  const list = status => rows.filter(row => row.status === status).map(row => `<@${row.user_id}>`).join(", ");
+  const absences = createAbsenceService(db);
+  const excused = new Set(rows.filter(row => row.status === "absent" && absences.wasAbsent(event.guild_id ?? config.DISCORD_GUILD_ID, row.user_id, event.starts_at, config.TIMEZONE)).map(row => row.user_id));
+  const list = status => rows.filter(row => row.status === status).map(row => `<@${row.user_id}>${excused.has(row.user_id) ? " (abgemeldet)" : ""}`).join(", ");
   const embed = new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  EVENT-ERGEBNIS" }).setTitle(`🏁 ${event.name}`.slice(0, 256))
     .setDescription(`<t:${Math.floor(new Date(event.starts_at).getTime() / 1000)}:F>${event.location ? ` · ${event.location}` : ""}`)
     .addFields(

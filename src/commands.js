@@ -25,6 +25,12 @@ import { deleteEventPosts, publishEvent, refreshEventPosts } from "./event-posts
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 import { WarningError, createWarningService, warnBlockReason } from "./services/warnings.js";
 import { deliverWarning, deliverySummary } from "./warn-actions.js";
+import { AbsenceError, createAbsenceService, formatDay, localDay, parseDay } from "./services/absences.js";
+import { createActivityService } from "./services/activity.js";
+import { buildLeaderboard } from "./leaderboard.js";
+import { postAbsence } from "./absence-posts.js";
+import { BAN_DELETE_CHOICES, MOD_PERMISSIONS, TIMEOUT_CHOICES, formatMinutes, hierarchyProblem, performModeration } from "./member-moderation.js";
+import { MOD_ACTIONS } from "./services/moderation-log.js";
 
 const isoNow=()=>new Date().toISOString();
 const unix=iso=>Math.floor(new Date(iso).getTime()/1000);
@@ -100,6 +106,13 @@ export function buildVerificationPanelPayload(texts=defaultsFor("verification"))
   return {embeds:[textEmbed(texts)],components:[new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("verify:open").setLabel(texts.button).setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId("verify:rename").setLabel(texts.buttonRename||"✏️  Name ändern").setStyle(ButtonStyle.Secondary),
+  )]};
+}
+
+export function buildAbsencePanelPayload(texts=defaultsFor("absence")) {
+  return {embeds:[textEmbed(texts)],components:[new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("absence:open").setLabel(texts.buttonAbsent).setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId("absence:back").setLabel(texts.buttonBack).setStyle(ButtonStyle.Success),
   )]};
 }
 
@@ -218,15 +231,36 @@ export function buildCommands() {
   const warnings = new SlashCommandBuilder().setName("warnings").setDescription("Verwarnungen ansehen")
     .addUserOption(o=>o.setName("mitglied").setDescription("Mitglied (nur Moderation; leer = du selbst)"));
   const unwarn = new SlashCommandBuilder().setName("unwarn").setDescription("Verwarnung zurücknehmen (Moderation)")
-    .addStringOption(o=>o.setName("warnung").setDescription("Verwarnung auswählen").setRequired(true).setAutocomplete(true))
-    .addStringOption(o=>o.setName("grund").setDescription("Grund der Rücknahme").setRequired(true).setMinLength(3).setMaxLength(300));
+    .addUserOption(o=>o.setName("mitglied").setDescription("Wessen Verwarnung zurückgenommen wird").setRequired(true))
+    .addStringOption(o=>o.setName("grund").setDescription("Grund der Rücknahme").setRequired(true).setMinLength(3).setMaxLength(300))
+    .addStringOption(o=>o.setName("warnung").setDescription("Welche Verwarnung (leer = die neueste aktive)").setAutocomplete(true));
+  const absence = new SlashCommandBuilder().setName("abwesend").setDescription("Abmeldung bei der Familie (Urlaub, Pause)")
+    .addSubcommand(s=>s.setName("melden").setDescription("Für einen Zeitraum abmelden").addStringOption(o=>o.setName("von").setDescription("Beginn, z. B. heute oder 20.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("bis").setDescription("Ende (inklusive), z. B. 27.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Grund – sieht nur das Team").setRequired(true).setMinLength(2).setMaxLength(300)))
+    .addSubcommand(s=>s.setName("beenden").setDescription("Eigene Abmeldung vorzeitig beenden (wieder da)"))
+    .addSubcommand(s=>s.setName("liste").setDescription("Wer gerade abgemeldet ist (Staff)"));
+  const leaderboard = new SlashCommandBuilder().setName("rangliste").setDescription("Aktivste Mitglieder nach Event-Teilnahmen")
+    .addStringOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices({name:"Diese Woche",value:"week"},{name:"Dieser Monat",value:"month"},{name:"Gesamt",value:"all"}));
+  const reasonOption=o=>o.setName("grund").setDescription("Grund – die Person bekommt ihn per DM").setRequired(true).setMinLength(3).setMaxLength(300);
+  const timeout = new SlashCommandBuilder().setName("timeout").setDescription("Mitglied stummschalten (Moderation)")
+    .addUserOption(o=>o.setName("mitglied").setDescription("Wer stummgeschaltet wird").setRequired(true))
+    .addIntegerOption(o=>o.setName("dauer").setDescription("Dauer").setRequired(true).addChoices(...TIMEOUT_CHOICES.map(([value,name])=>({name,value}))))
+    .addStringOption(reasonOption);
+  const untimeout = new SlashCommandBuilder().setName("untimeout").setDescription("Timeout vorzeitig aufheben (Moderation)")
+    .addUserOption(o=>o.setName("mitglied").setDescription("Mitglied").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Grund").setRequired(true).setMinLength(3).setMaxLength(300));
+  const kick = new SlashCommandBuilder().setName("kick").setDescription("Mitglied vom Server entfernen (Staff, mit Bestätigung)")
+    .addUserOption(o=>o.setName("mitglied").setDescription("Mitglied").setRequired(true)).addStringOption(reasonOption);
+  const ban = new SlashCommandBuilder().setName("ban").setDescription("Person bannen (Leitung, mit Bestätigung)")
+    .addUserOption(o=>o.setName("mitglied").setDescription("Person (auch per ID)").setRequired(true)).addStringOption(reasonOption)
+    .addIntegerOption(o=>o.setName("nachrichten").setDescription("Nachrichten der Person löschen").addChoices(...BAN_DELETE_CHOICES.map(([value,name])=>({name,value}))));
+  const unban = new SlashCommandBuilder().setName("unban").setDescription("Bann aufheben (Leitung)")
+    .addUserOption(o=>o.setName("person").setDescription("Gebannte Person (Benutzer-ID einfügen)").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Grund").setRequired(true).setMinLength(3).setMaxLength(300));
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
     new SlashCommandBuilder().setName("help").setDescription("Befehlsübersicht"),
     new SlashCommandBuilder().setName("bewerbung-panel").setDescription("Bewerbungs-Panel senden (Reviewer)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen (Staff)").addIntegerOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices(...Object.entries(PERIODS).map(([days,label])=>({name:label,value:Number(days)})))),
   ];
-  return [money,sanction,warn,warnings,unwarn,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
+  return [money,sanction,warn,warnings,unwarn,timeout,untimeout,kick,ban,unban,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
 }
 
 export function createHandler({db,finance,config,client,settings=null,series=null}) {
@@ -234,7 +268,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   questionConfig=config;
   // Live berechnet: Rollenänderungen über Website/Discord gelten sofort.
   const groups=new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
-  const verifications=createVerificationService(db),warningService=createWarningService(db);
+  const verifications=createVerificationService(db),warningService=createWarningService(db),absences=createAbsenceService(db),activity=createActivityService(db);
+  const pendingModeration=new Map();
   const events=createEventService(db),giveaways=createGiveawayService(db),tickets=createTicketService(db),applications=createApplicationService(db);
   const isOwner=i=>config.BOT_OWNER_IDS?.includes(i.user?.id)??false;
   const memberRoleIds=i=>[...(i.member?.roles?.cache?.keys?.()??i.member?.roles??[])];
@@ -278,9 +313,11 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         else if(sub==="rueckerstatten")rows=db.prepare("SELECT s.id,s.user_id,s.reason,COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)-COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) AS cents FROM sanctions s WHERE s.guild_id=? AND COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)>COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) ORDER BY s.created_at DESC LIMIT 100").all(g);
         choices=rows.map(r=>({name:`${r.reason.slice(0,55)} · Mitglied …${r.user_id.slice(-5)} · ${formatMoney(r.cents)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="unwarn"&&can(i,"moderation")){
-        const memberName=id=>i.guild?.members?.cache?.get?.(id)?.displayName??`Mitglied …${id.slice(-5)}`;
-        choices=warningService.recent(g,{limit:100,activeOnly:true,expireDays:config.WARN_EXPIRE_DAYS}).filter(r=>r.user_id!==i.user.id)
-          .map(r=>({name:`${memberName(r.user_id)} · ${r.reason} · ${new Date(r.created_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})}`.slice(0,100),value:r.id}));
+        // Mit gewähltem Mitglied nur dessen Verwarnungen; die Suche läuft über Grund und Referenz statt über Namen.
+        const target=i.options.get?.("mitglied")?.value??null;
+        const rows=target?warningService.list(g,target,{limit:25,expireDays:config.WARN_EXPIRE_DAYS}).filter(r=>r.state==="active"):warningService.recent(g,{limit:100,activeOnly:true,expireDays:config.WARN_EXPIRE_DAYS});
+        const nick=id=>verifications.byUser(g,id)?.nickname??i.guild?.members?.cache?.get?.(id)?.displayName??`Mitglied …${id.slice(-5)}`;
+        choices=rows.filter(r=>r.user_id!==i.user.id).map(r=>({name:`${target?"":`${nick(r.user_id)} · `}${new Date(r.created_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})} · ${r.reason} · ${r.id.slice(0,8)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="aktivitaeten"&&series&&can(i,"events")){
         choices=series.list(g).map(r=>({name:`${r.active?"🟢":"⚪"} ${r.name} · ${describeSchedule(r)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="giveaway"&&sub==="abbrechen"&&can(i,"staff")){
@@ -299,6 +336,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="ping") return respond(i,`Pong! ${client.ws.ping} ms`);
       if (i.commandName==="help") return answer(i,{...fieldsEmbed("📚 Gambinos Bot – Befehle",[
         {name:"💰 Konto & Sanktionen",value:"`/konto` Guthaben, Gutschriften, Auszahlungen, Korrekturen und Historie\n`/sanktion` Sanktionen und Verwarnungen eintragen, ansehen, korrigieren oder aufheben"},
+        {name:"🚫 Abmeldung & Aktivität",value:"`/abwesend melden | beenden | liste` Urlaub oder Pause eintragen\n`/rangliste` aktivste Mitglieder nach Event-Teilnahmen"},
+        {name:"🛡️ Moderation",value:"`/timeout` `/untimeout` (Moderation) · `/kick` (Staff) · `/ban` `/unban` (Leitung) – mit Grund, DM und Eintrag in der Mitgliederhistorie"},
         {name:"📝 Verwarnungen",value:"`/warn` Mitglied verwarnen (DM, ohne Geldabzug)\n`/warnings` eigene bzw. fremde Verwarnungen ansehen\n`/unwarn` Verwarnung zurücknehmen"},
         {name:"🎫 Support",value:"`/ticket` Ticket-Panel, Übernahme, Schließen und Wiederöffnen"},
         {name:"📅 Familie",value:"`/event` Events verwalten und Teilnahme dokumentieren\n`/antrag` Bewerbung oder Rang-Antrag einreichen, kommentieren und entscheiden"},
@@ -310,6 +349,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="warn") return await issueWarning(i,g,u,{target:i.options.getUser("mitglied"),reason:i.options.getString("grund"),caseRef:i.options.getString("fall")});
       if (i.commandName==="warnings") return await warningsCommand(i,g,u);
       if (i.commandName==="unwarn") return await unwarnCommand(i,g,u);
+      if (i.commandName==="abwesend") return await absenceCommand(i,sub,g,u);
+      if (i.commandName==="rangliste") return answer(i,{...buildLeaderboardView(g,i.options.getString("zeitraum")??"week"),ephemeral:true});
+      if (MOD_PERMISSIONS[i.commandName]) return await moderationCommand(i,g,u);
       if (i.commandName==="ticket") return await ticketCommand(i,sub,g,u);
       if (i.commandName==="event") return await eventCommand(i,sub,g,u);
       if (i.commandName==="antrag") return await applicationCommand(i,sub,g,u);
@@ -326,7 +368,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="automod") return await automodCommand(i,sub,g,u);
       if (i.commandName==="aktivitaeten") return await activityCommand(i,sub,g,u);
       return respond(i,"Unbekannter Befehl.");
-    } catch(e) { if(!(e instanceof FinanceError||e instanceof WarningError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
+    } catch(e) { if(!(e instanceof FinanceError||e instanceof WarningError||e instanceof AbsenceError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
   }
 
   /** Kontoansichten, gemeinsam genutzt von Slash-Befehlen und dem „Mein Konto“-Panel. */
@@ -382,15 +424,121 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     return answer(i,{...fieldsEmbed("📝 Verwarnungen",items,rows.length?`Mitglied: <@${target}> · **${active} aktiv** · letzte ${rows.length} Einträge.${expiry}`:`Für <@${target}> gibt es keine Verwarnungen.`),ephemeral:true});
   }
 
+  /** Findet die gemeinte Verwarnung: ausgewählte ID, eingetippte Referenz bzw. Grund, sonst die neueste aktive. */
+  function resolveWarning(g,targetId,input){
+    const active=warningService.list(g,targetId,{limit:100,expireDays:config.WARN_EXPIRE_DAYS}).filter(r=>r.state==="active");
+    const value=String(input??"").trim();
+    if(!value)return {row:active[0]??null,active};
+    const exact=warningService.get(g,value);
+    if(exact)return {row:exact.user_id===targetId?exact:null,active,mismatch:exact.user_id!==targetId};
+    const needle=value.toLocaleLowerCase("de-AT");
+    const hits=active.filter(r=>r.id.startsWith(needle)||r.reason.toLocaleLowerCase("de-AT").includes(needle));
+    return {row:hits.length===1?hits[0]:null,active,ambiguous:hits.length>1};
+  }
+
   async function unwarnCommand(i,g,u){
     const denied=guard(i,"moderation","Moderations- oder Staff-Rolle");if(denied)return respond(i,denied);
+    const target=i.options.getUser("mitglied");
+    const {row:existing,active,mismatch,ambiguous}=resolveWarning(g,target.id,i.options.getString("warnung"));
+    if(mismatch)return respond(i,`Diese Verwarnung gehört nicht zu <@${target.id}>.`);
+    if(ambiguous)return respond(i,"Mehrere Verwarnungen passen dazu. Bitte eine aus der Vorschlagsliste wählen.");
+    if(!existing)return respond(i,active.length?"Diese Verwarnung wurde nicht gefunden. Bitte aus der Vorschlagsliste wählen oder das Feld leer lassen (dann wird die neueste genommen).":`<@${target.id}> hat keine aktiven Verwarnungen.`);
     // Reine Moderationsrollen nehmen nur eigene Verwarnungen zurück; Staff und Leitung alle.
-    const existing=warningService.get(g,i.options.getString("warnung"));
-    if(existing&&existing.actor_id!==u&&!can(i,"staff"))return respond(i,"Verwarnungen anderer Teammitglieder kann nur Staff oder die Leitung zurücknehmen.");
-    const row=warningService.revoke({guildId:g,warningId:i.options.getString("warnung"),actorId:u,reason:i.options.getString("grund")});
-    const active=warningService.activeCount(g,row.user_id,{expireDays:config.WARN_EXPIRE_DAYS});
-    if(config.WARN_DM_ENABLED)await client.users.fetch(row.user_id).then(user=>user.send({embeds:[embed("✅ Verwarnung zurückgenommen",`Deine Verwarnung vom <t:${unix(row.created_at)}:d> („${row.reason}“) wurde zurückgenommen.\n**Grund:** ${row.revoke_reason}\n**Aktive Verwarnungen:** ${active}`)]})).catch(()=>{});
-    return answer(i,{...fieldsEmbed("↩️ Verwarnung zurückgenommen",[{name:"Mitglied",value:`<@${row.user_id}>`,inline:true},{name:"Noch aktiv",value:String(active),inline:true},{name:"Ursprünglicher Grund",value:row.reason},{name:"Grund der Rücknahme",value:row.revoke_reason}],"Die Verwarnung bleibt in der Historie sichtbar, zählt aber nicht mehr."),ephemeral:true});
+    if(existing.actor_id!==u&&!can(i,"staff"))return respond(i,"Verwarnungen anderer Teammitglieder kann nur Staff oder die Leitung zurücknehmen.");
+    const row=warningService.revoke({guildId:g,warningId:existing.id,actorId:u,reason:i.options.getString("grund")});
+    const remaining=warningService.activeCount(g,row.user_id,{expireDays:config.WARN_EXPIRE_DAYS});
+    if(config.WARN_DM_ENABLED)await client.users.fetch(row.user_id).then(user=>user.send({embeds:[embed("✅ Verwarnung zurückgenommen",`Deine Verwarnung vom <t:${unix(row.created_at)}:d> („${row.reason}“) wurde zurückgenommen.\n**Grund:** ${row.revoke_reason}\n**Aktive Verwarnungen:** ${remaining}`)]})).catch(()=>{});
+    return answer(i,{...fieldsEmbed("↩️ Verwarnung zurückgenommen",[{name:"Mitglied",value:`<@${row.user_id}>`,inline:true},{name:"Noch aktiv",value:String(remaining),inline:true},{name:"Ursprünglicher Grund",value:row.reason},{name:"Grund der Rücknahme",value:row.revoke_reason}],"Die Verwarnung zählt nicht mehr. In der Historie bleibt sie als „zurückgenommen“ sichtbar."),ephemeral:true});
+  }
+
+  // ---------------------------------------------------------------- Abmeldungen
+  const today=()=>localDay(new Date(),config.TIMEZONE);
+  const absenceEmbed=(row,title="🚫 Abmeldung eingetragen",note="Du zählst in dieser Zeit nicht als inaktiv; Fehlen bei Events gilt als entschuldigt.")=>fieldsEmbed(title,[
+    {name:"Zeitraum",value:`**${formatDay(row.starts_on)} – ${formatDay(row.ends_on)}**`,inline:true},{name:"Grund",value:row.reason,inline:true}],note);
+  async function createAbsence(i,{from,until,reason}){
+    const gate=memberGate(i);if(gate)return answer(i,{content:"Abmeldungen gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});
+    const row=absences.create({guildId:i.guildId,userId:i.user.id,actorId:i.user.id,startsOn:parseDay(from,config.TIMEZONE),endsOn:parseDay(until,config.TIMEZONE),reason,timezone:config.TIMEZONE,maxDays:config.ABSENCE_MAX_DAYS});
+    await answer(i,{...absenceEmbed(row),ephemeral:true});
+    await postAbsence({client,config,row});
+    return row;
+  }
+  async function endOwnAbsence(i){
+    const open=absences.openFor(i.guildId,i.user.id,today());
+    if(!open)return answer(i,{content:"Du hast gerade keine offene Abmeldung.",ephemeral:true});
+    const row=absences.end({guildId:i.guildId,absenceId:open.id,actorId:i.user.id});
+    await answer(i,{...absenceEmbed(row,"✅ Willkommen zurück!","Deine Abmeldung ist beendet."),ephemeral:true});
+    if(open.starts_on<=today())await postAbsence({client,config,row,kind:"ended"});
+    return row;
+  }
+  async function absenceCommand(i,sub,g,u){
+    if(sub==="melden")return createAbsence(i,{from:i.options.getString("von"),until:i.options.getString("bis"),reason:i.options.getString("grund")});
+    if(sub==="beenden")return endOwnAbsence(i);
+    if(sub==="liste"){
+      const denied=guard(i,"anyStaff","Staff-Rolle");if(denied)return respond(i,denied);
+      const now=absences.current(g,today()),next=absences.upcoming(g,today(),10);
+      const line=r=>`<@${r.user_id}> · ${formatDay(r.starts_on)} – ${formatDay(r.ends_on)} · ${r.reason}`;
+      return answer(i,{...fieldsEmbed("🚫 Abmeldungen",[
+        {name:`Gerade abgemeldet (${now.length})`,value:(now.map(line).join("\n")||"Niemand").slice(0,1024)},
+        {name:`Geplant (${next.length})`,value:(next.map(line).join("\n")||"Keine").slice(0,1024)},
+      ],"Alle Abmeldungen und Inaktivität auch auf der Website im Bereich *Aktivität*."),ephemeral:true});
+    }
+  }
+  function openAbsenceModal(i){
+    const field=(id,label,placeholder,style=TextInputStyle.Short,max=20)=>new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setPlaceholder(placeholder).setStyle(style).setRequired(true).setMaxLength(max));
+    return i.showModal(new ModalBuilder().setCustomId("absence:submit").setTitle("Abmeldung").addComponents(
+      field("from","Von","heute oder 20.10."),field("until","Bis (inklusive)","z. B. 27.10. oder 27.10.2026"),field("reason","Grund (sieht nur das Team)","z. B. Urlaub",TextInputStyle.Paragraph,300)));
+  }
+
+  // ---------------------------------------------------------------- Rangliste
+  function buildLeaderboardView(g,period){
+    if(period==="all"){
+      const rows=activity.leaderboard(g,{period:"all",timezone:config.TIMEZONE,limit:15});
+      return fieldsEmbed("🏆 Rangliste · Gesamt",[{name:"Event-Teilnahmen",value:rows.map((r,n)=>`${["🥇","🥈","🥉"][n]??`**${n+1}.**`} <@${r.userId}> · **${r.count}**`).join("\n")||"Noch keine Teilnahmen."}]);
+    }
+    const texts=panelTexts(db,g,"leaderboard"),payload=buildLeaderboard({activity,guildId:g,timezone:config.TIMEZONE,texts});
+    if(period==="month")payload.embeds[0].spliceFields(0,1);else payload.embeds[0].spliceFields(1,1);
+    return payload;
+  }
+
+  // ---------------------------------------------------------------- Moderation (Timeout, Kick, Bann)
+  async function moderationCommand(i,g,u){
+    const action=i.commandName,[group,label]=MOD_PERMISSIONS[action];
+    const denied=guard(i,group,label);if(denied)return respond(i,denied);
+    const user=i.options.getUser(action==="unban"?"person":"mitglied"),reason=i.options.getString("grund");
+    const targetMember=action==="unban"?null:i.options.getMember?.("mitglied")??await i.guild?.members?.fetch?.(user.id).catch(()=>null)??null;
+    if(action!=="unban"){
+      const targetRoleIds=targetMember?.roles?.cache?[...targetMember.roles.cache.keys()]:[];
+      const blocked=warnBlockReason({actorId:u,targetId:user.id,targetIsBot:user.bot,targetRoleIds,staffRoleIds:groups.anyStaff,actorIsLeader:hasRole(i.member,groups.leaders),actorIsOwner:isOwner(i)});
+      if(blocked)return respond(i,blocked.replace("verwarnen","moderieren").replace("verwarnt","moderiert"));
+      const problem=hierarchyProblem({action,actorMember:i.member,targetMember,actorIsOwner:isOwner(i),guildOwnerId:i.guild?.ownerId});
+      if(problem)return respond(i,problem);
+    }
+    const request={action,userId:user.id,reason,minutes:i.options.getInteger("dauer"),deleteSeconds:i.options.getInteger("nachrichten")??0,actorId:u,expires:Date.now()+120_000};
+    if(action==="kick"||action==="ban"){
+      for(const [key,value] of pendingModeration)if(value.expires<Date.now())pendingModeration.delete(key);
+      pendingModeration.set(i.id,request);
+      const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`mod:confirm:${i.id}`).setLabel(action==="ban"?"Endgültig bannen":"Kicken").setStyle(ButtonStyle.Danger),new ButtonBuilder().setCustomId(`cancel:${i.id}`).setLabel("Abbrechen").setStyle(ButtonStyle.Secondary));
+      return answer(i,{...fieldsEmbed(`${MOD_ACTIONS[action].emoji} ${MOD_ACTIONS[action].label} bestätigen`,[{name:"Person",value:`<@${user.id}>`,inline:true},{name:"Grund",value:reason},...(action==="ban"&&request.deleteSeconds?[{name:"Nachrichten löschen",value:BAN_DELETE_CHOICES.find(([v])=>v===request.deleteSeconds)?.[1]??"—",inline:true}]:[])],"Die Person bekommt vorher eine DM mit dem Grund. Die Bestätigung gilt 2 Minuten."),components:[row],ephemeral:true});
+    }
+    return executeModeration(i,request,targetMember,false);
+  }
+  async function executeModeration(i,request,targetMember,viaButton){
+    const result=await performModeration({db,guild:i.guild,client,action:request.action,userId:request.userId,targetMember,actorId:request.actorId,reason:request.reason,minutes:request.minutes,deleteSeconds:request.deleteSeconds});
+    const meta=MOD_ACTIONS[request.action];
+    const payload=result.ok
+      ?fieldsEmbed(`${meta.emoji} ${meta.label} ausgeführt`,[{name:"Person",value:`<@${request.userId}>`,inline:true},...(request.action==="timeout"?[{name:"Dauer",value:formatMinutes(request.minutes),inline:true}]:[]),{name:"Grund",value:request.reason},...(["timeout","kick","ban"].includes(request.action)?[{name:"DM",value:result.dm?"zugestellt":"nicht zustellbar (DMs geschlossen)",inline:true}]:[])],"Eingetragen in der Mitgliederhistorie und im Sanktions-Log.")
+      :{content:`${meta.label} fehlgeschlagen: ${result.error}`};
+    return viaButton?updateMessage(i,{...payload,components:[]}):answer(i,{...payload,ephemeral:true});
+  }
+  async function confirmModeration(i,token){
+    const request=pendingModeration.get(token);
+    if(!request||request.expires<Date.now()){pendingModeration.delete(token);return updateMessage(i,{content:"Die Bestätigung ist abgelaufen. Bitte den Befehl erneut ausführen.",embeds:[],components:[]});}
+    if(request.actorId!==i.user.id)return answer(i,{content:"Nur wer die Aktion gestartet hat, kann sie bestätigen.",ephemeral:true});
+    const [group,label]=MOD_PERMISSIONS[request.action];const denied=guard(i,group,label);if(denied)return answer(i,{content:denied,ephemeral:true});
+    pendingModeration.delete(token);
+    const targetMember=request.action==="kick"?await i.guild?.members?.fetch?.(request.userId).catch(()=>null):null;
+    if(request.action==="kick"&&!targetMember)return updateMessage(i,{content:"Diese Person ist nicht mehr auf dem Server.",embeds:[],components:[]});
+    return executeModeration(i,request,targetMember,true);
   }
 
   async function accountCommand(i,sub,g,u){
@@ -621,8 +769,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const target=i.options.getUser("mitglied"),status=i.options.getString("status");
       const result=events.setAttendance({guildId:g,eventId:i.options.getString("id"),userId:target.id,status,actorId:u});
       if(!result)return respond(i,"Event nicht gefunden oder abgesagt.");
+      const excused=status==="absent"&&absences.wasAbsent(g,target.id,result.event.starts_at,config.TIMEZONE);
       return answer(i,{...fieldsEmbed("📝 Teilnahme dokumentiert",[
-        {name:"Event",value:result.event.name,inline:true},{name:"Mitglied",value:`<@${target.id}>`,inline:true},{name:"Ergebnis",value:status==="present"?"✅ Anwesend":"➖ Abwesend",inline:true},
+        {name:"Event",value:result.event.name,inline:true},{name:"Mitglied",value:`<@${target.id}>`,inline:true},{name:"Ergebnis",value:status==="present"?"✅ Anwesend":excused?"🚫 Abwesend – entschuldigt (abgemeldet)":"➖ Abwesend",inline:true},
       ],result.previous?"Der Teilnahmestatus wurde in der Eventhistorie gespeichert.":"Das Mitglied war nicht angemeldet und wurde nachgetragen."),ephemeral:true});
     }
     if(sub==="beenden"||sub==="absagen") {
@@ -860,6 +1009,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         if(!verifications.byUser(i.guildId,i.user.id))return answer(i,{content:"Du bist noch nicht verifiziert. Bitte klicke zuerst auf „Verifizieren“.",ephemeral:true});
         return openVerification(i,{rename:true});
       }
+      if(kind==="absence"&&action==="open"){const gate=memberGate(i);if(gate)return answer(i,{content:"Abmeldungen gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});return openAbsenceModal(i);}
+      if(kind==="absence"&&action==="back")return endOwnAbsence(i);
+      if(kind==="mod"&&action==="confirm")return confirmModeration(i,id);
       if(kind==="account"){
         const gate=memberGate(i);if(gate)return answer(i,{content:"Das Familienkonto gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});
         if(action==="balance")return answer(i,balanceView(g,u));
@@ -1076,6 +1228,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         await postApplicationNote(i.guild,result.application,i.user.id,note.trim());
         return answer(i,{content:"Notiz wurde gespeichert. Sie ist nur für das Team sichtbar.",ephemeral:true});
       }
+      if(i.customId==="absence:submit")return await createAbsence(i,{from:i.fields.getTextInputValue("from"),until:i.fields.getTextInputValue("until"),reason:i.fields.getTextInputValue("reason")});
       if(i.customId==="verify:submit")return await submitVerification(i);
       if(i.customId==="verify:rename-submit")return await submitVerification(i,{rename:true});
       if(!i.customId.startsWith("application:submit:"))return;

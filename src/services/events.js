@@ -32,7 +32,7 @@ export function createEventService(db) {
   /** Staff dokumentiert Anwesenheit; auch Mitglieder ohne vorherige Anmeldung können erfasst werden. */
   const setAttendance = db.transaction(({ guildId, eventId, userId, status, actorId }) => {
     if (!["present", "absent"].includes(status)) throw new Error("Ungültiger Anwesenheitsstatus.");
-    const event = db.prepare("SELECT id,name FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(eventId, guildId);
+    const event = db.prepare("SELECT id,name,starts_at FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(eventId, guildId);
     if (!event) return null;
     const previous = db.prepare("SELECT status FROM event_participants WHERE event_id=? AND user_id=?").get(eventId, userId)?.status ?? null;
     db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,?,?) ON CONFLICT(event_id,user_id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at").run(eventId, userId, status, now());

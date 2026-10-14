@@ -9,6 +9,8 @@ const empty = (text = "Zurzeit nichts offen.") => `<div class="empty">${escapeHt
 const row = (title, sub, badge = "") => `<div class="row"><div><div class="row-title">${escapeHtml(title)}</div><div class="row-sub">${escapeHtml(sub)}</div></div>${badge ? `<span class="badge">${escapeHtml(badge)}</span>` : ""}</div>`;
 const btn = (label, action, data = {}, kind = "") => `<button type="button" class="action ${kind}" data-action="${action}" ${Object.entries(data).map(([k, v]) => `data-${k}="${escapeHtml(v)}"`).join(" ")}>${escapeHtml(label)}</button>`;
 const uuid = () => crypto.randomUUID();
+/** Klickbarer Name, öffnet das Mitgliederprofil. */
+const plink = id => id ? `<button type="button" class="name-link" data-action="profile" data-user="${escapeHtml(id)}">${who(id)}</button>` : "—";
 let toastTimer;
 
 const labels = {
@@ -18,15 +20,18 @@ const labels = {
   "finance.credit": "Gutschrift verbucht", "finance.account_opened": "Familienkonto angelegt", "finance.payout": "Auszahlung gebucht", "finance.correction": "Korrekturbuchung", "finance.failed": "Buchung fehlgeschlagen",
   "sanction.created": "Sanktion vorgemerkt", "sanction.applied": "Sanktion teilweise verrechnet", "sanction.settled": "Sanktion beglichen", "sanction.void": "Sanktion aufgehoben", "sanction.corrected": "Sanktion korrigiert", "sanction.refunded": "Sanktion erstattet", "sanction.warning": "Verwarnung", "sanction.warning_revoked": "Verwarnung zurückgenommen", "sanction.warning_timeout": "Timeout nach Verwarnungen", "sanction.warning_timeout_failed": "Timeout nach Verwarnungen fehlgeschlagen",
   "giveaway.created": "Giveaway gestartet", "giveaway.ended": "Giveaway ausgelost", "giveaway.cancelled": "Giveaway abgebrochen", "giveaway.draw_requested": "Giveaway vorzeitig ausgelost", "giveaway.entry": "Giveaway-Teilnahme",
-  "automod.action": "AutoMod-Maßnahme", "admin.override": "Bot-Owner-Override", "config.changed": "Einstellung geändert", "config.panel_published": "Dashboard-Panel veröffentlicht", "config.automod_synced": "AutoMod synchronisiert",
+  "absence.created": "Abmeldung eingetragen", "absence.ended": "Abmeldung beendet", "activity.reminder": "Inaktivitäts-Erinnerung",
+  "moderation.timeout": "Timeout", "moderation.untimeout": "Timeout aufgehoben", "moderation.kick": "Kick", "moderation.ban": "Bann", "moderation.unban": "Entbannt",
+  "moderation.timeout_failed": "Timeout fehlgeschlagen", "moderation.kick_failed": "Kick fehlgeschlagen", "moderation.ban_failed": "Bann fehlgeschlagen", "moderation.unban_failed": "Entbannen fehlgeschlagen", "moderation.untimeout_failed": "Timeout-Aufhebung fehlgeschlagen",
+  "automod.action": "AutoMod-Maßnahme", "admin.override": "Bot-Owner-Override", "admin.data_reset": "Testdaten zurückgesetzt", "config.changed": "Einstellung geändert", "config.panel_published": "Dashboard-Panel veröffentlicht", "config.automod_synced": "AutoMod synchronisiert",
 };
 const statusLabels = { open: "Offen", review: "In Prüfung", accepted: "Angenommen", rejected: "Abgelehnt", withdrawn: "Zurückgezogen", partial: "Teilweise verrechnet", paid: "Beglichen", void: "Aufgehoben", scheduled: "Geplant", ended: "Beendet", cancelled: "Abgesagt", active: "Aktiv", closed: "Geschlossen", signed_up: "Angemeldet", present: "Anwesend", absent: "Abwesend" };
 const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP-Erfahrung", motivation: "Motivation", aktivitaet: "Aktivität", aktueller_rang: "Aktueller Rang", ziel_rang: "Beantragter Rang", begruendung: "Begründung" };
 const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit: "Korrektur (+)", correction_debit: "Korrektur (−)", sanction_refund: "Sanktions-Erstattung" };
 const TABS = [
   ["overview", "Übersicht", () => true], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
-  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
-  ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["settings", "Einstellungen", c => c.settings],
+  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
+  ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.staff], ["settings", "Einstellungen", c => c.settings],
 ];
 
 const ICONS = {
@@ -40,10 +45,12 @@ const ICONS = {
   stats: "M3 3v18h18 M18 17V9 M13 17V5 M8 17v-3",
   audit: "M12 8v4l3 3 M3.05 11a9 9 0 1 1 .5 4 M3 4v5h5",
   members: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 .01 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+  activity: "M22 12h-4l-3 9L9 3l-3 9H2",
+  status: "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M9 12l2 2 4-4",
   settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
-const NAV_GROUPS = [["", ["overview"]], ["Familie", ["members", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["settings"]]];
+const NAV_GROUPS = [["", ["overview"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });
@@ -73,7 +80,8 @@ function fieldHtml(field, index) {
   return `<label for="${id}">${escapeHtml(field.label)}${hint}<input id="${id}" name="${field.name}" type="${type}" ${extra} ${required} value="${value}"></label>`;
 }
 /** Öffnet einen Formular-Dialog. onSubmit bekommt die Werte; ein Fehler bleibt im Dialog sichtbar. */
-function openForm({ eyebrow = "GAMBINOS", title, intro = "", fields = [], submit = "Speichern", danger = false, onSubmit }) {
+function openForm({ eyebrow = "GAMBINOS", title, intro = "", fields = [], submit = "Speichern", danger = false, onSubmit, wide = false }) {
+  $("dialog").classList.toggle("wide", wide);
   $("dialog-eyebrow").textContent = eyebrow; $("dialog-title").textContent = title; $("dialog-intro").innerHTML = intro;
   $("dialog-fields").innerHTML = fields.map(fieldHtml).join(""); $("dialog-error").textContent = "";
   const submitButton = $("dialog-submit"); submitButton.textContent = submit; submitButton.className = danger ? "danger" : "primary-btn"; submitButton.hidden = !onSubmit; submitButton.disabled = false;
@@ -82,7 +90,7 @@ function openForm({ eyebrow = "GAMBINOS", title, intro = "", fields = [], submit
   $("dialog").showModal();
   $("dialog-fields").querySelector("input,textarea,select")?.focus();
 }
-const openInfo = (title, html, eyebrow = "DETAILS") => openForm({ eyebrow, title, intro: html });
+const openInfo = (title, html, eyebrow = "DETAILS", wide = false) => openForm({ eyebrow, title, intro: html, wide });
 function memberValue(input) {
   if (input.dataset.id) return input.dataset.id;
   const match = /(\d{17,20})\s*\)?\s*$/.exec(input.value.trim());
@@ -340,7 +348,7 @@ async function loadFinance() {
   const data = await api("/api/accounts"), caps = state.me.capabilities;
   $("finance-totals").innerHTML = [["Ausstehend (brutto)", money(data.totals.gross), "$"], ["Offene Sanktionen", money(data.totals.open), "⚑"], ["Voraussichtlich netto", money(data.totals.net), "→"], ["Mindestbetrag", data.minimumCents == null ? "keiner" : money(data.minimumCents), "⌁"]]
     .map(([label, value, symbol]) => `<div class="stat"><span class="symbol">${symbol}</span><div class="label">${label}</div><div class="value small">${value}</div></div>`).join("");
-  $("accounts-list").innerHTML = data.accounts.length ? `<div class="table-row table-head"><span>Mitglied</span><span>Brutto</span><span>Sanktionen</span><span>Netto</span><span></span></div>` + data.accounts.map(a => `<div class="table-row"><span><b>${who(a.userId)}</b>${a.eligible ? '<em class="ok">auszahlbar</em>' : a.gross > 0 ? '<em class="warn">unter Mindestbetrag</em>' : ""}</span><span data-label="Brutto">${money(a.gross)}</span><span data-label="Sanktionen">${a.openSanctions ? `${money(a.openSanctions)}${a.remainingAfter ? ` <small>(Rest danach ${money(a.remainingAfter)})</small>` : ""}` : "—"}</span><span data-label="Netto"><b>${money(a.net)}</b></span><span class="actions tight">${btn("Details", "account-details", { user: a.userId })}${caps.finance ? btn("+ Gutschrift", "credit", { user: a.userId }) : ""}${caps.finance && a.gross > 0 ? btn("Auszahlen", "payout", { user: a.userId }, "accept") : ""}${caps.leaders ? btn("Korrektur", "correction", { user: a.userId }) : ""}</span></div>`).join("") : empty("Noch keine Familienkonten.");
+  $("accounts-list").innerHTML = data.accounts.length ? `<div class="table-row table-head"><span>Mitglied</span><span>Brutto</span><span>Sanktionen</span><span>Netto</span><span></span></div>` + data.accounts.map(a => `<div class="table-row"><span><b>${plink(a.userId)}</b>${a.eligible ? '<em class="ok">auszahlbar</em>' : a.gross > 0 ? '<em class="warn">unter Mindestbetrag</em>' : ""}</span><span data-label="Brutto">${money(a.gross)}</span><span data-label="Sanktionen">${a.openSanctions ? `${money(a.openSanctions)}${a.remainingAfter ? ` <small>(Rest danach ${money(a.remainingAfter)})</small>` : ""}` : "—"}</span><span data-label="Netto"><b>${money(a.net)}</b></span><span class="actions tight">${btn("Details", "account-details", { user: a.userId })}${caps.finance ? btn("+ Gutschrift", "credit", { user: a.userId }) : ""}${caps.finance && a.gross > 0 ? btn("Auszahlen", "payout", { user: a.userId }, "accept") : ""}${caps.leaders ? btn("Korrektur", "correction", { user: a.userId }) : ""}</span></div>`).join("") : empty("Noch keine Familienkonten.");
   document.querySelectorAll("#tab-finance .search").forEach(filterList);
 }
 async function accountDetails(userId) {
@@ -368,17 +376,18 @@ async function loadSanctions() {
   $("sanctions-list").innerHTML = data.sanctions.map(s => {
     const refundable = s.collected_cents - s.refunded_cents;
     const actions = caps.leaders ? [s.status !== "void" ? btn("Korrigieren", "sanction-correct", { id: s.id }) : "", ["open", "partial"].includes(s.status) && s.collected_cents === 0 ? btn("Aufheben", "sanction-void", { id: s.id }, "reject") : "", refundable > 0 ? btn("Erstatten", "sanction-refund", { id: s.id }, "reject") : ""].join("") : "";
-    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">⚖️ ${money(s.amount_cents)}</span><h3>${who(s.user_id)}</h3></div><span class="badge status-${s.status}">${statusLabels[s.status]}</span></div>
+    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">⚖️ ${money(s.amount_cents)}</span><h3>${plink(s.user_id)}</h3></div><span class="badge status-${s.status}">${statusLabels[s.status]}</span></div>
       <p class="manage-meta">${escapeHtml(s.reason)}${s.case_ref ? ` · Fall: ${escapeHtml(s.case_ref)}` : ""}<br>Offen <b>${money(s.remaining_cents)}</b> · verrechnet ${money(s.collected_cents)}${s.refunded_cents ? ` · erstattet ${money(s.refunded_cents)}` : ""} · von ${who(s.actor_id)} · ${date(s.created_at)}</p><div class="actions">${actions}</div></article>`;
   }).join("") || empty("Keine Sanktionen.");
   const warnState = { active: ["🟠 Aktiv", "status-open"], expired: ["⚪ Abgelaufen", "status-void"], revoked: ["↩️ Zurückgenommen", "status-void"] };
-  $("warnings-list").innerHTML = data.warnings.map(w => {
+  const showAll = $("warnings-filter").value === "all";
+  $("warnings-list").innerHTML = data.warnings.filter(w => showAll || w.state === "active").map(w => {
     const [label, cls] = warnState[w.state] ?? warnState.active;
     const canRevoke = caps.warnings && w.state === "active" && w.user_id !== state.me.member.id && (caps.sanctions || w.actor_id === state.me.member.id);
-    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">📝 ${w.activeCount} aktiv</span><h3>${who(w.user_id)}</h3></div><span class="badge ${cls}">${label}</span></div>
+    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">📝 ${w.activeCount} aktiv</span><h3>${plink(w.user_id)}</h3></div><span class="badge ${cls}">${label}</span></div>
       <p class="manage-meta">${escapeHtml(w.reason)}${w.case_ref ? ` · Fall: ${escapeHtml(w.case_ref)}` : ""}<br>von ${who(w.actor_id)} · ${date(w.created_at)}${w.revoked_at ? `<br>Zurückgenommen von ${who(w.revoked_by)} · ${date(w.revoked_at)} · ${escapeHtml(w.revoke_reason ?? "")}` : ""}</p>
       <div class="actions">${canRevoke ? btn("Zurücknehmen", "warning-revoke", { id: w.id }, "reject") : ""}</div></article>`;
-  }).join("") || empty("Keine Verwarnungen.");
+  }).join("") || empty(showAll ? "Keine Verwarnungen." : "Keine aktiven Verwarnungen.");
 }
 
 // ------------------------------------------------------------------ Giveaways
@@ -419,7 +428,7 @@ async function loadAudit() {
 async function loadMembers() {
   const data = await api("/api/verifications"), caps = state.me.capabilities;
   $("members-info").textContent = `${data.total} verifizierte Mitglieder.${data.panelChannel ? "" : " ⚠️ Noch kein Verifizierungs-Channel eingestellt (Einstellungen → Channels)."}${data.roleConfigured ? "" : " Ohne „Rolle nach Verifizierung“ wird nur der Name geändert."}`;
-  $("members-list").innerHTML = data.verifications.length ? `<div class="table-row table-head members-row"><span>Discord</span><span>Ingame-ID</span><span>Name (Ingame)</span><span>Verifiziert</span><span></span></div>` + data.verifications.map(v => `<div class="table-row members-row"><span><b>${escapeHtml(v.nickname)}</b><small class="block">${who(v.user_id)}</small></span><span data-label="Ingame-ID">${escapeHtml(v.ingame_id)}</span><span data-label="Name">${escapeHtml(`${v.first_name} ${v.last_name}`)}</span><span data-label="Verifiziert">${date(v.verified_at)}${v.updated_at !== v.verified_at ? `<small class="block">geändert ${date(v.updated_at)}</small>` : ""}</span><span class="actions tight">${caps.leaders ? btn("Zurücksetzen", "verification-reset", { user: v.user_id, name: v.nickname }) : ""}</span></div>`).join("") : empty("Noch niemand verifiziert.");
+  $("members-list").innerHTML = data.verifications.length ? `<div class="table-row table-head members-row"><span>Discord</span><span>Ingame-ID</span><span>Name (Ingame)</span><span>Verifiziert</span><span></span></div>` + data.verifications.map(v => `<div class="table-row members-row"><span><b>${plink(v.user_id)}</b><small class="block">${escapeHtml(v.nickname)}</small></span><span data-label="Ingame-ID">${escapeHtml(v.ingame_id)}</span><span data-label="Name">${escapeHtml(`${v.first_name} ${v.last_name}`)}</span><span data-label="Verifiziert">${date(v.verified_at)}${v.updated_at !== v.verified_at ? `<small class="block">geändert ${date(v.updated_at)}</small>` : ""}</span><span class="actions tight">${btn("Profil", "profile", { user: v.user_id })}${caps.leaders ? btn("Zurücksetzen", "verification-reset", { user: v.user_id, name: v.nickname }) : ""}</span></div>`).join("") : empty("Noch niemand verifiziert.");
   document.querySelectorAll("#tab-members .search").forEach(filterList);
 }
 
@@ -452,7 +461,7 @@ const actions = {
   "account-details": ({ user }) => accountDetails(user),
   "sanction-create": () => openForm({ eyebrow: "SANKTION", title: "Sanktion eintragen", intro: "<p>Wird als offener Auszahlungsabzug gespeichert und belastet das Konto erst bei der nächsten Auszahlung.</p>", fields: [memberField(), { name: "amount", label: "Betrag ($)", type: "money", required: true }, { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Sanktion vormerken", danger: true, onSubmit: v => post("/api/sanctions", v) }),
   "warning-revoke": ({ id }) => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung zurücknehmen", intro: "<p>Die Verwarnung bleibt in der Historie sichtbar, zählt aber nicht mehr als aktiv. Die Person wird per DM informiert.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300 }], submit: "Zurücknehmen", danger: true, onSubmit: v => post(`/api/warnings/${id}/revoke`, v) }),
-  "warning-create": () => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung eintragen", intro: "<p>Ohne Geldabzug. Die Person bekommt den Grund per DM; ab den eingestellten Grenzen folgen automatisch Timeout bzw. Meldung an die Leitung.</p>", fields: [memberField(), { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Verwarnung eintragen", onSubmit: v => post("/api/warnings", v) }),
+  "warning-create": ({ user } = {}) => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung eintragen", intro: "<p>Ohne Geldabzug. Die Person bekommt den Grund per DM; ab den eingestellten Grenzen folgen automatisch Timeout bzw. Meldung an die Leitung.</p>", fields: [memberField(user ?? ""), { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Verwarnung eintragen", onSubmit: v => post("/api/warnings", v) }),
   "sanction-correct": ({ id }) => { const s = state.cache.sanctions[id]; openForm({ eyebrow: "LEITUNG", title: "Sanktion korrigieren", intro: `<p>Bisher ${money(s.amount_cents)}, bereits verrechnet ${money(s.collected_cents)}. Der neue Gesamtbetrag darf das Verrechnete nicht unterschreiten.</p>`, fields: [{ name: "amount", label: "Neuer Gesamtbetrag ($)", type: "money", required: true, value: String(s.amount_cents / 100).replace(".", ",") }, { name: "reason", label: "Korrekturgrund", required: true, max: 300 }], submit: "Korrigieren", onSubmit: v => post(`/api/sanctions/${id}/correct`, v) }); },
   "sanction-void": ({ id }) => openForm({ eyebrow: "LEITUNG", title: "Sanktion aufheben", intro: "<p>Die Sanktion wird nicht gelöscht, sondern als aufgehoben markiert und nie mehr verrechnet.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300 }], submit: "Aufheben", danger: true, onSubmit: v => post(`/api/sanctions/${id}/void`, v) }),
   "sanction-refund": ({ id }) => openForm({ eyebrow: "LEITUNG", title: "Sanktion erstatten", intro: "<p>Bereits abgezogene Beträge werden dem Familienkonto gutgeschrieben und die Sanktion aufgehoben.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300 }], submit: "Erstatten", danger: true, onSubmit: (rid => v => post(`/api/sanctions/${id}/refund`, { ...v, requestId: rid }))(uuid()) }),
@@ -489,7 +498,7 @@ document.addEventListener("click", async event => {
   catch (error) { notify(error.message, "error"); }
   finally { busy = false; button.disabled = false; }
 });
-for (const [id, tab] of [["applications-filter", "applications"], ["tickets-filter", "tickets"], ["events-filter", "events"], ["sanctions-filter", "sanctions"], ["stats-filter", "stats"], ["audit-filter", "audit"]]) $(id).addEventListener("change", () => state.tab === tab && refresh());
+for (const [id, tab] of [["applications-filter", "applications"], ["tickets-filter", "tickets"], ["events-filter", "events"], ["sanctions-filter", "sanctions"], ["warnings-filter", "sanctions"], ["stats-filter", "stats"], ["audit-filter", "audit"]]) $(id).addEventListener("change", () => state.tab === tab && refresh());
 $("menu-toggle").addEventListener("click", () => (document.body.classList.contains("menu-open") ? closeMenu() : openMenu()));
 $("scrim").addEventListener("click", closeMenu);
 document.addEventListener("keydown", event => { if (event.key === "Escape") closeMenu(); });

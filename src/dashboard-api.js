@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EmbedBuilder, PermissionFlagsBits } from "discord.js";
 import { audit } from "./database.js";
-import { accessGroups } from "./config.js";
+import { accessGroups, configWarnings } from "./config.js";
 import { BRAND_COLOR, logEmbed } from "./presentation.js";
 import { FinanceError, createFinance, formatMoney, parseMoney } from "./services/finance.js";
 import { createEventService } from "./services/events.js";
@@ -18,7 +18,15 @@ import { refreshEventPosts } from "./event-posts.js";
 import { createVerificationService } from "./services/verification.js";
 import { WarningError, createWarningService, warnBlockReason } from "./services/warnings.js";
 import { deliverWarning, deliverySummary } from "./warn-actions.js";
-import { currentVersion } from "./version.js";
+import fs from "node:fs";
+import path from "node:path";
+import { currentVersion, lastUpdate } from "./version.js";
+import { AbsenceError, createAbsenceService, localDay, parseDay } from "./services/absences.js";
+import { createActivityService } from "./services/activity.js";
+import { createModerationLog } from "./services/moderation-log.js";
+import { postAbsence } from "./absence-posts.js";
+import { familyMembers, inactivityFor, remindInactive } from "./inactivity.js";
+import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
 
@@ -50,6 +58,9 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const texts = guildId ? createTextsService(db, guildId) : null;
   const version = currentVersion();
   const verifications = createVerificationService(db), warningService = createWarningService(db);
+  const absences = createAbsenceService(db), activity = createActivityService(db), modLog = createModerationLog(db);
+  const today = () => localDay(new Date(), config.TIMEZONE);
+  const startedAt = new Date().toISOString();
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const finance = createFinance(db), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
@@ -99,7 +110,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       capabilities: {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
-        sanctions: can(member, "staff"), warnings: can(member, "moderation"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
+        sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
         settings: Boolean(settings) && can(member, "leaders"),
       },
       settings: {
@@ -130,6 +141,77 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (found.size < 10) for (const m of (await g.members.search({ query: q, limit: 10 }).catch(() => null))?.values() ?? []) add(m);
       const avatar = m => (typeof m.displayAvatarURL === "function" ? m.displayAvatarURL({ size: 32, extension: "png" }) : null);
       return { members: [...found.values()].map(m => ({ id: m.id, name: m.displayName, tag: m.user?.username ?? "", avatar: avatar(m) })) };
+    }],
+    [/^\/api\/activity$/, async member => {
+      need(member, "anyStaff", "Staff-Rolle");
+      const day = today(), g = await guild();
+      const current = absences.current(guildId, day), upcoming = absences.upcoming(guildId, day, 30);
+      const recent = db.prepare("SELECT * FROM member_absences WHERE guild_id=? AND (ended_at IS NOT NULL OR ends_on<?) ORDER BY COALESCE(ended_at,ends_on) DESC LIMIT 15").all(guildId, day);
+      const members = await familyMembers({ db, guild: g, config });
+      const report = inactivityFor({ db, config, guildId, members });
+      const board = period => activity.leaderboard(guildId, { period, timezone: config.TIMEZONE, limit: 10 });
+      const leaderboard = { week: board("week"), month: board("month"), all: board("all") };
+      const ids = [...current, ...upcoming, ...recent].flatMap(a => [a.user_id, a.created_by, a.ended_by]).concat(report.map(r => r.userId), Object.values(leaderboard).flat().map(r => r.userId));
+      return withNames({
+        today: day, current, upcoming, recent, leaderboard,
+        inactive: report.filter(r => r.inactive), population: members.length, absentCount: report.filter(r => r.absent).length,
+        settings: { days: config.INACTIVITY_DAYS, dm: config.INACTIVITY_DM_ENABLED, alert: config.INACTIVITY_ALERT_ENABLED, maxDays: config.ABSENCE_MAX_DAYS, membersRole: Boolean(config.ROLE_MEMBERS?.length), trackingSince: activity.trackingSince(guildId) },
+      }, ids);
+    }],
+    [/^\/api\/members\/(\d{17,20})\/profile$/, async (member, url, [, userId]) => {
+      need(member, "anyStaff", "Staff-Rolle");
+      const g = await guild();
+      const discord = await g.members.fetch(userId).catch(() => null);
+      const user = discord?.user ?? await client.users.fetch(userId).catch(() => null);
+      if (!discord && !user && !db.prepare("SELECT 1 FROM audit_logs WHERE guild_id=? AND target_id=? LIMIT 1").get(guildId, userId)) throw new HttpError(404, "Dieses Mitglied ist unbekannt.");
+      const roles = discord ? [...discord.roles.cache.values()].filter(r => r.id !== guildId).sort((a, b) => (b.position ?? 0) - (a.position ?? 0)).map(r => ({ id: r.id, name: r.name, color: r.hexColor && r.hexColor !== "#000000" ? r.hexColor : null })) : [];
+      const roleIds = new Set(roles.map(r => r.id));
+      const ranks = (config.RANK_ROLES_JSON ?? []).filter(r => roleIds.has(r.roleId)).map(r => r.label);
+      const iso = new Date().toISOString();
+      const profile = {
+        userId, inGuild: Boolean(discord),
+        discord: { name: discord?.displayName ?? user?.globalName ?? user?.username ?? null, username: user?.username ?? null, avatar: typeof (discord ?? user)?.displayAvatarURL === "function" ? (discord ?? user).displayAvatarURL({ size: 128, extension: "png" }) : null, joinedAt: discord?.joinedAt ? new Date(discord.joinedAt).toISOString() : null, createdAt: user?.createdAt ? new Date(user.createdAt).toISOString() : null, timeoutUntil: discord?.communicationDisabledUntil && new Date(discord.communicationDisabledUntil) > new Date() ? new Date(discord.communicationDisabledUntil).toISOString() : null },
+        roles: roles.slice(0, 15), ranks,
+        verification: verifications.byUser(guildId, userId),
+        activity: { ...activity.eventStats(guildId, userId), lastMessage: activity.lastMessage(guildId, userId)?.last_message_at ?? null, messages: activity.lastMessage(guildId, userId)?.messages ?? 0, trackingSince: activity.trackingSince(guildId) },
+        absences: absences.forUser(guildId, userId, 10), absentNow: absences.absentUserIds(guildId, today()).has(userId),
+        events: db.prepare("SELECT e.id,e.name,e.starts_at,e.status AS event_status,p.status FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status<>'left' ORDER BY e.starts_at DESC LIMIT 15").all(guildId, userId)
+          .map(e => ({ ...e, excused: e.status === "absent" && absences.wasAbsent(guildId, userId, e.starts_at, config.TIMEZONE), upcoming: e.starts_at > iso })),
+        applications: can(member, "reviewers") || can(member, "staff") ? db.prepare("SELECT id,kind,status,created_at,updated_at,reviewer_id FROM applications WHERE guild_id=? AND user_id=? ORDER BY created_at DESC LIMIT 10").all(guildId, userId) : null,
+        tickets: can(member, "staff") ? db.prepare("SELECT id,category,status,created_at,closed_at,claimed_by FROM tickets WHERE guild_id=? AND user_id=? ORDER BY created_at DESC LIMIT 10").all(guildId, userId).map(t => ({ ...t, category_label: categoryLabel(t.category) })) : null,
+        warnings: can(member, "moderation") || can(member, "staff") ? { active: warningService.activeCount(guildId, userId, { expireDays: config.WARN_EXPIRE_DAYS }), items: warningService.list(guildId, userId, { limit: 15, expireDays: config.WARN_EXPIRE_DAYS }) } : null,
+        moderation: can(member, "moderation") || can(member, "staff") ? modLog.forUser(guildId, userId, 15) : null,
+        finance: can(member, "financeView") ? { plan: finance.previewPayout(guildId, userId), hasAccount: Boolean(db.prepare("SELECT 1 FROM accounts WHERE guild_id=? AND user_id=?").get(guildId, userId)), transactions: db.prepare("SELECT id,type,amount_cents,net_cents,reason,created_at FROM transactions WHERE guild_id=? AND user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 8").all(guildId, userId) } : null,
+        sanctions: can(member, "staff") || can(member, "financeView") ? finance.sanctionDetails(guildId, userId, { limit: 10 }) : null,
+      };
+      if (profile.discord.name) names.set(userId, profile.verification?.nickname ?? profile.discord.name);
+      const ids = [userId, ...(profile.applications ?? []).map(a => a.reviewer_id), ...(profile.tickets ?? []).map(t => t.claimed_by), ...(profile.warnings?.items ?? []).flatMap(w => [w.actor_id, w.revoked_by]), ...(profile.moderation ?? []).map(m => m.actor_id), ...(profile.sanctions ?? []).map(s => s.actor_id), ...profile.absences.flatMap(a => [a.created_by, a.ended_by])];
+      return withNames({ profile }, ids);
+    }],
+    [/^\/api\/status$/, async member => {
+      need(member, "anyStaff", "Staff-Rolle");
+      const backupDir = path.resolve(process.env.BACKUP_DIR ?? "./backups");
+      let backups = [];
+      try { backups = fs.readdirSync(backupDir).filter(name => /^gambino-.*\.sqlite$/.test(name)).map(name => { const stat = fs.statSync(path.join(backupDir, name)); return { at: stat.mtime.toISOString(), size: stat.size }; }).sort((a, b) => b.at.localeCompare(a.at)); } catch { backups = []; }
+      const dbFile = path.resolve(config.DATABASE_PATH ?? "./data/gambino.sqlite");
+      const fileSize = file => { try { return fs.statSync(file).size; } catch { return 0; } };
+      const day = new Date(Date.now() - 86_400_000).toISOString();
+      const failedLogs = db.prepare("SELECT COUNT(*) n FROM audit_log_deliveries WHERE result='failed' AND attempted_at>=?").get(day).n;
+      const wsStatus = client.ws?.status;
+      return {
+        bot: { online: wsStatus === 0 || (wsStatus == null && Boolean(client.readyAt)), ping: Number.isFinite(client.ws?.ping) ? Math.round(client.ws.ping) : null, readySince: client.readyAt ? new Date(client.readyAt).toISOString() : null, tag: client.user?.tag ?? null, guildMembers: (await guild().catch(() => null))?.memberCount ?? null },
+        process: { startedAt, uptimeSeconds: Math.round(process.uptime()), memoryMb: Math.round(process.memoryUsage().rss / 1048576), node: process.version },
+        version: { commit: version, update: lastUpdate() },
+        scheduler: { lastTick: client.gambinoSchedulerTick ? new Date(client.gambinoSchedulerTick).toISOString() : null },
+        database: { sizeBytes: fileSize(dbFile) + fileSize(`${dbFile}-wal`), schema: db.prepare("SELECT MAX(version) v FROM schema_migrations").get().v },
+        backups: { latest: backups[0] ?? null, count: backups.length },
+        logs: { failedLast24h: failedLogs },
+        warnings: configWarnings(config),
+      };
+    }],
+    [/^\/api\/reset$/, async member => {
+      need(member, "leaders", "Leitungsrolle");
+      return { areas: resetPreview(db, guildId), confirmWord: RESET_CONFIRM_WORD };
     }],
     [/^\/api\/roles$/, async member => {
       need(member, "staff", "Staff-Rolle");
@@ -327,7 +409,8 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (!["present", "absent"].includes(body.status)) throw new HttpError(400, "Ungültiger Anwesenheitsstatus.");
       const result = events.setAttendance({ guildId, eventId: id, userId: snowflake(body.userId), status: body.status, actorId: member.id });
       if (!result) throw new HttpError(404, "Event nicht gefunden oder abgesagt.");
-      return { message: body.status === "present" ? "Als anwesend dokumentiert." : "Als abwesend dokumentiert." };
+      const excused = body.status === "absent" && absences.wasAbsent(guildId, String(body.userId), result.event.starts_at, config.TIMEZONE);
+      return { message: body.status === "present" ? "Als anwesend dokumentiert." : excused ? "Als abwesend dokumentiert – entschuldigt, die Person war abgemeldet." : "Als abwesend dokumentiert." };
     }],
     [/^\/api\/accounts\/(\d{17,20})\/open$/, async (member, body, [, userId]) => {
       need(member, "finance", "Finanzrolle");
@@ -374,6 +457,41 @@ export function createDashboardApi({ db, client, config, settings = null, series
       await requireGuildMember(userId);
       const id = finance.sanction({ guildId, userId, actorId: member.id, cents: money(body.amount), reason: text(body.reason, { min: 3, max: 300, label: "Grund" }), caseRef: text(body.caseRef, { max: 100, label: "Fallbezug" }) || null });
       return { message: "Sanktion vorgemerkt. Sie wird erst bei der nächsten Auszahlung verrechnet.", id };
+    }],
+    [/^\/api\/reset$/, async (member, body) => {
+      need(member, "leaders", "Leitungsrolle");
+      if (String(body.confirm ?? "").trim().toUpperCase() !== RESET_CONFIRM_WORD) throw new HttpError(400, `Zur Bestätigung bitte genau „${RESET_CONFIRM_WORD}“ eintippen.`);
+      const areas = Array.isArray(body.areas) ? body.areas.map(String) : [];
+      let backup = null;
+      try { backup = await backupBeforeReset(db); }
+      catch (error) { throw new HttpError(500, `Backup vor dem Zurücksetzen fehlgeschlagen (${error.message}). Es wurde nichts gelöscht.`); }
+      let result;
+      try { result = resetData(db, { guildId, areas, actorId: member.id, backup }); } catch (error) { throw new HttpError(400, error.message); }
+      // Panels (Staff-Dashboard, Rangliste) zeigen danach sofort die leeren Zahlen.
+      await ensurePanels({ db, client, config, series }).catch(() => {});
+      const total = Object.values(result.removed).reduce((a, b) => a + b, 0);
+      return { message: `Zurückgesetzt: ${result.areas.length} Bereiche, ${total} Einträge entfernt.${backup ? ` Backup: ${path.basename(backup)}` : ""}` };
+    }],
+    [/^\/api\/absences$/, async (member, body) => {
+      need(member, "staff", "Staff-Rolle");
+      const userId = snowflake(body.userId);
+      await requireGuildMember(userId);
+      const row = absences.create({ guildId, userId, actorId: member.id, startsOn: parseDay(body.from, config.TIMEZONE), endsOn: parseDay(body.until, config.TIMEZONE), reason: text(body.reason, { min: 2, max: 300, label: "Grund" }), timezone: config.TIMEZONE, maxDays: 365 });
+      await postAbsence({ client, config, row });
+      return { message: "Abmeldung eingetragen." };
+    }],
+    [/^\/api\/absences\/([\w-]+)\/end$/, async (member, body, [, id]) => {
+      need(member, "staff", "Staff-Rolle");
+      const row = absences.end({ guildId, absenceId: id, actorId: member.id });
+      if (row.starts_on <= today()) await postAbsence({ client, config, row, kind: "ended" });
+      return { message: row.starts_on <= today() ? "Abmeldung beendet." : "Geplante Abmeldung storniert." };
+    }],
+    [/^\/api\/activity\/(\d{17,20})\/remind$/, async (member, body, [, userId]) => {
+      need(member, "staff", "Staff-Rolle");
+      await requireGuildMember(userId);
+      const days = Math.max(0, Math.min(3650, Number(body.days) || config.INACTIVITY_DAYS));
+      const sent = await remindInactive({ db, client, config, guildId, userId, actorId: member.id, days });
+      return { message: sent ? "Erinnerung per DM gesendet." : "Die Person hat DMs geschlossen; die Erinnerung ist trotzdem vermerkt." };
     }],
     [/^\/api\/warnings$/, async (member, body) => {
       need(member, "moderation", "Moderations- oder Staff-Rolle");
@@ -543,6 +661,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       try { return { status: 200, body: await handler(member, ...args.slice(1), match) }; }
       catch (error) {
         if (error instanceof HttpError) return { status: error.status, body: { error: error.message } };
+        if (error instanceof AbsenceError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "OVERLAP" || error.code === "ALREADY_ENDED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof WarningError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_REVOKED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof FinanceError) return { status: ["PREVIEW_MISMATCH", "CONCURRENT_CHANGE", "SANCTION_CONFLICT"].includes(error.code) ? 409 : 400, body: { error: error.message, code: error.code } };
         throw error;

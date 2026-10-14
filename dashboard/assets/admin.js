@@ -83,12 +83,16 @@ function renderPreview() {
   const { panel, values } = currentTexts();
   const fields = [1, 2, 3].map(n => [values[`field${n}Name`], values[`field${n}Value`], n < 3]).filter(([name, value]) => name && value);
   const extras = panel.id === "activityBoard" ? [[values.scheduledTitle, "**Bizwar** · täglich · 01:05, 19:05 Uhr · nächstes in 2 Stunden", false], [values.flexibleTitle, "**Ladenraub** · alle 3 Stunden möglich", false]].filter(([n]) => n)
-    : panel.id === "staffDashboard" ? [["🎫 Offene Tickets", "3 · davon 1 ohne Bearbeiter", true], ["📨 Offene Anträge", "2", true]] : [];
+    : panel.id === "staffDashboard" ? [["🎫 Offene Tickets", "3 · davon 1 ohne Bearbeiter", true], ["📨 Offene Anträge", "2", true]]
+    : panel.id === "leaderboard" ? [[values.weekTitle, "🥇 @Tony · **5** Teilnahmen\n🥈 @Paulie · **3** Teilnahmen", true], [values.monthTitle, "🥇 @Paulie · **14** Teilnahmen\n🥈 @Tony · **12** Teilnahmen", true]] : [];
+  if (panel.id === "welcome") { const sample = { "{user}": "@NeuerSpieler", "{name}": "NeuerSpieler", "{server}": "Gambinos", "{mitglieder}": "128", "{verifizierung}": "#neue-spieler" }; for (const key of ["content", "author", "title", "description", "footer", "dm"]) values[key] = String(values[key] ?? "").replace(/\{(user|name|server|mitglieder|verifizierung)\}/g, m => sample[m]); }
   if (panel.id === "events") return renderEventPreview(values);
   const buttons = panel.id === "verification" ? `<div class="dc-buttons"><span class="dc-btn ok">${escapeHtml(values.button)}</span><span class="dc-btn">${escapeHtml(values.buttonRename)}</span></div>`
     : panel.id === "application" ? `<div class="dc-buttons"><span class="dc-btn primary">${escapeHtml(values.buttonApply)}</span><span class="dc-btn">${escapeHtml(values.buttonRank)}</span></div>`
+    : panel.id === "absence" ? `<div class="dc-buttons"><span class="dc-btn danger">${escapeHtml(values.buttonAbsent)}</span><span class="dc-btn ok">${escapeHtml(values.buttonBack)}</span></div>`
+    : panel.id === "welcome" ? (values.button ? `<div class="dc-buttons"><span class="dc-btn">${escapeHtml(values.button)} ↗</span></div>` : "") + (values.dm ? `<div class="sub-label">Private Nachricht (falls aktiviert)</div><div class="dc-desc">${markdown(values.dm)}</div>` : "")
     : panel.id === "ticket" ? `<div class="dc-select">${escapeHtml(values.placeholder)}<span>⌄</span></div>` : panel.id === "staffDashboard" ? '<div class="dc-select">📂 Ansicht wählen …<span>⌄</span></div>' : "";
-  $("texts-preview").innerHTML = `<div class="dc-head"><img src="/assets/gambinos-profile.gif" alt=""><b>Gambino Helper</b><span class="dc-app">APP</span></div><div class="dc-embed">${values.author ? `<div class="dc-author">${escapeHtml(values.author)}</div>` : ""}${values.title ? `<div class="dc-title">${escapeHtml(values.title)}</div>` : ""}${values.description ? `<div class="dc-desc">${markdown(values.description)}</div>` : ""}<div class="dc-fields">${[...fields, ...extras].map(([name, value, inline]) => `<div class="dc-field ${inline ? "inline" : ""}"><b>${escapeHtml(name)}</b><div>${markdown(value)}</div></div>`).join("")}</div>${values.footer ? `<div class="dc-footer">${escapeHtml(values.footer)}</div>` : ""}</div>${buttons}`;
+  $("texts-preview").innerHTML = `<div class="dc-head"><img src="/assets/gambinos-profile.gif" alt=""><b>Gambino Helper</b><span class="dc-app">APP</span></div>${panel.id === "welcome" && values.content ? `<div class="dc-desc">${markdown(values.content)}</div>` : ""}<div class="dc-embed">${values.author ? `<div class="dc-author">${escapeHtml(values.author)}</div>` : ""}${values.title ? `<div class="dc-title">${escapeHtml(values.title)}</div>` : ""}${values.description ? `<div class="dc-desc">${markdown(values.description)}</div>` : ""}<div class="dc-fields">${[...fields, ...extras].map(([name, value, inline]) => `<div class="dc-field ${inline ? "inline" : ""}"><b>${escapeHtml(name)}</b><div>${markdown(value)}</div></div>`).join("")}</div>${values.footer ? `<div class="dc-footer">${escapeHtml(values.footer)}</div>` : ""}</div>${buttons}`;
   const embed = $("texts-preview").querySelector(".dc-embed");
   if (embed) embed.style.borderLeftColor = /^#[0-9a-f]{6}$/i.test(values.color ?? "") ? values.color : "#d4af37";
   document.querySelectorAll("#texts-form [data-text]").forEach(input => { const counter = input.parentElement.querySelector(".counter"); if (counter && input.maxLength > 0) counter.textContent = `${input.value.length}/${input.maxLength}`; });
@@ -128,6 +132,14 @@ function renderCheck(report) {
 }
 
 Object.assign(actions, {
+  "reset-open": async () => {
+    const data = await api("/api/reset");
+    openForm({ eyebrow: "GEFAHRENZONE", title: "Testdaten zurücksetzen", danger: true, submit: "Endgültig zurücksetzen",
+      intro: "<p>Wähle, was gelöscht wird. <b>Channels, Rollen, Panel-Texte, Panels und Aktivitäten-Vorlagen bleiben immer erhalten.</b> Vor dem Löschen wird automatisch ein Datenbank-Backup angelegt (siehe Status-Seite). Discord-Nachrichten wie alte Event-Karten oder Ticket-Channels werden nicht gelöscht.</p>",
+      fields: [{ name: "areas", label: "Bereiche", type: "checks", required: true, options: data.areas.map(a => [a.id, `${a.label} (${a.count})`]), value: data.areas.filter(a => a.default).map(a => a.id) },
+        { name: "confirm", label: `Zur Bestätigung „${data.confirmWord}“ eintippen`, required: true, max: 20, placeholder: data.confirmWord }],
+      onSubmit: v => post("/api/reset", v) });
+  },
   "texts-select": ({ panel }) => { textsState.current = panel; renderTexts(); },
   "texts-save": async () => { const { panel, values } = currentTexts(); const data = await post("/api/texts", { panel: panel.id, values }); textsState.panels = data.panels; notify(data.message); renderTexts(); },
   "texts-reset": () => { const { panel } = currentTexts(); confirmAction(`${panel.label} zurücksetzen?`, "Alle Texte dieses Panels werden auf die Standardtexte zurückgesetzt und in Discord aktualisiert.", "Zurücksetzen", async () => { const data = await post("/api/texts/reset", { panel: panel.id }); textsState.panels = data.panels; renderTexts(); return data; }); },
