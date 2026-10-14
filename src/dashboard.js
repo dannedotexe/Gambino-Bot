@@ -96,6 +96,19 @@ export function createDashboard({ db, client, config, settings = null, series = 
     if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null;
     try { const session = JSON.parse(Buffer.from(payload, "base64url").toString()); return session.exp > Date.now() && /^\d{17,20}$/.test(session.sub) ? session.sub : null; } catch { return null; }
   };
+  /** Erklärt beim Login, warum jemand nicht reinkommt (eigene Rollen und die benötigte Familienrolle). */
+  const deniedReason = async userId => {
+    if (!config.DASHBOARD_MEMBER_AREA) return "Die Website ist derzeit nur für das Team freigeschaltet.";
+    const guild = client.guilds.cache.get(config.DISCORD_GUILD_ID) ?? await client.guilds.fetch(config.DISCORD_GUILD_ID).catch(() => null);
+    const member = userId ? await guild?.members.fetch(userId).catch(() => null) : null;
+    if (!member) return "Kein Zugang: Du bist mit einem Discord-Konto angemeldet, das nicht auf dem Gambinos-Server ist.";
+    if (!groups.members.length) return "Kein Zugang: Die Familienrolle ist im Bot noch nicht eingestellt (Leitung: Einstellungen → Rollen → Familienmitglieder).";
+    const roleName = id => guild.roles.cache.get(id)?.name ?? id;
+    const own = [...member.roles.cache.keys()].filter(id => id !== guild.id).map(roleName);
+    const needed = (config.ROLE_MEMBERS ?? []).map(roleName);
+    console.warn(`Website-Login abgewiesen: ${userId} – Rollen: ${own.join(", ") || "keine"} – benötigt: ${needed.join(", ") || "Rang-Rolle"}`);
+    return `Kein Zugang: Dir fehlt die Familienrolle${needed.length ? ` (${needed.join(" oder ")})` : ""}. Deine Rollen: ${own.join(", ") || "keine"}. Bitte melde dich bei der Leitung.`.slice(0, 400);
+  };
   const sessionFor = async (req, res = null) => {
     const raw = req.headers.cookie?.split(";").map(x => x.trim()).find(x => x.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     if (!raw) return null;
@@ -152,7 +165,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
         const user = await userResponse.json();
         const allowed = userResponse.ok && await memberFor(user.id);
         logAccess(req, allowed ? "login" : "login_denied", /^\d{17,20}$/.test(String(user?.id ?? "")) ? user.id : null);
-        if (!allowed) return loginFailure(config.DASHBOARD_MEMBER_AREA ? "Kein Zugang: Dir fehlt die Familienrolle. Bitte melde dich bei der Leitung." : "Die Website ist derzeit nur für das Team freigeschaltet.");
+        if (!allowed) return loginFailure(await deniedReason(user?.id));
         res.writeHead(302, { Location: "/", "Cache-Control": "no-store", "Set-Cookie": sessionCookie(user.id) }); return res.end();
       }
       if (req.method === "POST" && url.pathname === "/logout") {

@@ -176,6 +176,7 @@ export function configWarnings(config) {
   for (const [key, purpose] of Object.entries(roles)) if (!config[key]?.length) warnings.push(`${key} ist leer (betrifft: ${purpose}). Diese Aktionen können nur ${key === "ROLE_LEADERS" ? "Bot-Owner" : "Leitung und Bot-Owner"} ausführen.`);
   const channels = { CHANNEL_TICKET_CATEGORY: "Ticket-Channels entstehen ohne Kategorie", CHANNEL_TICKET_LOG: "keine Ticket-Kurzmeldungen und Transkript-Dateien", CHANNEL_APPLICATION_REVIEW: "Bewerbungen werden über den Channel-Namen gesucht", CHANNEL_RANK_REVIEW: "Rang-Anträge werden über den Channel-Namen gesucht", CHANNEL_EVENT_ANNOUNCEMENTS: "Events werden im Command-Channel angekündigt", CHANNEL_AUDIT_LOG: "Audit-Logs nur in der Datenbank", CHANNEL_AUTOMOD_LOG: "keine AutoMod-/Raid-Meldungen in Discord", CHANNEL_STATS: "kein automatischer Statistik-Channel" };
   for (const [key, effect] of Object.entries(channels)) if (!config[key]) warnings.push(`${key} ist leer: ${effect}.`);
+  if (config.DASHBOARD_MEMBER_AREA && !config.ROLE_MEMBERS?.length) warnings.push("Familienmitglieder-Rolle (ROLE_MEMBERS) ist leer: Normale Familienmitglieder ohne Rang-Rolle kommen nicht auf die Website und erhalten keine Konto-Löschanfragen.");
   if (config.AUTOMOD_ENABLED && !config.CHANNEL_AUTOMOD_LOG) warnings.push("AutoMod ist aktiv, aber CHANNEL_AUTOMOD_LOG fehlt.");
   return warnings;
 }
