@@ -45,7 +45,9 @@ export function createDashboard({ db, client, config, settings = null, series = 
     // Server-Profilbild bevorzugt, sonst globales Discord-Profilbild (nur Bilder von cdn.discordapp.com).
     const avatar = typeof member.displayAvatarURL === "function" ? member.displayAvatarURL({ size: 64, extension: "png" }) : null;
     // Reine Familienmitglieder (ohne Team-Rolle) sehen nur „Mein Bereich“; ihre Rollenliste bleibt leer, damit keine Team-Prüfung greift.
-    const family = Boolean(config.DASHBOARD_MEMBER_AREA) && groups.members.some(id => member.roles.cache.has(id));
+    // Ohne passende Rolle zählt auch ein bestehendes Familienkonto als Familienzugehörigkeit.
+    const family = Boolean(config.DASHBOARD_MEMBER_AREA) && (groups.members.some(id => member.roles.cache.has(id))
+      || Boolean(db.prepare("SELECT 1 FROM accounts WHERE guild_id=? AND user_id=?").get(config.DISCORD_GUILD_ID, userId)));
     const team = roles.length > 0 || owner;
     return team || family ? { id: member.id, tag: member.user.tag, displayName: member.displayName, roles, owner, avatar, family, team } : null;
   };
@@ -124,7 +126,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
         if (!tokenResponse.ok) return loginFailure("Discord-Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
         const userResponse = await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${token.access_token}` } });
         const user = await userResponse.json();
-        if (!userResponse.ok || !await memberFor(user.id)) return loginFailure("Die Website ist nur für Mitglieder der Gambinos-Familie.");
+        if (!userResponse.ok || !await memberFor(user.id)) return loginFailure(config.DASHBOARD_MEMBER_AREA ? "Kein Zugang: Dir fehlt die Familienrolle. Bitte melde dich bei der Leitung." : "Die Website ist derzeit nur für das Team freigeschaltet.");
         const payload = Buffer.from(JSON.stringify({ sub: user.id, exp: Date.now() + 8 * 60 * 60_000 })).toString("base64url");
         res.writeHead(302, { Location: "/", "Cache-Control": "no-store", "Set-Cookie": cookie(`${payload}.${sign(payload)}`, 8 * 60 * 60) }); return res.end();
       }

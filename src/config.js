@@ -162,7 +162,8 @@ export function accessGroups(config) {
     events: unique(L, config.ROLE_EVENT_TEAM ?? []),
     moderation: unique(L, config.ROLE_STAFF ?? [], config.ROLE_MODERATORS ?? []),
     anyStaff: unique(L, config.ROLE_STAFF ?? [], config.ROLE_FINANCE ?? [], config.ROLE_REVIEWERS ?? [], config.ROLE_EVENT_TEAM ?? [], config.ROLE_MODERATORS ?? []),
-    members: unique(config.ROLE_MEMBERS ?? []),
+    // Familie = Familienmitglieder-Rolle oder eine der Rang-Rollen (wer einen Rang hat, gehört zur Familie).
+    members: unique(config.ROLE_MEMBERS ?? [], (config.RANK_ROLES_JSON ?? []).map(rank => rank.roleId)),
   };
 }
 

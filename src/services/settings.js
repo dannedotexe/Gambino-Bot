@@ -17,7 +17,7 @@ export const SETTINGS = [
   { key: "ROLE_FINANCE_VIEWERS", group: "Rollen", label: "Finanz-Einsicht", type: "roles", help: "Kontostände nur ansehen." },
   { key: "ROLE_REVIEWERS", group: "Rollen", label: "Reviewer", type: "roles", help: "Bewerbungen und Rang-Anträge prüfen." },
   { key: "ROLE_EVENT_TEAM", group: "Rollen", label: "Event-Team", type: "roles", help: "Events und Aktivitäten verwalten." },
-  { key: "ROLE_MEMBERS", group: "Rollen", label: "Familienmitglieder", type: "roles", help: "Wenn gesetzt: nur diese (und Staff) dürfen sich für Events anmelden und Rang-Anträge stellen." },
+  { key: "ROLE_MEMBERS", group: "Rollen", label: "Familienmitglieder", type: "roles", help: "Die allgemeine Familienrolle (z. B. „| Gambino“). Wer sie oder eine Rang-Rolle hat, gehört zur Familie: Familienkonto, Abmeldung, Events, Rang-Anträge und „Mein Bereich“ auf der Website." },
   { key: "ROLE_VERIFIED", group: "Rollen", label: "Rolle nach Verifizierung", type: "roles", help: "Optional: wird nach erfolgreicher Verifizierung vergeben. Die Bot-Rolle muss darüber stehen." },
   { key: "ROLE_ABSENT", group: "Rollen", label: "Rolle während einer Abmeldung", type: "roles", help: "Optional: wird automatisch vergeben, solange jemand abgemeldet ist, und danach wieder entfernt. Die Bot-Rolle muss darüber stehen." },
   { key: "CHANNEL_WELCOME", group: "Channels", label: "Willkommensnachricht (öffentlich)", type: "channel", help: "Neue Spieler werden hier begrüßt, mit Hinweis und Button zur Verifizierung. Leer = keine Begrüßung. Empfohlen: INFORMATION・willkommen." },

@@ -10,3 +10,8 @@ test("Voller Zugriff (z. B. ab Rang 8) gilt in allen Bereichen wie die Leitung",
   }
   assert.ok(!groups.members.includes("80000000000000008"));
 });
+
+test("Rang-Rollen zählen zur Familie, auch wenn sie nicht als Familienmitglieder-Rolle eingetragen sind", () => {
+  const config = loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", ROLE_MEMBERS: "11111111111111111", RANK_ROLES_JSON: JSON.stringify([{ label: "6 - Turfer", roleId: "66666666666666666" }]) });
+  assert.deepEqual(accessGroups(config).members, ["11111111111111111", "66666666666666666"]);
+});

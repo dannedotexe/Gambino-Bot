@@ -1079,7 +1079,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if(kind==="absence"&&action==="back")return endOwnAbsence(i);
       if(kind==="mod"&&action==="confirm")return confirmModeration(i,id);
       if(kind==="account"){
-        const gate=memberGate(i);if(gate)return answer(i,{content:"Das Familienkonto gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});
+        const gate=memberGate(i);if(gate&&!db.prepare("SELECT 1 FROM accounts WHERE guild_id=? AND user_id=?").get(i.guildId,i.user.id))return answer(i,{content:"Das Familienkonto gibt es nur für Mitglieder der Gambinos-Familie. Dir fehlt die Familienrolle – bitte melde dich bei der Leitung.",ephemeral:true});
         if(action==="balance")return answer(i,balanceView(g,u));
         if(action==="history")return answer(i,historyView(g,u));
         if(action==="sanctions")return answer(i,sanctionsView(g,u));
