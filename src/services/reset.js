@@ -58,6 +58,10 @@ export const RESET_AREAS = {
   ranks: { label: "Rang-Historie (Beförderungen/Degradierungen)", default: true, sql: [
     "DELETE FROM rank_changes WHERE guild_id=@g",
   ] },
+  polls: { label: "Abstimmungen & Stimmen (Nachrichten in Discord bleiben)", default: true, sql: [
+    "DELETE FROM poll_votes WHERE poll_id IN (SELECT id FROM polls WHERE guild_id=@g)",
+    "DELETE FROM polls WHERE guild_id=@g",
+  ] },
   verifications: { label: "Verifizierungen (Discord-Namen und Rollen bleiben, Spieler müssten sich neu verifizieren)", default: false, sql: [
     "DELETE FROM member_verifications WHERE guild_id=@g",
   ] },
@@ -80,6 +84,7 @@ export function resetPreview(db, guildId) {
     audit: "SELECT COUNT(*) n FROM audit_logs WHERE guild_id=@g",
     announcements: "SELECT COUNT(*) n FROM announcements WHERE guild_id=@g",
     ranks: "SELECT COUNT(*) n FROM rank_changes WHERE guild_id=@g",
+    polls: "SELECT COUNT(*) n FROM polls WHERE guild_id=@g",
     verifications: "SELECT COUNT(*) n FROM member_verifications WHERE guild_id=@g",
   };
   return Object.entries(RESET_AREAS).map(([id, area]) => ({ id, label: area.label, default: area.default, count: count(counters[id]) }));

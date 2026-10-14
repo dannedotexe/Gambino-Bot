@@ -120,6 +120,15 @@ export const MIGRATIONS = [
       ${appendOnly("rank_changes", "Rangänderungen")}
     `),
   },
+  {
+    version: 7,
+    name: "abstimmungen",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS polls (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, channel_id TEXT NOT NULL, message_id TEXT, question TEXT NOT NULL, options TEXT NOT NULL, anonymous INTEGER NOT NULL DEFAULT 0 CHECK(anonymous IN (0,1)), hide_results INTEGER NOT NULL DEFAULT 0 CHECK(hide_results IN (0,1)), required_role_id TEXT, ends_at TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('open','closed','cancelled')), created_by TEXT NOT NULL, created_at TEXT NOT NULL, closed_at TEXT, closed_by TEXT);
+      CREATE INDEX IF NOT EXISTS polls_status_end ON polls(status,ends_at);
+      CREATE TABLE IF NOT EXISTS poll_votes (poll_id TEXT NOT NULL REFERENCES polls(id), user_id TEXT NOT NULL, option_index INTEGER NOT NULL, voted_at TEXT NOT NULL, PRIMARY KEY(poll_id,user_id));
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

@@ -43,7 +43,7 @@ const schema = z.object({
   CHANNEL_ACTIVITY_BOARD: snowflake, CHANNEL_EVENT_SIGNUP: snowflake, CHANNEL_ACCOUNT_PANEL: snowflake, CHANNEL_EVENT_RESULTS: snowflake, CHANNEL_EVENT_LOG: snowflake,
   CHANNEL_GIVEAWAYS: snowflake, CHANNEL_SANCTION_LOG: snowflake, CHANNEL_FINANCE_LOG: snowflake,
   CHANNEL_ABSENCES: snowflake, CHANNEL_ACTIVITY_LOG: snowflake, CHANNEL_WELCOME: snowflake, CHANNEL_LEADERBOARD: snowflake,
-  CHANNEL_ANNOUNCEMENTS: snowflake, CHANNEL_SANCTION_LIST: snowflake, CHANNEL_WEEKLY_REPORT: snowflake,
+  CHANNEL_ANNOUNCEMENTS: snowflake, CHANNEL_POLLS: snowflake, CHANNEL_SANCTION_LIST: snowflake, CHANNEL_WEEKLY_REPORT: snowflake,
   AUDIT_CHANNEL_IGNORE_ACTIONS: z.string().default("event.participation,giveaway.entry").transform(csv),
   TICKET_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
   TICKET_MAX_OPEN_PER_USER: z.coerce.number().int().positive().default(2),

@@ -237,3 +237,11 @@ button.danger#dialog-submit{background:var(--red);border-color:var(--red);color:
 .boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--faint);font-size:13px;opacity:0;animation:boot-in .2s ease .5s forwards}
 .boot span{width:14px;height:14px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--muted);animation:spin .8s linear infinite}
 @keyframes boot-in{to{opacity:1}}@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Abstimmungen */
+.poll-options{display:grid;gap:8px;margin-top:8px}
+.poll-option-head{display:flex;justify-content:space-between;gap:10px;font-size:13px}.poll-option-head b{font-weight:500;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.poll-option.lead .poll-option-head span{font-weight:600}.poll-option small{display:block;color:var(--faint);font-size:11px;margin-top:2px}
+.poll-bar{height:6px;border-radius:3px;background:var(--hover);overflow:hidden;margin-top:4px}.poll-bar i{display:block;height:100%;width:0;background:#71717a}.poll-option.lead .poll-bar i{background:var(--red)}
+.poll-form .checks{gap:8px}
+a.action{text-decoration:none;display:inline-flex;align-items:center}

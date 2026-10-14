@@ -33,7 +33,7 @@ const labels = {
   "absence.created": "Abmeldung eingetragen", "absence.ended": "Abmeldung beendet", "activity.reminder": "Inaktivitäts-Erinnerung",
   "moderation.timeout": "Timeout", "moderation.untimeout": "Timeout aufgehoben", "moderation.kick": "Kick", "moderation.ban": "Bann", "moderation.unban": "Entbannt",
   "moderation.timeout_failed": "Timeout fehlgeschlagen", "moderation.kick_failed": "Kick fehlgeschlagen", "moderation.ban_failed": "Bann fehlgeschlagen", "moderation.unban_failed": "Entbannen fehlgeschlagen", "moderation.untimeout_failed": "Timeout-Aufhebung fehlgeschlagen",
-  "automod.action": "AutoMod-Maßnahme", "admin.override": "Bot-Owner-Override", "admin.data_reset": "Testdaten zurückgesetzt", "announcement.created": "Ankündigung gesendet", "announcement.scheduled": "Ankündigung geplant", "announcement.cancelled": "Ankündigung abgebrochen", "rank.promotion": "Beförderung", "rank.demotion": "Degradierung", "rank.change": "Rangänderung", "config.changed": "Einstellung geändert", "config.panel_published": "Dashboard-Panel veröffentlicht", "config.automod_synced": "AutoMod synchronisiert",
+  "automod.action": "AutoMod-Maßnahme", "admin.override": "Bot-Owner-Override", "admin.data_reset": "Testdaten zurückgesetzt", "admin.export": "Daten exportiert", "announcement.created": "Ankündigung gesendet", "announcement.scheduled": "Ankündigung geplant", "announcement.cancelled": "Ankündigung abgebrochen", "poll.created": "Abstimmung gestartet", "poll.closed": "Abstimmung beendet", "poll.cancelled": "Abstimmung abgebrochen", "rank.promotion": "Beförderung", "rank.demotion": "Degradierung", "rank.change": "Rangänderung", "config.changed": "Einstellung geändert", "config.panel_published": "Dashboard-Panel veröffentlicht", "config.automod_synced": "AutoMod synchronisiert",
 };
 const statusLabels = { open: "Offen", review: "In Prüfung", accepted: "Angenommen", rejected: "Abgelehnt", withdrawn: "Zurückgezogen", partial: "Teilweise verrechnet", paid: "Beglichen", void: "Aufgehoben", scheduled: "Geplant", ended: "Beendet", cancelled: "Abgesagt", active: "Aktiv", closed: "Geschlossen", signed_up: "Angemeldet", present: "Anwesend", absent: "Abwesend" };
 const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP-Erfahrung", motivation: "Motivation", aktivitaet: "Aktivität", aktueller_rang: "Aktueller Rang", ziel_rang: "Beantragter Rang", begruendung: "Begründung" };
@@ -41,7 +41,7 @@ const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit
 const TABS = [
   ["overview", "Übersicht", () => true], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
   ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
-  ["announcements", "Ankündigungen", c => c.announcements], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.staff], ["settings", "Einstellungen", c => c.settings],
+  ["announcements", "Ankündigungen", c => c.announcements], ["polls", "Abstimmungen", c => c.polls], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.staff], ["settings", "Einstellungen", c => c.settings],
 ];
 
 const ICONS = {
@@ -57,11 +57,12 @@ const ICONS = {
   members: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0 .01 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
   activity: "M22 12h-4l-3 9L9 3l-3 9H2",
   announcements: "M3 11l18-8v18L3 13z M11.6 16.8a3 3 0 1 1-5.8-1.6",
+  polls: "M4 20V10 M10 20V4 M16 20v-7 M22 20H2",
   status: "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M9 12l2 2 4-4",
   settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
-const NAV_GROUPS = [["", ["overview"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["announcements", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
+const NAV_GROUPS = [["", ["overview"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });

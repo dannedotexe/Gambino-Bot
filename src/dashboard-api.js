@@ -29,6 +29,8 @@ import { familyMembers, inactivityFor, remindInactive } from "./inactivity.js";
 import { AnnouncementError, createAnnouncementService, deliverAnnouncement, validateAnnouncement } from "./announcements.js";
 import { createRankHistory } from "./services/ranks.js";
 import { sendWeeklyReport } from "./weekly-report.js";
+import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
+import { EXPORTS, buildExport } from "./csv-export.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -62,7 +64,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const version = currentVersion();
   const verifications = createVerificationService(db), warningService = createWarningService(db);
   const absences = createAbsenceService(db), activity = createActivityService(db), modLog = createModerationLog(db);
-  const announcements = createAnnouncementService(db), rankHistory = createRankHistory(db);
+  const announcements = createAnnouncementService(db), rankHistory = createRankHistory(db), polls = createPollService(db);
   const today = () => localDay(new Date(), config.TIMEZONE);
   const startedAt = new Date().toISOString();
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
@@ -114,7 +116,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       capabilities: {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
-        sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), announcements: can(member, "staff"), announceEveryone: can(member, "leaders"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
+        sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), announcements: can(member, "staff"), announceEveryone: can(member, "leaders"), polls: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
         settings: Boolean(settings) && can(member, "leaders"),
       },
       settings: {
@@ -213,6 +215,24 @@ export function createDashboardApi({ db, client, config, settings = null, series
         logs: { failedLast24h: failedLogs },
         warnings: configWarnings(config),
       };
+    }],
+    [/^\/api\/polls$/, async member => {
+      need(member, "staff", "Staff-Rolle");
+      const items = polls.list(guildId, 30).map(p => ({ ...p, results: polls.results(p.id), voters: polls.voters(p.id) }));
+      return withNames({ polls: items, defaultChannel: config.CHANNEL_POLLS ?? null }, items.flatMap(p => [p.created_by, ...(p.voters ?? []).map(v => v.user_id)]));
+    }],
+    [/^\/api\/export\/([a-z]+)\.csv$/, async (member, url, [, kind]) => {
+      const definition = EXPORTS[kind];
+      if (!definition) throw new HttpError(404, "Unbekannter Export.");
+      const allowed = definition.group === "sanctionsView" ? can(member, "staff") || can(member, "financeView") || can(member, "moderation") : can(member, definition.group);
+      if (!allowed) throw new HttpError(403, "Für diesen Export fehlt dir die Berechtigung.");
+      const ids = new Set(db.prepare("SELECT user_id FROM accounts WHERE guild_id=? UNION SELECT user_id FROM sanctions WHERE guild_id=? UNION SELECT actor_id FROM sanctions WHERE guild_id=? UNION SELECT user_id FROM transactions WHERE guild_id=? UNION SELECT actor_id FROM transactions WHERE guild_id=? UNION SELECT user_id FROM member_warnings WHERE guild_id=? UNION SELECT actor_id FROM member_warnings WHERE guild_id=? UNION SELECT user_id FROM member_absences WHERE guild_id=? UNION SELECT created_by FROM member_absences WHERE guild_id=?").all(...Array(9).fill(guildId)).map(r => r.user_id));
+      if (kind === "events") for (const r of db.prepare("SELECT DISTINCT p.user_id FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=?").all(guildId)) ids.add(r.user_id);
+      const names = await resolveNames([...ids]);
+      const content = buildExport(kind, { db, guildId, timezone: config.TIMEZONE, finance, name: id => (id && names[id]) || (id ? `…${String(id).slice(-5)}` : "") });
+      audit(db, guildId, member.id, "admin.export", null, { name: definition.label });
+      const day = new Date().toISOString().slice(0, 10);
+      return { __file: true, content, type: "text/csv; charset=utf-8", filename: `gambinos-${kind}-${day}.csv` };
     }],
     [/^\/api\/announcements$/, async member => {
       need(member, "staff", "Staff-Rolle");
@@ -468,6 +488,24 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const id = finance.sanction({ guildId, userId, actorId: member.id, cents: money(body.amount), reason: text(body.reason, { min: 3, max: 300, label: "Grund" }), caseRef: text(body.caseRef, { max: 100, label: "Fallbezug" }) || null });
       return { message: "Sanktion vorgemerkt. Sie wird erst bei der nächsten Auszahlung verrechnet.", id };
     }],
+    [/^\/api\/polls$/, async (member, body) => {
+      need(member, "staff", "Staff-Rolle");
+      const data = validatePoll({ ...body, channelId: body.channelId || config.CHANNEL_POLLS }, { timezone: config.TIMEZONE });
+      const g = await guild();
+      if (data.requiredRoleId && !(await g.roles.fetch(data.requiredRoleId).catch(() => null))) throw new HttpError(400, "Die gewählte Rolle existiert nicht mehr.");
+      const row = polls.create({ guildId, actorId: member.id, data });
+      try { await publishPoll({ db, client, poll: row }); }
+      catch (error) { polls.close({ guildId, id: row.id, actorId: member.id, cancel: true }); throw new HttpError(502, error.message); }
+      return { message: "Abstimmung gestartet." };
+    }],
+    [/^\/api\/polls\/([\w-]+)\/(close|cancel)$/, async (member, body, [, id, action]) => {
+      need(member, "staff", "Staff-Rolle");
+      const row = polls.close({ guildId, id, actorId: member.id, cancel: action === "cancel" });
+      if (!row) throw new HttpError(409, "Diese Abstimmung ist nicht mehr offen.");
+      await refreshPollMessage({ db, client, pollId: id });
+      if (action === "close") await announcePollResult({ db, client, poll: row });
+      return { message: action === "close" ? "Abstimmung beendet, Ergebnis wurde gepostet." : "Abstimmung abgebrochen." };
+    }],
     [/^\/api\/announcements$/, async (member, body) => {
       need(member, "staff", "Staff-Rolle");
       const data = validateAnnouncement(body, { allowEveryone: can(member, "leaders"), timezone: config.TIMEZONE });
@@ -707,9 +745,15 @@ export function createDashboardApi({ db, client, config, settings = null, series
     for (const [pattern, handler] of routes) {
       const match = pattern.exec(pathname);
       if (!match) continue;
-      try { return { status: 200, body: await handler(member, ...args.slice(1), match) }; }
+      try {
+        const body = await handler(member, ...args.slice(1), match);
+        // Datei-Antworten (CSV) mit eigenem Inhaltstyp und Download-Namen.
+        if (body?.__file) return { status: 200, body: body.content, type: body.type, headers: { "Content-Disposition": `attachment; filename="${body.filename}"` } };
+        return { status: 200, body };
+      }
       catch (error) {
         if (error instanceof HttpError) return { status: error.status, body: { error: error.message } };
+        if (error instanceof PollError) return { status: 400, body: { error: error.message } };
         if (error instanceof AnnouncementError) return { status: 400, body: { error: error.message } };
         if (error instanceof AbsenceError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "OVERLAP" || error.code === "ALREADY_ENDED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof WarningError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_REVOKED" ? 409 : 400, body: { error: error.message, code: error.code } };

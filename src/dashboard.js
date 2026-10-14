@@ -270,7 +270,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
         }
         if (req.method === "GET") {
           const extended = await extendedApi.get(member, url);
-          if (extended) return send(res, extended.status, extended.body);
+          if (extended) return send(res, extended.status, extended.body, extended.type, extended.headers);
         }
         return send(res, 404, { error: "Nicht gefunden." });
       }

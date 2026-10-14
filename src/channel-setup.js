@@ -17,6 +17,7 @@ export const displayChannelName = channel => `${channel.emoji}・${channel.name}
 export const CHANNEL_BINDINGS = {
   CHANNEL_WELCOME: ["INFORMATION", "willkommen"],
   CHANNEL_ANNOUNCEMENTS: ["INFORMATION", "ankündigungen"],
+  CHANNEL_POLLS: ["COMMUNITY", "abstimmungen"],
   CHANNEL_SANCTION_LIST: ["INFORMATION", "sanktionsliste"],
   CHANNEL_WEEKLY_REPORT: ["STAFF", "staff-dashboard"],
   CHANNEL_VERIFICATION_PANEL: ["INFORMATION", "neue-spieler"],

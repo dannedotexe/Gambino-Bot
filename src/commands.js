@@ -32,6 +32,7 @@ import { buildLeaderboard } from "./leaderboard.js";
 import { postAbsence } from "./absence-posts.js";
 import { BAN_DELETE_CHOICES, MOD_PERMISSIONS, TIMEOUT_CHOICES, formatMinutes, hierarchyProblem, performModeration } from "./member-moderation.js";
 import { MOD_ACTIONS } from "./services/moderation-log.js";
+import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, pollPayload, validatePoll } from "./polls.js";
 
 const isoNow=()=>new Date().toISOString();
 const unix=iso=>Math.floor(new Date(iso).getTime()/1000);
@@ -255,13 +256,23 @@ export function buildCommands() {
     .addIntegerOption(o=>o.setName("nachrichten").setDescription("Nachrichten der Person löschen").addChoices(...BAN_DELETE_CHOICES.map(([value,name])=>({name,value}))));
   const unban = new SlashCommandBuilder().setName("unban").setDescription("Bann aufheben (Leitung)")
     .addUserOption(o=>o.setName("person").setDescription("Gebannte Person (Benutzer-ID einfügen)").setRequired(true)).addStringOption(o=>o.setName("grund").setDescription("Grund").setRequired(true).setMinLength(3).setMaxLength(300));
+  const poll = new SlashCommandBuilder().setName("umfrage").setDescription("Abstimmungen")
+    .addSubcommand(s=>s.setName("erstellen").setDescription("Abstimmung starten (Staff)")
+      .addStringOption(o=>o.setName("frage").setDescription("Die Frage").setRequired(true).setMinLength(3).setMaxLength(250))
+      .addStringOption(o=>o.setName("optionen").setDescription("Antworten, getrennt durch ; z. B. Ja; Nein; Egal (2–10)").setRequired(true).setMaxLength(900))
+      .addIntegerOption(o=>o.setName("stunden").setDescription("Dauer in Stunden (Standard 24, max. 720)").setMinValue(1).setMaxValue(720))
+      .addBooleanOption(o=>o.setName("anonym").setDescription("Niemand (auch nicht das Team) sieht, wer was gewählt hat"))
+      .addBooleanOption(o=>o.setName("ergebnis_verstecken").setDescription("Zwischenstand erst am Ende zeigen"))
+      .addRoleOption(o=>o.setName("rolle").setDescription("Nur Mitglieder mit dieser Rolle dürfen abstimmen"))
+      .addChannelOption(o=>o.setName("kanal").setDescription("Channel (Standard: Abstimmungs-Channel)").addChannelTypes(ChannelType.GuildText,ChannelType.GuildAnnouncement)))
+    .addSubcommand(s=>s.setName("beenden").setDescription("Abstimmung vorzeitig beenden (Staff)").addStringOption(o=>o.setName("umfrage").setDescription("Abstimmung auswählen").setRequired(true).setAutocomplete(true)));
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
     new SlashCommandBuilder().setName("help").setDescription("Befehlsübersicht"),
     new SlashCommandBuilder().setName("bewerbung-panel").setDescription("Bewerbungs-Panel senden (Reviewer)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen (Staff)").addIntegerOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices(...Object.entries(PERIODS).map(([days,label])=>({name:label,value:Number(days)})))),
   ];
-  return [money,sanction,warn,warnings,unwarn,timeout,untimeout,kick,ban,unban,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
+  return [money,sanction,warn,warnings,unwarn,poll,timeout,untimeout,kick,ban,unban,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
 }
 
 export function createHandler({db,finance,config,client,settings=null,series=null}) {
@@ -269,6 +280,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   questionConfig=config;
   // Live berechnet: Rollenänderungen über Website/Discord gelten sofort.
   const groups=new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
+  const polls=createPollService(db);
   const verifications=createVerificationService(db),warningService=createWarningService(db),absences=createAbsenceService(db),activity=createActivityService(db);
   const pendingModeration=new Map();
   const events=createEventService(db),giveaways=createGiveawayService(db),tickets=createTicketService(db),applications=createApplicationService(db);
@@ -313,6 +325,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         else if(sub==="korrigieren")rows=db.prepare("SELECT s.id,s.user_id,s.amount_cents AS cents,s.reason FROM sanctions s WHERE s.guild_id=? AND s.status<>'void' ORDER BY s.created_at DESC LIMIT 100").all(g);
         else if(sub==="rueckerstatten")rows=db.prepare("SELECT s.id,s.user_id,s.reason,COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)-COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) AS cents FROM sanctions s WHERE s.guild_id=? AND COALESCE((SELECT SUM(amount_cents) FROM payout_allocations p WHERE p.sanction_id=s.id),0)>COALESCE((SELECT SUM(amount_cents) FROM sanction_refunds r WHERE r.sanction_id=s.id),0) ORDER BY s.created_at DESC LIMIT 100").all(g);
         choices=rows.map(r=>({name:`${r.reason.slice(0,55)} · Mitglied …${r.user_id.slice(-5)} · ${formatMoney(r.cents)}`.slice(0,100),value:r.id}));
+      }else if(i.commandName==="umfrage"&&can(i,"staff")){
+        choices=polls.list(g,25).filter(p=>p.status==="open").map(p=>({name:`${p.question} · endet ${new Date(p.ends_at).toLocaleString("de-AT",{timeZone:config.TIMEZONE,dateStyle:"short",timeStyle:"short"})}`.slice(0,100),value:p.id}));
       }else if(i.commandName==="einstellungen"&&can(i,"leaders")){
         choices=Object.keys(CHANNEL_BINDINGS).map(key=>{const label=SETTINGS.find(s=>s.key===key)?.label;return {name:`${label?`${label} · `:""}${key}`.slice(0,100),value:key};});
       }else if(i.commandName==="unwarn"&&can(i,"moderation")){
@@ -344,7 +358,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         {name:"📝 Verwarnungen",value:"`/warn` Mitglied verwarnen (DM, ohne Geldabzug)\n`/warnings` eigene bzw. fremde Verwarnungen ansehen\n`/unwarn` Verwarnung zurücknehmen"},
         {name:"🎫 Support",value:"`/ticket` Ticket-Panel, Übernahme, Schließen und Wiederöffnen"},
         {name:"📅 Familie",value:"`/event` Events verwalten und Teilnahme dokumentieren\n`/antrag` Bewerbung oder Rang-Antrag einreichen, kommentieren und entscheiden"},
-        {name:"🎉 Community",value:"`/giveaway` Gewinnspiele verwalten"},
+        {name:"🎉 Community",value:"`/giveaway` Gewinnspiele verwalten\n`/umfrage erstellen | beenden` Abstimmungen mit Buttons"},
         {name:"🧭 Staff",value:"`/dashboard` Staff-Übersicht und Panel\n`/statistik` Auswertungen nach Zeitraum\n`/automod` Schutzmaßnahmen\n`/einstellungen` Konfiguration prüfen (Leitung)\n`/ping` Bot-Verbindung prüfen"},
       ],"Die verfügbaren Aktionen richten sich nach deiner Rolle."),ephemeral:true});
       if (i.commandName==="konto") return await accountCommand(i,sub,g,u);
@@ -353,6 +367,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="warnings") return await warningsCommand(i,g,u);
       if (i.commandName==="unwarn") return await unwarnCommand(i,g,u);
       if (i.commandName==="abwesend") return await absenceCommand(i,sub,g,u);
+      if (i.commandName==="umfrage") return await pollCommand(i,sub,g,u);
       if (i.commandName==="rangliste") return answer(i,{...buildLeaderboardView(g,i.options.getString("zeitraum")??"week"),ephemeral:true});
       if (MOD_PERMISSIONS[i.commandName]) return await moderationCommand(i,g,u);
       if (i.commandName==="ticket") return await ticketCommand(i,sub,g,u);
@@ -371,7 +386,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="automod") return await automodCommand(i,sub,g,u);
       if (i.commandName==="aktivitaeten") return await activityCommand(i,sub,g,u);
       return respond(i,"Unbekannter Befehl.");
-    } catch(e) { if(!(e instanceof FinanceError||e instanceof WarningError||e instanceof AbsenceError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
+    } catch(e) { if(!(e instanceof FinanceError||e instanceof WarningError||e instanceof AbsenceError||e instanceof PollError))console.error(`Command ${i.commandName} failed:`,e); return replyError(i,e); }
   }
 
   /** Kontoansichten, gemeinsam genutzt von Slash-Befehlen und dem „Mein Konto“-Panel. */
@@ -542,6 +557,39 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     const targetMember=request.action==="kick"?await i.guild?.members?.fetch?.(request.userId).catch(()=>null):null;
     if(request.action==="kick"&&!targetMember)return updateMessage(i,{content:"Diese Person ist nicht mehr auf dem Server.",embeds:[],components:[]});
     return executeModeration(i,request,targetMember,true);
+  }
+
+  // ---------------------------------------------------------------- Abstimmungen
+  async function pollCommand(i,sub,g,u){
+    const denied=guard(i,"staff","Staff-Rolle");if(denied)return respond(i,denied);
+    if(sub==="erstellen"){
+      const channelId=i.options.getChannel?.("kanal")?.id??config.CHANNEL_POLLS??i.channelId;
+      const data=validatePoll({question:i.options.getString("frage"),options:i.options.getString("optionen"),hours:i.options.getInteger("stunden")??24,anonymous:i.options.getBoolean?.("anonym")??false,hideResults:i.options.getBoolean?.("ergebnis_verstecken")??false,requiredRoleId:i.options.getRole?.("rolle")?.id??null,channelId},{timezone:config.TIMEZONE});
+      const row=polls.create({guildId:g,actorId:u,data});
+      await publishPoll({db,client,poll:row});
+      return respond(i,`Abstimmung gestartet in <#${data.channelId}>. Sie endet <t:${Math.floor(new Date(data.endsAt).getTime()/1000)}:R>.`);
+    }
+    if(sub==="beenden"){
+      const row=polls.close({guildId:g,id:i.options.getString("umfrage"),actorId:u});
+      if(!row)return respond(i,"Diese Abstimmung ist nicht (mehr) offen.");
+      await refreshPollMessage({db,client,pollId:row.id});await announcePollResult({db,client,poll:row});
+      return respond(i,"Abstimmung beendet, Ergebnis wurde gepostet.");
+    }
+  }
+  async function pollButton(i,action,pollId,option){
+    const poll=polls.byId(pollId);
+    if(!poll||poll.guild_id!==i.guildId)return answer(i,{content:"Diese Abstimmung gibt es nicht mehr.",ephemeral:true});
+    if(poll.required_role_id&&!hasRole(i.member,[poll.required_role_id]))return answer(i,{content:`Bei dieser Abstimmung dürfen nur Mitglieder mit <@&${poll.required_role_id}> abstimmen.`,ephemeral:true});
+    const result=action==="unvote"?polls.unvote({pollId,userId:i.user.id}):polls.vote({pollId,userId:i.user.id,optionIndex:Number(option)});
+    if(result.status==="closed")return answer(i,{content:"Diese Abstimmung ist bereits beendet.",ephemeral:true});
+    const label=n=>`**${poll.options[n]}**`;
+    const text={voted:`Deine Stimme: ${label(result.optionIndex)}. Du kannst sie bis zum Ende ändern.`,changed:`Stimme geändert auf ${label(result.optionIndex)}.`,same:`Du hast bereits für ${label(result.optionIndex)} gestimmt.`,removed:"Deine Stimme wurde zurückgezogen.",none:"Du hattest noch nicht abgestimmt.",invalid:"Ungültige Auswahl."}[result.status];
+    const fresh=polls.byId(pollId);
+    if(["voted","changed","removed"].includes(result.status)&&typeof i.update==="function"){
+      await i.update(pollPayload(fresh,polls.results(pollId))).catch(()=>{});
+      return followUp(i,{content:text,ephemeral:true});
+    }
+    return answer(i,{content:text,ephemeral:true});
   }
 
   async function accountCommand(i,sub,g,u){
@@ -1012,6 +1060,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         if(!verifications.byUser(i.guildId,i.user.id))return answer(i,{content:"Du bist noch nicht verifiziert. Bitte klicke zuerst auf „Verifizieren“.",ephemeral:true});
         return openVerification(i,{rename:true});
       }
+      if(kind==="poll")return pollButton(i,action,id,extra);
       if(kind==="absence"&&action==="open"){const gate=memberGate(i);if(gate)return answer(i,{content:"Abmeldungen gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});return openAbsenceModal(i);}
       if(kind==="absence"&&action==="back")return endOwnAbsence(i);
       if(kind==="mod"&&action==="confirm")return confirmModeration(i,id);
