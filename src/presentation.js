@@ -135,6 +135,7 @@ const ACTIONS = {
   "sanction.corrected": "Sanktion korrigiert",
   "sanction.warning": "Verwarnung eingetragen",
   "sanction.warning_revoked": "Verwarnung zurückgenommen",
+  "sanction.warning_deleted": "Verwarnung gelöscht",
   "sanction.warning_timeout": "Automatischer Timeout nach Verwarnungen",
   "sanction.warning_timeout_failed": "Timeout nach Verwarnungen nicht möglich",
   "admin.override": "Bot-Owner-Override genutzt",

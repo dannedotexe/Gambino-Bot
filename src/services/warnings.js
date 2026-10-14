@@ -84,5 +84,17 @@ export function createWarningService(db) {
     return { ...row, revoked_at: ts, revoked_by: actorId, revoke_reason: text };
   });
 
-  return { add, list, recent, get, revoke, activeCount };
+  /** Löscht eine Verwarnung endgültig (z. B. Fehleintrag oder Testdaten). Der Vorgang selbst bleibt im Audit-Log. */
+  const remove = db.transaction(({ guildId, warningId, actorId, reason }) => {
+    const text = String(reason ?? "").trim();
+    if (!text) throw new WarningError("Für das Löschen ist ein Grund erforderlich.");
+    const row = get(guildId, warningId);
+    if (!row) throw new WarningError("Diese Verwarnung wurde nicht gefunden.", "NOT_FOUND");
+    if (row.user_id === actorId) throw new WarningError("Eigene Verwarnungen kann nur jemand anderes löschen.", "SELF_REVOKE");
+    db.prepare("DELETE FROM member_warnings WHERE id=? AND guild_id=?").run(warningId, guildId);
+    audit(db, guildId, actorId, "sanction.warning_deleted", row.user_id, { warningId, reason: text, originalReason: row.reason, wasRevoked: row.revoked_at ? "ja" : "nein" });
+    return row;
+  });
+
+  return { add, list, recent, get, revoke, remove, activeCount };
 }

@@ -548,6 +548,11 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const summary = deliverySummary(await deliverWarning({ db, client, config, guildId, userId, actorId: member.id, reason, caseRef, warning }), config);
       return { message: `Verwarnung eingetragen – ${warning.active} aktiv${summary ? ` · ${summary}` : ""}.` };
     }],
+    [/^\/api\/warnings\/([\w-]+)\/delete$/, async (member, body, [, id]) => {
+      need(member, "leaders", "Leitungsrolle");
+      const row = warningService.remove({ guildId, warningId: id, actorId: member.id, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }) });
+      return { message: `Verwarnung gelöscht. Noch aktiv: ${warningService.activeCount(guildId, row.user_id, { expireDays: config.WARN_EXPIRE_DAYS })}.` };
+    }],
     [/^\/api\/warnings\/([\w-]+)\/revoke$/, async (member, body, [, id]) => {
       need(member, "moderation", "Moderations- oder Staff-Rolle");
       const existing = warningService.get(guildId, id);

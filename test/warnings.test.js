@@ -183,3 +183,19 @@ test("/unwarn-Vorschläge zeigen die Verwarnungen des gewählten Mitglieds", asy
   assert.equal(choices.length, 1);
   assert.match(choices[0].name, /Spam im Chat/);
 });
+
+test("Website: Verwarnung endgültig löschen nur durch die Leitung, Vorgang bleibt im Protokoll", async () => {
+  const x = setup();
+  const api = createDashboardApi({ db: x.db, client: x.client, config: x.config });
+  const as = (id, ...roles) => ({ id, displayName: "Web", owner: false, roles: roles.map(r => ROLE[r]) });
+  const post = (member, path, body) => api.post(member, new URL(path, "https://dash.example"), body);
+  await post(as(MOD, "mods"), "/api/warnings", { userId: MEMBER, reason: "Testeintrag" });
+  const id = x.db.prepare("SELECT id FROM member_warnings").get().id;
+  assert.equal((await post(as(STAFF, "staff"), `/api/warnings/${id}/delete`, { reason: "Fehleintrag" })).status, 403);
+  assert.equal((await post(as(LEADER, "leaders"), `/api/warnings/${id}/delete`, { reason: "" })).status, 400);
+  const ok = await post(as(LEADER, "leaders"), `/api/warnings/${id}/delete`, { reason: "Fehleintrag" });
+  assert.equal(ok.status, 200);
+  assert.equal(count(x.db), 0);
+  assert.match(x.db.prepare("SELECT details FROM audit_logs WHERE action='sanction.warning_deleted'").get().details, /Testeintrag/);
+  assert.equal((await post(as(LEADER, "leaders"), `/api/warnings/${id}/delete`, { reason: "nochmal" })).status, 404);
+});

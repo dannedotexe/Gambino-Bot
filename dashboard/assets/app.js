@@ -9,6 +9,13 @@ const empty = (text = "Zurzeit nichts offen.") => `<div class="empty">${escapeHt
 const row = (title, sub, badge = "") => `<div class="row"><div><div class="row-title">${escapeHtml(title)}</div><div class="row-sub">${escapeHtml(sub)}</div></div>${badge ? `<span class="badge">${escapeHtml(badge)}</span>` : ""}</div>`;
 const btn = (label, action, data = {}, kind = "") => `<button type="button" class="action ${kind}" data-action="${action}" ${Object.entries(data).map(([k, v]) => `data-${k}="${escapeHtml(v)}"`).join(" ")}>${escapeHtml(label)}</button>`;
 const uuid = () => crypto.randomUUID();
+/** Buttons zum Zurücknehmen (zählt nicht mehr, bleibt sichtbar) und endgültigen Löschen (nur Leitung) einer Verwarnung. */
+function warningActions(w) {
+  const caps = state.me.capabilities, me = state.me.member.id;
+  const revoke = caps.warnings && w.state === "active" && w.user_id !== me && (caps.sanctions || w.actor_id === me);
+  const remove = caps.leaders && w.user_id !== me;
+  return `${revoke ? btn("Zurücknehmen", "warning-revoke", { id: w.id }) : ""}${remove ? btn("Löschen", "warning-delete", { id: w.id }, "reject") : ""}`;
+}
 /** Klickbarer Name, öffnet das Mitgliederprofil. */
 const plink = id => id ? `<button type="button" class="name-link" data-action="profile" data-user="${escapeHtml(id)}">${who(id)}</button>` : "—";
 let toastTimer;
@@ -18,7 +25,7 @@ const labels = {
   "ticket.created": "Ticket eröffnet", "ticket.claimed": "Ticket übernommen", "ticket.closed": "Ticket geschlossen", "ticket.reopened": "Ticket wieder geöffnet", "ticket.channel_missing": "Ticket-Channel gelöscht",
   "event.created": "Event veröffentlicht", "event.updated": "Event geändert", "event.ended": "Event beendet", "event.cancelled": "Event abgesagt", "event.attendance": "Anwesenheit erfasst", "event.participation": "Event-Teilnahme",
   "finance.credit": "Gutschrift verbucht", "finance.account_opened": "Familienkonto angelegt", "finance.payout": "Auszahlung gebucht", "finance.correction": "Korrekturbuchung", "finance.failed": "Buchung fehlgeschlagen",
-  "sanction.created": "Sanktion vorgemerkt", "sanction.applied": "Sanktion teilweise verrechnet", "sanction.settled": "Sanktion beglichen", "sanction.void": "Sanktion aufgehoben", "sanction.corrected": "Sanktion korrigiert", "sanction.refunded": "Sanktion erstattet", "sanction.warning": "Verwarnung", "sanction.warning_revoked": "Verwarnung zurückgenommen", "sanction.warning_timeout": "Timeout nach Verwarnungen", "sanction.warning_timeout_failed": "Timeout nach Verwarnungen fehlgeschlagen",
+  "sanction.created": "Sanktion vorgemerkt", "sanction.applied": "Sanktion teilweise verrechnet", "sanction.settled": "Sanktion beglichen", "sanction.void": "Sanktion aufgehoben", "sanction.corrected": "Sanktion korrigiert", "sanction.refunded": "Sanktion erstattet", "sanction.warning": "Verwarnung", "sanction.warning_revoked": "Verwarnung zurückgenommen", "sanction.warning_deleted": "Verwarnung gelöscht", "sanction.warning_timeout": "Timeout nach Verwarnungen", "sanction.warning_timeout_failed": "Timeout nach Verwarnungen fehlgeschlagen",
   "giveaway.created": "Giveaway gestartet", "giveaway.ended": "Giveaway ausgelost", "giveaway.cancelled": "Giveaway abgebrochen", "giveaway.draw_requested": "Giveaway vorzeitig ausgelost", "giveaway.entry": "Giveaway-Teilnahme",
   "absence.created": "Abmeldung eingetragen", "absence.ended": "Abmeldung beendet", "activity.reminder": "Inaktivitäts-Erinnerung",
   "moderation.timeout": "Timeout", "moderation.untimeout": "Timeout aufgehoben", "moderation.kick": "Kick", "moderation.ban": "Bann", "moderation.unban": "Entbannt",
@@ -384,10 +391,9 @@ async function loadSanctions() {
   const showAll = $("warnings-filter").value === "all";
   $("warnings-list").innerHTML = data.warnings.filter(w => showAll || w.state === "active").map(w => {
     const [label, cls] = warnState[w.state] ?? warnState.active;
-    const canRevoke = caps.warnings && w.state === "active" && w.user_id !== state.me.member.id && (caps.sanctions || w.actor_id === state.me.member.id);
     return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${w.activeCount} aktiv</span><h3>${plink(w.user_id)}</h3></div><span class="badge ${cls}">${label}</span></div>
       <p class="manage-meta">${escapeHtml(w.reason)}${w.case_ref ? ` · Fall: ${escapeHtml(w.case_ref)}` : ""}<br>von ${who(w.actor_id)} · ${date(w.created_at)}${w.revoked_at ? `<br>Zurückgenommen von ${who(w.revoked_by)} · ${date(w.revoked_at)} · ${escapeHtml(w.revoke_reason ?? "")}` : ""}</p>
-      <div class="actions">${canRevoke ? btn("Zurücknehmen", "warning-revoke", { id: w.id }, "reject") : ""}</div></article>`;
+      <div class="actions">${warningActions(w)}</div></article>`;
   }).join("") || empty(showAll ? "Keine Verwarnungen." : "Keine aktiven Verwarnungen.");
 }
 
@@ -461,6 +467,7 @@ const actions = {
   "payout": ({ user }) => startPayout(user),
   "account-details": ({ user }) => accountDetails(user),
   "sanction-create": () => openForm({ eyebrow: "SANKTION", title: "Sanktion eintragen", intro: "<p>Wird als offener Auszahlungsabzug gespeichert und belastet das Konto erst bei der nächsten Auszahlung.</p>", fields: [memberField(), { name: "amount", label: "Betrag ($)", type: "money", required: true }, { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Sanktion vormerken", danger: true, onSubmit: v => post("/api/sanctions", v) }),
+  "warning-delete": ({ id }) => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung endgültig löschen", intro: "<p>Die Verwarnung wird komplett entfernt und erscheint nirgends mehr – nur im Protokoll bleibt vermerkt, wer sie wann gelöscht hat. Zum bloßen Aufheben lieber „Zurücknehmen“ verwenden.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300, placeholder: "z. B. Fehleintrag" }], submit: "Endgültig löschen", danger: true, onSubmit: v => post(`/api/warnings/${id}/delete`, v) }),
   "warning-revoke": ({ id }) => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung zurücknehmen", intro: "<p>Die Verwarnung bleibt in der Historie sichtbar, zählt aber nicht mehr als aktiv. Die Person wird per DM informiert.</p>", fields: [{ name: "reason", label: "Grund", required: true, max: 300 }], submit: "Zurücknehmen", danger: true, onSubmit: v => post(`/api/warnings/${id}/revoke`, v) }),
   "warning-create": ({ user } = {}) => openForm({ eyebrow: "VERWARNUNG", title: "Verwarnung eintragen", intro: "<p>Ohne Geldabzug. Die Person bekommt den Grund per DM; ab den eingestellten Grenzen folgen automatisch Timeout bzw. Meldung an die Leitung.</p>", fields: [memberField(user ?? ""), { name: "reason", label: "Grund", required: true, max: 300 }, { name: "caseRef", label: "Fall-/Event-Bezug", hint: "(optional)", max: 100 }], submit: "Verwarnung eintragen", onSubmit: v => post("/api/warnings", v) }),
   "sanction-correct": ({ id }) => { const s = state.cache.sanctions[id]; openForm({ eyebrow: "LEITUNG", title: "Sanktion korrigieren", intro: `<p>Bisher ${money(s.amount_cents)}, bereits verrechnet ${money(s.collected_cents)}. Der neue Gesamtbetrag darf das Verrechnete nicht unterschreiten.</p>`, fields: [{ name: "amount", label: "Neuer Gesamtbetrag ($)", type: "money", required: true, value: String(s.amount_cents / 100).replace(".", ",") }, { name: "reason", label: "Korrekturgrund", required: true, max: 300 }], submit: "Korrigieren", onSubmit: v => post(`/api/sanctions/${id}/correct`, v) }); },
