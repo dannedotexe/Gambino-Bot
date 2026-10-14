@@ -520,11 +520,11 @@ async function start() {
   if (loginError) { message.textContent = loginError; history.replaceState(null, "", location.pathname); }
   try {
     const response = await fetch("/api/me", { credentials: "same-origin" });
-    if (response.status === 401) { login.classList.remove("hidden"); dashboard.classList.add("hidden"); return; }
+    if (response.status === 401) { $("boot").remove(); login.classList.remove("hidden"); dashboard.classList.add("hidden"); return; }
     if (!response.ok) throw new Error("Dashboard konnte nicht geladen werden.");
     state.me = await response.json(); state.timezone = state.me.settings.timezone || state.timezone;
     $("app-version").textContent = state.me.version ?? "–";
-    login.classList.add("hidden"); dashboard.classList.remove("hidden");
+    $("boot").remove(); login.classList.add("hidden"); dashboard.classList.remove("hidden");
     // Verifizierte Namen: „Vorname Nachname | ID“ (ältere Einträge noch „ID | Vorname Nachname“). Name groß, ID klein darunter.
     const fullName = String(state.me.member.name || "Staff").trim();
     const newer = /^(.+?)\s*\|\s*(\d+)$/.exec(fullName), older = /^(\d+)\s*\|\s*(.+)$/.exec(fullName);
@@ -547,6 +547,6 @@ async function start() {
     setInterval(() => { if (!$("dialog").open && document.visibilityState === "visible") refresh(); }, 60_000);
     if (state.tab !== "overview") api("/api/overview").then(applyBadges).catch(() => {});
     setInterval(() => { if (state.tab !== "overview" && document.visibilityState === "visible") api("/api/overview").then(applyBadges).catch(() => {}); }, 60_000);
-  } catch (error) { login.classList.remove("hidden"); message.textContent = error.message; }
+  } catch (error) { $("boot")?.remove(); login.classList.remove("hidden"); message.textContent = error.message; }
 }
 document.addEventListener("DOMContentLoaded", start);
