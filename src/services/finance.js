@@ -103,6 +103,30 @@ export function createFinance(db) {
     return { created, balance: balance(guildId, userId) };
   });
 
+  /**
+   * Löscht ein Familienkonto (z. B. nach Austritt). Restguthaben verfällt als eigene, unveränderliche Korrekturbuchung,
+   * offene Sanktionen werden aufgehoben. Die Buchungshistorie bleibt vollständig erhalten.
+   */
+  const closeAccount = db.transaction(({ guildId, userId, actorId, reason, key }) => {
+    const text = String(reason ?? "").trim();
+    if (!text) throw new FinanceError("Für das Löschen ist ein Grund erforderlich.", "INVALID_INPUT");
+    const account = db.prepare("SELECT * FROM accounts WHERE guild_id=? AND user_id=?").get(guildId, userId);
+    if (!account) throw new FinanceError("Für dieses Mitglied gibt es kein Familienkonto.", "NOT_FOUND");
+    const ts = now();
+    if (account.balance_cents > 0) {
+      db.prepare("INSERT INTO transactions(id,guild_id,user_id,actor_id,type,amount_cents,reason,idempotency_key,created_at) VALUES(?,?,?,?,'correction_debit',?,?,?,?)")
+        .run(randomUUID(), guildId, userId, actorId, account.balance_cents, `Konto gelöscht – Restguthaben verfällt (${text})`.slice(0, 300), key, ts);
+    }
+    const open = db.prepare("SELECT * FROM sanctions WHERE guild_id=? AND user_id=? AND status IN ('open','partial')").all(guildId, userId);
+    for (const row of open) {
+      db.prepare("UPDATE sanctions SET status='void',remaining_cents=0,updated_at=? WHERE id=?").run(ts, row.id);
+      recordChange(row, actorId, "voided", { newRemaining: 0, reason: `Konto gelöscht: ${text}`.slice(0, 300), ts });
+    }
+    db.prepare("DELETE FROM accounts WHERE guild_id=? AND user_id=?").run(guildId, userId);
+    audit(db, guildId, actorId, "finance.account_closed", userId, { reason: text, cents: account.balance_cents, entries: open.length });
+    return { balance: account.balance_cents, voidedSanctions: open.length, openCents: open.reduce((sum, row) => sum + row.remaining_cents, 0) };
+  });
+
   const sanction = db.transaction(({ guildId, userId, actorId, cents, reason, caseRef = null }) => {
     if (!amount(cents) || !reason?.trim()) throw new FinanceError("Sanktionsbetrag und Grund sind erforderlich.", "INVALID_INPUT");
     const ts = now(), id = randomUUID();
@@ -208,7 +232,7 @@ export function createFinance(db) {
   }
 
   return {
-    balance, openSanctionTotal, previewPayout, sanctionDetails, openAccount,
+    balance, openSanctionTotal, previewPayout, sanctionDetails, openAccount, closeAccount,
     credit: withFailureAudit("credit", credit),
     correction: withFailureAudit("correction", correction),
     sanction, warn,

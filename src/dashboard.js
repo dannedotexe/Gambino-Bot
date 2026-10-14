@@ -263,7 +263,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
             eventsNext24h: count("SELECT COUNT(*) n FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>? AND starts_at<=?", g, nowIso, in24h),
             overdueEvents: count("SELECT COUNT(*) n FROM events WHERE guild_id=? AND status='scheduled' AND series_id IS NULL AND starts_at<?", g, new Date(Date.now() - 3 * 3_600_000).toISOString()),
             activeSeries: count("SELECT COUNT(*) n FROM event_series WHERE guild_id=? AND active=1", g),
-            ...(canSeeFinance ? { payoutsDue: count("SELECT COUNT(*) n FROM accounts WHERE guild_id=? AND balance_cents>0 AND balance_cents>=?", g, config.PAYOUT_MINIMUM_CENTS ?? 1) } : {}),
+            ...(canSeeFinance ? { payoutsDue: count("SELECT COUNT(*) n FROM accounts WHERE guild_id=? AND balance_cents>0 AND balance_cents>=?", g, config.PAYOUT_MINIMUM_CENTS ?? 1), accountClosures: count("SELECT COUNT(*) n FROM account_closures WHERE guild_id=? AND status='pending'", g) } : {}),
           };
           if (canSeeFinance) {
             data.finance = { balances: db.prepare("SELECT COUNT(*) n FROM accounts WHERE guild_id=?").get(config.DISCORD_GUILD_ID).n, openSanctions: db.prepare("SELECT COALESCE(SUM(remaining_cents),0) cents FROM sanctions WHERE guild_id=? AND status IN ('open','partial')").get(config.DISCORD_GUILD_ID).cents };

@@ -94,6 +94,7 @@
 
       <section id="tab-finance" class="tab-panel hidden">
         <div class="section-intro"><div><div class="eyebrow">FAMILIENKONTO</div><h2>Guthaben & Auszahlungen</h2><p>Brutto = noch auszuzahlendes Familienguthaben. Sanktionen werden erst bei der Auszahlung abgezogen.</p></div><div class="section-tools"><a class="action" href="/api/export/accounts.xlsx" download title="Als Excel-Tabelle herunterladen">Excel: Kontostände</a><a class="action" href="/api/export/transactions.xlsx" download title="Als Excel-Tabelle herunterladen">Excel: Buchungen</a><input class="search" data-target="accounts-list" type="search" placeholder="Mitglied suchen …" aria-label="Suchen"><button class="secondary needs-finance" data-action="account-open">+ Konto anlegen</button><button class="primary-btn needs-finance" data-action="credit">+ Gutschrift</button></div></div>
+        <div id="closures-panel" class="closures hidden"><h3 class="subhead">Konto-Löschungen bestätigen</h3><p class="subtle">Diese Mitglieder haben die Familienrolle verloren oder den Server verlassen. Erst nach deiner Bestätigung wird das Konto gelöscht.</p><div id="closures-list" class="queue grid2"></div></div>
         <div id="finance-totals" class="stats"></div>
         <div id="accounts-list" class="table"></div>
       </section>

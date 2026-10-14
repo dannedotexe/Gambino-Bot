@@ -245,3 +245,4 @@ button.danger#dialog-submit{background:var(--red);border-color:var(--red);color:
 .poll-bar{height:6px;border-radius:3px;background:var(--hover);overflow:hidden;margin-top:4px}.poll-bar i{display:block;height:100%;width:0;background:#71717a}.poll-option.lead .poll-bar i{background:var(--red)}
 .poll-form .checks{gap:8px}
 a.action{text-decoration:none;display:inline-flex;align-items:center}
+.closures{margin-bottom:18px;padding:14px;border:1px solid var(--line2);border-radius:10px}.closures .subhead{margin-top:0}

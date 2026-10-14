@@ -137,6 +137,14 @@ export const MIGRATIONS = [
       CREATE TABLE IF NOT EXISTS noshow_notices (event_id TEXT NOT NULL, user_id TEXT NOT NULL, guild_id TEXT NOT NULL, count INTEGER NOT NULL, action TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(event_id,user_id));
     `),
   },
+  {
+    version: 9,
+    name: "konto-loeschanfragen",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS account_closures (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, reason TEXT NOT NULL CHECK(reason IN ('role_removed','left')), status TEXT NOT NULL CHECK(status IN ('pending','confirmed','dismissed')), created_at TEXT NOT NULL, decided_at TEXT, decided_by TEXT, note TEXT);
+      CREATE UNIQUE INDEX IF NOT EXISTS account_closures_pending ON account_closures(guild_id,user_id) WHERE status='pending';
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

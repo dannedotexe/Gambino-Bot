@@ -11,6 +11,7 @@ import { ensurePanels } from "./src/panels.js";
 import { currentVersion } from "./src/version.js";
 import { createDashboard } from "./src/dashboard.js";
 import { createTicketService } from "./src/services/tickets.js";
+import { createAccountClosureService } from "./src/services/account-closures.js";
 import { createActivityService } from "./src/services/activity.js";
 import { sendWelcome } from "./src/welcome.js";
 import { trackRankChange } from "./src/rank-tracking.js";
@@ -84,6 +85,26 @@ client.on(Events.GuildMemberUpdate,(_old,member)=>{
     if(!(config.ROLE_MEMBERS??[]).some(id=>member.roles.cache.has(id)))return;
     finance.openAccount({guildId:member.guild.id,userId:member.id,actorId:client.user?.id??"system",note:"Familienmitglieder-Rolle erhalten"});
   }catch(error){console.error("Familienkonto konnte nicht automatisch angelegt werden:",error.message);}
+});
+// Familienrolle verloren oder Server verlassen: Löschanfrage für das Familienkonto (Bestätigung über die Website).
+const closures=createAccountClosureService(db,finance);
+const hasFamilyRole=member=>(config.ROLE_MEMBERS??[]).some(id=>member?.roles?.cache?.has(id));
+client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
+  try{
+    if(member.user?.bot||!(config.ROLE_MEMBERS??[]).length)return;
+    if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+    const before=oldMember?.partial?null:hasFamilyRole(oldMember),now=hasFamilyRole(member);
+    if(now){if(before===false||before===null)closures.resolveRejoined({guildId:member.guild.id,userId:member.id,actorId:client.user?.id??"system"});return;}
+    if(before===false)return;
+    closures.request({guildId:member.guild.id,userId:member.id,reason:"role_removed",actorId:client.user?.id??"system",definite:before===true});
+  }catch(error){console.error("Löschanfrage konnte nicht angelegt werden:",error.message);}
+});
+client.on(Events.GuildMemberRemove,member=>{
+  try{
+    if(member.user?.bot)return;
+    if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+    closures.request({guildId:member.guild.id,userId:member.id,reason:"left",actorId:client.user?.id??"system"});
+  }catch(error){console.error("Löschanfrage konnte nicht angelegt werden:",error.message);}
 });
 // Begrüßung neuer Spieler (Channel CHANNEL_WELCOME, optional DM). Texte über die Website änderbar.
 client.on(Events.GuildMemberAdd,member=>{void sendWelcome({db,client,config,member}).catch(error=>console.warn("Begrüßung fehlgeschlagen:",error.message));});

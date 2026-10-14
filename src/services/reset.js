@@ -14,6 +14,7 @@ export const RESET_AREAS = {
     "DELETE FROM sanctions WHERE guild_id=@g",
     "DELETE FROM transactions WHERE guild_id=@g",
     "DELETE FROM accounts WHERE guild_id=@g",
+    "DELETE FROM account_closures WHERE guild_id=@g",
   ] },
   warnings: { label: "Verwarnungen & Moderationsmaßnahmen (Timeout/Kick/Bann-Historie)", default: true, sql: [
     "DELETE FROM member_warnings WHERE guild_id=@g",

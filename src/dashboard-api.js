@@ -28,6 +28,7 @@ import { postAbsence } from "./absence-posts.js";
 import { familyMembers, inactivityFor, remindInactive } from "./inactivity.js";
 import { AnnouncementError, createAnnouncementService, deliverAnnouncement, validateAnnouncement } from "./announcements.js";
 import { createRankHistory } from "./services/ranks.js";
+import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
@@ -70,7 +71,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const today = () => localDay(new Date(), config.TIMEZONE);
   const startedAt = new Date().toISOString();
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
-  const finance = createFinance(db), events = createEventService(db), giveaways = createGiveawayService(db);
+  const finance = createFinance(db), closures = createAccountClosureService(db, finance), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
   const names = new Map();
 
@@ -303,6 +304,16 @@ export function createDashboardApi({ db, client, config, settings = null, series
       }).sort((a, b) => b.gross - a.gross);
       const totals = accounts.reduce((sum, a) => ({ gross: sum.gross + a.gross, open: sum.open + a.openSanctions, net: sum.net + a.net }), { gross: 0, open: 0, net: 0 });
       return withNames({ accounts, totals, minimumCents: minimum }, ids);
+    }],
+    [/^\/api\/account-closures$/, async member => {
+      need(member, "financeView", "Finanzrolle");
+      const g = await guild().catch(() => null);
+      const items = closures.pending(guildId).map(row => {
+        const plan = finance.previewPayout(guildId, row.user_id);
+        const inGuild = Boolean(g?.members?.cache?.get(row.user_id));
+        return { id: row.id, userId: row.user_id, reason: row.reason, reasonLabel: CLOSURE_REASONS[row.reason], createdAt: row.created_at, balance: plan.gross, openSanctions: plan.openCents, inGuild };
+      });
+      return withNames({ closures: items, canDecide: can(member, "finance") }, items.map(c => c.userId));
     }],
     [/^\/api\/accounts\/(\d{17,20})$/, async (member, url, [, userId]) => {
       need(member, "financeView", "Finanzrolle");
@@ -611,6 +622,18 @@ export function createDashboardApi({ db, client, config, settings = null, series
       }
       return { message: `Verwarnung zurückgenommen. Noch aktiv: ${active}.` };
     }],
+    [/^\/api\/account-closures\/([\w-]+)\/confirm$/, async (member, body, [, id]) => {
+      need(member, "finance", "Finanzrolle");
+      const note = body.note ? text(body.note, { min: 3, max: 300, label: "Grund" }) : null;
+      const result = closures.confirm({ guildId, id, actorId: member.id, note });
+      const parts = [result.balance > 0 ? `${formatMoney(result.balance)} Restguthaben ausgebucht` : null, result.voidedSanctions ? `${result.voidedSanctions} offene Sanktion(en) aufgehoben` : null].filter(Boolean);
+      return { message: `Familienkonto gelöscht.${parts.length ? ` ${parts.join(", ")}.` : ""} Die Buchungshistorie bleibt erhalten.` };
+    }],
+    [/^\/api\/account-closures\/([\w-]+)\/dismiss$/, async (member, body, [, id]) => {
+      need(member, "finance", "Finanzrolle");
+      closures.dismiss({ guildId, id, actorId: member.id, note: body.note ? text(body.note, { min: 3, max: 300, label: "Grund" }) : null });
+      return { message: "Konto bleibt bestehen. Die Anfrage ist geschlossen." };
+    }],
     [/^\/api\/sanctions\/([\w-]+)\/void$/, async (member, body, [, id]) => {
       need(member, "leaders", "Leitungsrolle");
       finance.voidSanction({ guildId, sanctionId: id, actorId: member.id, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }) });
@@ -763,7 +786,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         if (error instanceof AnnouncementError) return { status: 400, body: { error: error.message } };
         if (error instanceof AbsenceError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "OVERLAP" || error.code === "ALREADY_ENDED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof WarningError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_REVOKED" ? 409 : 400, body: { error: error.message, code: error.code } };
-        if (error instanceof FinanceError) return { status: ["PREVIEW_MISMATCH", "CONCURRENT_CHANGE", "SANCTION_CONFLICT"].includes(error.code) ? 409 : 400, body: { error: error.message, code: error.code } };
+        if (error instanceof FinanceError) return { status: ["PREVIEW_MISMATCH", "CONCURRENT_CHANGE", "SANCTION_CONFLICT", "CONFLICT"].includes(error.code) ? 409 : error.code === "NOT_FOUND" ? 404 : 400, body: { error: error.message, code: error.code } };
         throw error;
       }
     }
