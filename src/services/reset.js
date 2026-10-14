@@ -50,9 +50,10 @@ export const RESET_AREAS = {
     "DELETE FROM member_stats_daily WHERE guild_id=@g",
     "DELETE FROM automod_actions WHERE guild_id=@g",
   ] },
-  audit: { label: "Protokoll (Audit-Log) – der Reset selbst wird danach neu protokolliert", default: true, sql: [
+  audit: { label: "Protokoll (Audit-Log) und Website-Zugriffe – der Reset selbst wird danach neu protokolliert", default: true, sql: [
     "DELETE FROM audit_log_deliveries WHERE audit_id IN (SELECT id FROM audit_logs WHERE guild_id=@g)",
     "DELETE FROM audit_logs WHERE guild_id=@g",
+    "DELETE FROM access_log WHERE guild_id=@g",
   ] },
   announcements: { label: "Ankündigungen (geplante und gesendete; Nachrichten in Discord bleiben)", default: true, sql: [
     "DELETE FROM announcements WHERE guild_id=@g",

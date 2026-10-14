@@ -145,6 +145,15 @@ export const MIGRATIONS = [
       CREATE UNIQUE INDEX IF NOT EXISTS account_closures_pending ON account_closures(guild_id,user_id) WHERE status='pending';
     `),
   },
+  {
+    version: 10,
+    name: "website-zugriffsprotokoll",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS access_log (id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL, user_id TEXT, ip TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('visit','login','login_denied')), user_agent TEXT, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS access_log_time ON access_log(guild_id,created_at);
+      CREATE INDEX IF NOT EXISTS access_log_ip ON access_log(guild_id,ip);
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

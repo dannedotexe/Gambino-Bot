@@ -99,6 +99,24 @@ async function loadStatus() {
   const kv = [["Bot", s.bot.tag ?? "—"], ["Mitglieder auf dem Server", s.bot.guildMembers ?? "—"], ["Prozess läuft seit", `${duration(s.process.uptimeSeconds)} (${date(s.process.startedAt)})`], ["Arbeitsspeicher", `${s.process.memoryMb} MB`], ["Node.js", s.process.node], ["Datenbank", `${bytes(s.database.sizeBytes)} · Schema v${s.database.schema}`], ["Letzte Änderung", s.version.update?.message ?? "—"], ["Log-Zustellung (24 h)", s.logs.failedLast24h ? `${s.logs.failedLast24h} fehlgeschlagen` : "ohne Fehler"]];
   $("status-details").innerHTML = kv.map(([k, v]) => `<div><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join("");
   $("status-warnings").innerHTML = s.warnings.map(w => row("Hinweis", w)).join("") || empty("Keine offenen Konfigurationspunkte. ");
+  await loadAccessLog();
+}
+
+// ------------------------------------------------------------------ Website-Zugriffe (nur Bot-Owner)
+const accessKinds = { visit: "Aufruf", login: "Anmeldung", login_denied: "Abgewiesen" };
+const device = ua => {
+  const u = String(ua ?? "");
+  const browser = /Edg\//.test(u) ? "Edge" : /OPR\/|Opera/.test(u) ? "Opera" : /Firefox\//.test(u) ? "Firefox" : /Chrome\//.test(u) ? "Chrome" : /Safari\//.test(u) ? "Safari" : /discord/i.test(u) ? "Discord" : u ? "Anderer" : "—";
+  const os = /iPhone|iPad/.test(u) ? "iOS" : /Android/.test(u) ? "Android" : /Windows/.test(u) ? "Windows" : /Mac OS X/.test(u) ? "macOS" : /Linux/.test(u) ? "Linux" : "";
+  return os ? `${browser} · ${os}` : browser;
+};
+async function loadAccessLog() {
+  const d = await api("/api/access-log");
+  $("access-info").textContent = `Jeder Aufruf und jede Anmeldung mit IP-Adresse (gleiche Person + IP höchstens einmal pro Stunde). Gespeichert ${d.days} Tage, nur für Bot-Owner sichtbar.`;
+  if (d.entries.length && d.entries.every(e => ["127.0.0.1", "::1"].includes(e.ip))) $("access-info").textContent += " ⚠️ Es kommen nur 127.0.0.1-Adressen an: Der Webserver vor dem Bot reicht die echte IP nicht weiter (bei nginx X-Forwarded-For setzen).";
+  $("access-shared").innerHTML = d.shared.map(x => row(`⚠️ Mehrere Konten von ${x.ip} (${x.n})`, `${x.users.map(id => state.names[id] || `Mitglied …${id.slice(-4)}`).join(", ")} · zuletzt ${date(x.last)}`)).join("");
+  $("access-list").innerHTML = d.entries.length ? `<div class="table-row table-head access-row"><span>Zeit</span><span>Person</span><span>IP-Adresse</span><span>Art</span><span>Gerät</span></div>` + d.entries.map(e => `<div class="table-row access-row"><span data-label="Zeit">${date(e.created_at)}</span><span data-label="Person"><b>${e.user_id ? who(e.user_id) : "nicht angemeldet"}</b></span><span data-label="IP"><code>${escapeHtml(e.ip)}</code></span><span data-label="Art">${e.kind === "login_denied" ? '<em class="warn">Abgewiesen</em>' : accessKinds[e.kind] ?? e.kind}</span><span data-label="Gerät">${escapeHtml(device(e.user_agent))}</span></div>`).join("") : empty("Noch keine Zugriffe protokolliert.");
+  document.querySelectorAll("#tab-status .search").forEach(filterList);
 }
 
 loaders.activity = loadActivity;

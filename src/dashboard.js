@@ -9,6 +9,7 @@ import { AttachmentBuilder } from "discord.js";
 import { applicationReviewComponents, eventButtons, eventEmbed, fetchTranscript, parseEventDate, ticketActions, ticketCard, ticketClosedActions, ticketClosedCard, buildApplicationReviewPayload } from "./commands.js";
 import { applicationDecisionDm, applicationInReviewDm, logEmbed } from "./presentation.js";
 import { accessGroups } from "./config.js";
+import { clientIp, createAccessLog } from "./services/access-log.js";
 import { canHandleTicket, createTicketService } from "./services/tickets.js";
 import { createDashboardApi } from "./dashboard-api.js";
 import { createFinance } from "./services/finance.js";
@@ -85,6 +86,16 @@ export function createDashboard({ db, client, config, settings = null, series = 
       await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status === "review" ? "review" : null, row.review_note ?? "", row.reviewer_id), components: applicationReviewComponents(row.id, row.status) }).catch(() => {});
     } else await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status, row.review_note ?? ""), components: [] }).catch(() => {});
   };
+  const accessLog = createAccessLog(db);
+  const logAccess = (req, kind, userId = null) => { try { accessLog.record({ guildId: config.DISCORD_GUILD_ID, userId, ip: clientIp(req), kind, userAgent: req.headers["user-agent"], days: config.ACCESS_LOG_DAYS ?? 30 }); } catch (error) { console.warn("Zugriff nicht protokolliert:", error.message); } };
+  const cookieUserId = req => {
+    const raw = req.headers.cookie?.split(";").map(x => x.trim()).find(x => x.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
+    const [payload, signature] = String(raw ?? "").split(".");
+    if (!payload || !signature) return null;
+    const expected = Buffer.from(sign(payload)), received = Buffer.from(signature);
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null;
+    try { const session = JSON.parse(Buffer.from(payload, "base64url").toString()); return session.exp > Date.now() && /^\d{17,20}$/.test(session.sub) ? session.sub : null; } catch { return null; }
+  };
   const sessionFor = async (req, res = null) => {
     const raw = req.headers.cookie?.split(";").map(x => x.trim()).find(x => x.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     if (!raw) return null;
@@ -139,7 +150,9 @@ export function createDashboard({ db, client, config, settings = null, series = 
         if (!tokenResponse.ok) return loginFailure("Discord-Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
         const userResponse = await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${token.access_token}` } });
         const user = await userResponse.json();
-        if (!userResponse.ok || !await memberFor(user.id)) return loginFailure(config.DASHBOARD_MEMBER_AREA ? "Kein Zugang: Dir fehlt die Familienrolle. Bitte melde dich bei der Leitung." : "Die Website ist derzeit nur für das Team freigeschaltet.");
+        const allowed = userResponse.ok && await memberFor(user.id);
+        logAccess(req, allowed ? "login" : "login_denied", /^\d{17,20}$/.test(String(user?.id ?? "")) ? user.id : null);
+        if (!allowed) return loginFailure(config.DASHBOARD_MEMBER_AREA ? "Kein Zugang: Dir fehlt die Familienrolle. Bitte melde dich bei der Leitung." : "Die Website ist derzeit nur für das Team freigeschaltet.");
         res.writeHead(302, { Location: "/", "Cache-Control": "no-store", "Set-Cookie": sessionCookie(user.id) }); return res.end();
       }
       if (req.method === "POST" && url.pathname === "/logout") {
@@ -312,6 +325,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
         return send(res, 404, { error: "Nicht gefunden." });
       }
       if (req.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/assets/"))) {
+        if (url.pathname === "/") logAccess(req, "visit", cookieUserId(req));
         const relative = url.pathname === "/" ? "index.html" : url.pathname.slice("/assets/".length);
         if (relative.includes("..") || relative.includes("\\")) return send(res, 400, { error: "Ungültiger Pfad." });
         const file = url.pathname === "/" ? path.join(root, relative) : path.join(root, "assets", relative);

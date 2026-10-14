@@ -194,7 +194,9 @@ Responsive Staff-Website mit Discord-Login. Man kann dort alles nicht nur ansehe
 
 Statt IDs zeigt die Website Namen an, und Mitglieder werden über eine Suche ausgewählt. Gutschriften, Auszahlungen, Korrekturen und Erstattungen tragen eine eindeutige Anfrage-ID: Ein Doppelklick bucht nie doppelt, und eine veraltete Auszahlungsvorschau wird abgelehnt.
 
-**Aktivieren:** `DASHBOARD_ENABLED=true`, `DASHBOARD_PUBLIC_URL` (HTTPS, eine Domain oder die IP der VM, z. B. `https://203.0.113.10`), `DISCORD_CLIENT_SECRET`, `DASHBOARD_SESSION_SECRET` (z. B. `openssl rand -hex 32`, nur in der VM-`.env`). In der OAuth-Anwendung die Redirect-URL `<DASHBOARD_PUBLIC_URL>/oauth/callback` eintragen. Der Dienst bindet nur an `127.0.0.1:3080` und braucht davor einen HTTPS-Reverse-Proxy (z. B. Caddy oder nginx). Session-Cookies sind signiert, HttpOnly, Secure und laufen nach acht Stunden ab; schreibende Anfragen müssen vom eigenen Origin kommen.
+**Aktivieren:** `DASHBOARD_ENABLED=true`, `DASHBOARD_PUBLIC_URL` (HTTPS, eine Domain oder die IP der VM, z. B. `https://203.0.113.10`), `DISCORD_CLIENT_SECRET`, `DASHBOARD_SESSION_SECRET` (z. B. `openssl rand -hex 32`, nur in der VM-`.env`). In der OAuth-Anwendung die Redirect-URL `<DASHBOARD_PUBLIC_URL>/oauth/callback` eintragen. Der Dienst bindet nur an `127.0.0.1:3080` und braucht davor einen HTTPS-Reverse-Proxy (z. B. Caddy oder nginx). Session-Cookies sind signiert, HttpOnly, Secure und gelten 7 Tage ab dem letzten Besuch; Rollen werden bei jeder Anfrage live geprüft, schreibende Anfragen müssen vom eigenen Origin kommen.
+
+**Website-Zugriffe (IP-Adressen):** Jeder Seitenaufruf und jede Anmeldung (auch abgewiesene) wird mit IP-Adresse, Discord-Konto und Gerät gespeichert – sichtbar nur für Bot-Owner unter *Verwaltung → Status*. Mehrere Konten von derselben IP werden hervorgehoben. Aufbewahrung `ACCESS_LOG_DAYS` (Standard 30 Tage), danach automatisch gelöscht. Die echte IP muss der Reverse-Proxy im Header `X-Forwarded-For` mitschicken (Caddy macht das automatisch; nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`), sonst steht überall `127.0.0.1`.
 
 ## Oracle-VM: Betrieb und Aktualisierung
 

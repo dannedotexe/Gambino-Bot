@@ -29,6 +29,7 @@ import { familyMembers, inactivityFor, remindInactive } from "./inactivity.js";
 import { AnnouncementError, createAnnouncementService, deliverAnnouncement, validateAnnouncement } from "./announcements.js";
 import { createRankHistory, rankFor } from "./services/ranks.js";
 import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
+import { createAccessLog } from "./services/access-log.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
@@ -226,6 +227,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (profile.discord.name) names.set(userId, profile.verification?.nickname ?? profile.discord.name);
       const ids = [userId, ...(profile.applications ?? []).map(a => a.reviewer_id), ...(profile.tickets ?? []).map(t => t.claimed_by), ...(profile.warnings?.items ?? []).flatMap(w => [w.actor_id, w.revoked_by]), ...(profile.moderation ?? []).map(m => m.actor_id), ...(profile.sanctions ?? []).map(s => s.actor_id), ...profile.absences.flatMap(a => [a.created_by, a.ended_by]), ...profile.rankHistory.map(r => r.actor_id)];
       return withNames({ profile }, ids);
+    }],
+    [/^\/api\/access-log$/, async member => {
+      needOwner(member);
+      const log = createAccessLog(db);
+      const entries = log.list(guildId, { limit: 300 }), shared = log.sharedIps(guildId);
+      return withNames({ entries, shared, days: config.ACCESS_LOG_DAYS ?? 30 }, [...entries.map(e => e.user_id), ...shared.flatMap(x => x.users)].filter(Boolean));
     }],
     [/^\/api\/status$/, async member => {
       needOwner(member);
