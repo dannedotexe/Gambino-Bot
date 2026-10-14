@@ -14,6 +14,7 @@ async function loadMine() {
     myStat("Guthaben", a.hasAccount ? money(a.gross) : "kein Konto", "$"),
     myStat("Offene Sanktionen", money(a.openSanctions)),
     myStat("Bei Auszahlung netto", money(a.net), "→"),
+    ...(a.minimum ? [myStat("Auszahlung ab", a.gross >= a.minimum ? `${money(a.minimum)} <small class="ok">✓ erreicht</small>` : `${money(a.minimum)} <small>(noch ${money(a.minimum - a.gross)})</small>`, "⌁")] : []),
     myStat("Rang", escapeHtml(d.rank.current ?? "—"), "★"),
     myStat("Event-Teilnahmen", escapeHtml(e.stats.participations), "#"),
     myStat("No-Shows", e.noShowLimit ? `${e.noShows} von ${e.noShowLimit} <small>(${e.noShowWindow} Tage)</small>` : escapeHtml(e.noShows)),

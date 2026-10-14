@@ -402,6 +402,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         {name:"Offene Sanktionen",value:formatMoney(plan.openCents),inline:true},
         {name:"Voraussichtliche Auszahlung",value:`**${formatMoney(plan.net)}**`,inline:true},
         ...(plan.remainingAfter?[{name:"Danach noch offene Sanktionen",value:formatMoney(plan.remainingAfter),inline:true}]:[]),
+        ...(config.PAYOUT_MINIMUM_CENTS?[{name:"Auszahlung ab",value:plan.gross>=config.PAYOUT_MINIMUM_CENTS?`${formatMoney(config.PAYOUT_MINIMUM_CENTS)} · ✅ erreicht`:`${formatMoney(config.PAYOUT_MINIMUM_CENTS)} · noch ${formatMoney(config.PAYOUT_MINIMUM_CENTS-plan.gross)}`,inline:true}]:[]),
       ],exists?"Gambinos-Familienguthaben für Grand-RP-Events und Familienaktivitäten. Sanktionen werden erst bei der Auszahlung verrechnet.":"Für dieses Mitglied wurde noch kein Familienkonto angelegt. Es entsteht mit der ersten Gutschrift oder über /konto anlegen."),ephemeral:true};
   }
   function historyView(g,target,page=1){

@@ -149,7 +149,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const top = period => activity.leaderboard(guildId, { period, timezone: config.TIMEZONE, limit: 10 });
       const leaderboard = { week: top("week"), month: top("month"), all: top("all") };
       return withNames({
-        userId, account: { hasAccount, gross: plan.gross, openSanctions: plan.openCents, net: plan.net, transactions },
+        userId, account: { hasAccount, gross: plan.gross, openSanctions: plan.openCents, net: plan.net, minimum: config.PAYOUT_MINIMUM_CENTS ?? null, transactions },
         sanctions, warnings,
         events: { upcoming, past, stats: activity.eventStats(guildId, userId), noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
         rank: { current: rank?.label ?? null, history: rankHistory.forUser(guildId, userId, 15).map(r => ({ from: r.from_label, to: r.to_label, kind: r.kind, created_at: r.created_at })) },

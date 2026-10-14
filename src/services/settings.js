@@ -55,7 +55,7 @@ export const SETTINGS = [
   { key: "TICKET_COOLDOWN_SECONDS", group: "Tickets", label: "Wartezeit zwischen Tickets (Sekunden)", type: "number", min: 1, max: 86400 },
   { key: "TICKET_TRANSCRIPT_LIMIT", group: "Tickets", label: "Nachrichten im Transkript", type: "number", min: 100, max: 1000 },
   { key: "ACCOUNT_AUTO_OPEN_FOR_MEMBERS", group: "Familienkonto", label: "Konto automatisch für neue Familienmitglieder", type: "bool", help: "Familienkonto (0 $) wird angelegt, sobald eine Familienbewerbung angenommen wird oder jemand die Familienmitglieder-Rolle bekommt. Die Verifizierung allein legt kein Konto an." },
-  { key: "PAYOUT_MINIMUM_CENTS", group: "Familienkonto", label: "Auszahlungs-Mindestbetrag ($)", type: "money", help: "Leer = kein Mindestbetrag, alle Kontostände werden angezeigt." },
+  { key: "PAYOUT_MINIMUM_CENTS", group: "Familienkonto", label: "Auszahlungs-Mindestbetrag ($)", type: "money", help: "Optional. Erst ab diesem Guthaben kann ausgezahlt werden (Website und Discord sperren kleinere Auszahlungen). Mitglieder sehen im Kontostand und in „Mein Bereich“, wie viel noch fehlt. Leer = jeder Betrag ist auszahlbar." },
   { key: "SANCTION_LIST_SHOW_AMOUNTS", group: "Sanktionsliste & Wochenbericht", label: "Beträge in der öffentlichen Sanktionsliste zeigen", type: "bool" },
   { key: "SANCTION_LIST_SHOW_REASONS", group: "Sanktionsliste & Wochenbericht", label: "Gründe in der öffentlichen Sanktionsliste zeigen", type: "bool" },
   { key: "WEEKLY_REPORT_HOUR", group: "Sanktionsliste & Wochenbericht", label: "Wochenbericht montags ab (Uhr)", type: "number", min: 0, max: 23, help: "Stunde in der Server-Zeitzone, z. B. 9 = Montag ab 9:00 Uhr." },
