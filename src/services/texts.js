@@ -49,7 +49,7 @@ export const PANEL_TEXTS = {
       dmButton: { label: "Button: Erinnerung per DM", max: 80, required: true, default: "🔔 Erinnerung per DM" },
       announceText: { label: "Ankündigungstext", max: 2000, multiline: true, required: true, default: "📢 **{name}** startet {relativ} ({uhrzeit} Uhr).\nMelde dich jetzt an, damit wir planen können!" },
       announceButton: { label: "Button in der Ankündigung", max: 80, required: true, default: "Zur Anmeldung" },
-      reminderText: { label: "Erinnerungstext", max: 2000, multiline: true, required: true, default: "⏰ **{name}** beginnt {relativ}. Seid pünktlich!" },
+      reminderText: { label: "Erinnerungstext", max: 2000, multiline: true, required: true, default: "⏰ **{name}** beginnt um {uhrzeit} Uhr – in {minuten} Minuten. Seid pünktlich!" },
     },
   },
   account: {

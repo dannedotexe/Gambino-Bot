@@ -99,3 +99,12 @@ test("Discord: Erinnerungsart umschalten per Button und /event erinnerung", asyn
   assert.equal(createReminderPrefs(db).wantsDm(G, A), true);
   assert.match(JSON.stringify(replies.at(-1)), /per DM/);
 });
+
+test("Erinnerung: ohne Anmeldungen keine Nachricht; {minuten} ist eine feste Zahl", async () => {
+  const db = testDb(), f = fake(), config = cfg();
+  addEvent(db, { id: "leer", startsAt: inMinutes(60) });
+  assert.equal(await sendEventReminder({ db, client: f.client, config, event: db.prepare("SELECT * FROM events WHERE id='leer'").get() }), false);
+  assert.equal(f.replies.length + f.posts.length, 0);
+  const { fillTemplate } = await import("../src/event-posts.js");
+  assert.match(fillTemplate("in {minuten} Minuten", { name: "x", starts_at: inMinutes(15) }), /in 15 Minuten/);
+});

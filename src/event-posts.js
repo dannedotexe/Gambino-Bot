@@ -14,9 +14,11 @@ const unix = iso => Math.floor(new Date(iso).getTime() / 1000);
 const STATE = { ended: { prefix: "🏁 Beendet · ", color: 0x7f8c8d }, cancelled: { prefix: "❌ Abgesagt · ", color: 0xe74c3c } };
 
 /** Platzhalter in Texten: {name} {zeit} {uhrzeit} {relativ} {treffpunkt} {anmeldung}. */
-export function fillTemplate(template, event, { link = "" } = {}) {
+export function fillTemplate(template, event, { link = "", reference = new Date() } = {}) {
   const t = unix(event.starts_at);
-  return String(template ?? "")
+  // {minuten}: feste Zahl zum Sendezeitpunkt – anders als {relativ} rechnet Discord sie später nicht um.
+  const minutes = Math.max(0, Math.round((new Date(event.starts_at).getTime() - reference.getTime()) / 60_000));
+  return String(template ?? "").replaceAll("{minuten}", String(minutes))
     .replaceAll("{name}", event.name).replaceAll("{zeit}", `<t:${t}:F>`).replaceAll("{uhrzeit}", `<t:${t}:t>`)
     .replaceAll("{relativ}", `<t:${t}:R>`).replaceAll("{treffpunkt}", event.location || "—").replaceAll("{anmeldung}", link || "");
 }
@@ -122,6 +124,8 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
 export async function sendEventReminder({ db, client, config, event }) {
   const texts = panelTexts(db, config.DISCORD_GUILD_ID, "events");
   const all = participantsOf(db, event.id).slice(0, 50).map(p => p.user_id);
+  // Ohne Anmeldungen gibt es niemanden zu erinnern – keine leeren Erinnerungen im Channel.
+  if (!all.length) return false;
   const card = await fetchMessage(client, event.channel_id, event.message_id);
   const embed = new EmbedBuilder().setColor(colorNumber(texts.color || "#d4af37"))
     .setDescription(`${fillTemplate(texts.reminderText, event)}${event.location ? `\n📍 ${event.location}` : ""}${event.equipment ? `\n🧰 ${event.equipment}` : ""}`.slice(0, 4000));

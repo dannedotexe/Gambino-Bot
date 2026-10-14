@@ -99,7 +99,7 @@ function renderPreview() {
   document.querySelectorAll("#texts-form [data-text]").forEach(input => { const counter = input.parentElement.querySelector(".counter"); if (counter && input.maxLength > 0) counter.textContent = `${input.value.length}/${input.maxLength}`; });
 }
 function renderEventPreview(values) {
-  const fill = text => markdown(String(text ?? "").replaceAll("{name}", "Bizwar").replaceAll("{zeit}", "Mittwoch, 14. Oktober 2026 19:05").replaceAll("{uhrzeit}", "19:05").replaceAll("{relativ}", "in 2 Stunden").replaceAll("{treffpunkt}", "Hauptquartier").replaceAll("{anmeldung}", "#event-anmeldung"));
+  const fill = text => markdown(String(text ?? "").replaceAll("{name}", "Bizwar").replaceAll("{zeit}", "Mittwoch, 14. Oktober 2026 19:05").replaceAll("{uhrzeit}", "19:05").replaceAll("{relativ}", "in 2 Stunden").replaceAll("{minuten}", "60").replaceAll("{treffpunkt}", "Hauptquartier").replaceAll("{anmeldung}", "#event-anmeldung"));
   const head = '<div class="dc-head"><img src="/assets/gambinos-profile.gif" alt=""><b>Gambino Helper</b><span class="dc-app">APP</span></div>';
   const author = values.author ? `<div class="dc-author">${escapeHtml(values.author)}</div>` : "";
   $("texts-preview").innerHTML = `<div class="sub-label">#event-ankündigungen</div>${head}<div class="dc-embed">${author}<div class="dc-desc">${fill(values.announceText)}</div></div><div class="dc-buttons"><span class="dc-btn">${escapeHtml(values.announceButton)} ↗</span></div>
@@ -120,7 +120,7 @@ function renderTexts() {
       : `<input data-text="${field.key}" maxlength="${field.max}" value="${value}">`;
     return `<label>${escapeHtml(field.label)}${field.type === "color" ? "" : ' <small class="counter"></small>'}${input}</label>`;
   }).join("");
-  $("texts-hint").textContent = panel.id === "events" ? "Platzhalter: {name} {zeit} {uhrzeit} {relativ} {treffpunkt}. Gilt für alle neuen Events; laufende Event-Posts werden beim Speichern aktualisiert." : panel.channelSet ? "Dieses Panel wird automatisch in seinem Channel verwaltet." : "Für dieses Panel ist noch kein Channel eingestellt (Einstellungen → Channels). Ein bereits gepostetes Panel des Bots wird dort automatisch übernommen.";
+  $("texts-hint").textContent = panel.id === "events" ? "Platzhalter: {name} {zeit} {uhrzeit} {relativ} {minuten} {treffpunkt}. {relativ} rechnet Discord beim Lesen neu aus („vor einer Stunde“), {minuten} bleibt fest. Gilt für alle neuen Events; laufende Event-Posts werden beim Speichern aktualisiert." : panel.channelSet ? "Dieses Panel wird automatisch in seinem Channel verwaltet." : "Für dieses Panel ist noch kein Channel eingestellt (Einstellungen → Channels). Ein bereits gepostetes Panel des Bots wird dort automatisch übernommen.";
   renderPreview();
 }
 document.addEventListener("input", event => { if (event.target.closest?.("#texts-form")) renderPreview(); });
