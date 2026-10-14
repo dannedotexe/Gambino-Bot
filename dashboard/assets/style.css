@@ -249,3 +249,4 @@ a.action{text-decoration:none;display:inline-flex;align-items:center}
 #tab-mine>.panel{margin-top:16px}
 .access-row{grid-template-columns:150px minmax(140px,1.2fr) 1fr 110px 140px}.access-row code{font-size:12px}
 .payout-row{grid-template-columns:150px minmax(180px,1.6fr) 1fr 1fr 1fr 1fr}small.block{display:block;color:var(--muted,#8b8b93);font-size:11px;margin-top:2px}
+.credit-row{grid-template-columns:150px minmax(140px,1fr) minmax(140px,1fr) 140px minmax(160px,1.6fr)}#tab-credits .columns{margin-bottom:16px}

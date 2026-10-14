@@ -110,6 +110,14 @@
         <div id="accounts-list" class="table"></div>
       </section>
 
+      <section id="tab-credits" class="tab-panel hidden">
+        <div class="section-intro"><div><div class="eyebrow">FINANZEN · LOG</div><h2>Gutschriften</h2><p>Wer wem wie viel aufs Familienkonto gebucht hat. Einträge sind unveränderlich.</p></div><div class="section-tools"><a class="action" href="/api/export/credits.xlsx" download title="Als Excel-Tabelle herunterladen">Excel: Gutschriften</a><select id="credits-type" aria-label="Art"><option value="credit">Nur Gutschriften</option><option value="all">Inkl. Korrekturen & Erstattungen</option></select><select id="credits-filter" aria-label="Zeitraum"><option value="7">Letzte 7 Tage</option><option value="30" selected>Letzte 30 Tage</option><option value="90">Letzte 90 Tage</option><option value="0">Alle</option></select><input class="search" data-target="credits-list" type="search" placeholder="Name suchen …" aria-label="Suchen"></div></div>
+        <div id="credits-totals" class="stats"></div>
+        <div class="columns"><section class="panel"><div class="panel-head"><div><div class="eyebrow">GEBUCHT VON</div><h2>Wer hat wie viel vergeben</h2></div></div><div id="credits-actors" class="rows"></div></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">EMPFÄNGER</div><h2>Wer hat am meisten bekommen</h2></div></div><div id="credits-members" class="rows"></div></section></div>
+        <div id="credits-list" class="table"></div>
+      </section>
+
       <section id="tab-payouts" class="tab-panel hidden">
         <div class="section-intro"><div><div class="eyebrow">FINANZEN · LOG</div><h2>Auszahlungen</h2><p>Jede Auszahlung mit Brutto, Sanktionsabzug, tatsächlich ausgezahltem Betrag und wer ausgezahlt hat. Einträge sind unveränderlich.</p></div><div class="section-tools"><a class="action" href="/api/export/payouts.xlsx" download title="Als Excel-Tabelle herunterladen">Excel: Auszahlungen</a><select id="payouts-filter" aria-label="Zeitraum"><option value="7">Letzte 7 Tage</option><option value="30" selected>Letzte 30 Tage</option><option value="90">Letzte 90 Tage</option><option value="0">Alle</option></select><input class="search" data-target="payouts-list" type="search" placeholder="Mitglied suchen …" aria-label="Suchen"></div></div>
         <div id="payouts-totals" class="stats"></div>
