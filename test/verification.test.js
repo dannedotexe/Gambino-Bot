@@ -8,9 +8,9 @@ import { loadConfig } from "../src/config.js";
 
 const G = "10000000000000001", VERIFIED = "20000000000000009";
 
-test("Name wird als „ID | Vorname Nachname“ gebaut und geprüft", () => {
-  assert.equal(buildVerification({ ingameId: " 12345 ", firstName: "tony", lastName: "di napoli" }).nickname, "12345 | Tony Di Napoli");
-  assert.equal(buildVerification({ ingameId: "#7", firstName: "Jürgen", lastName: "Müller-Lüdenscheidt" }).nickname, "7 | Jürgen Müller-Lüdenscheidt");
+test("Name wird als „Vorname Nachname | ID“ gebaut und geprüft", () => {
+  assert.equal(buildVerification({ ingameId: " 12345 ", firstName: "tony", lastName: "di napoli" }).nickname, "Tony Di Napoli | 12345");
+  assert.equal(buildVerification({ ingameId: "#7", firstName: "Jürgen", lastName: "Müller-Lüdenscheidt" }).nickname, "Jürgen Müller-Lüdenscheidt | 7");
   assert.throws(() => buildVerification({ ingameId: "12a", firstName: "Tony", lastName: "Gambino" }), /Ziffern/);
   assert.throws(() => buildVerification({ ingameId: "1", firstName: "T0ny", lastName: "Gambino" }), /Vornamen/);
   assert.throws(() => buildVerification({ ingameId: "1234567890", firstName: "Maximilianaaaa", lastName: "Mustermannnnnn" }), /zu lang/);
@@ -47,9 +47,9 @@ const text = payload => JSON.stringify(payload.embeds?.map(e => e.data ?? e));
 test("Verifizierung setzt Namen und Rolle und speichert erst danach", async () => {
   const x = setup();
   await x.handler.modal(x.modal("30000000000000001", { ingame_id: "4711", first_name: "paulie", last_name: "walnuts" }));
-  assert.equal(x.member.nickname, "4711 | Paulie Walnuts");
+  assert.equal(x.member.nickname, "Paulie Walnuts | 4711");
   assert.ok(x.member.roles.cache.has(VERIFIED));
-  assert.equal(createVerificationService(x.db).byUser(G, "30000000000000001").nickname, "4711 | Paulie Walnuts");
+  assert.equal(createVerificationService(x.db).byUser(G, "30000000000000001").nickname, "Paulie Walnuts | 4711");
   assert.match(text(x.replies.at(-1)), /Verifizierung abgeschlossen/);
 });
 
@@ -89,8 +89,27 @@ test("Name ändern: nur für Verifizierte, aktualisiert Namen und protokolliert 
   const rename = x.modal("30000000000000001", { ingame_id: "9999", first_name: "Paul", last_name: "Gualtieri" });
   rename.customId = "verify:rename-submit";
   await x.handler.modal(rename);
-  assert.equal(x.member.nickname, "4711 | Paul Gualtieri");
-  assert.match(text(x.replies.at(-1)), /Name geändert[\s\S]*Vorher: 4711 \| Paulie Walnuts/);
+  assert.equal(x.member.nickname, "Paul Gualtieri | 4711");
+  assert.match(text(x.replies.at(-1)), /Name geändert[\s\S]*Vorher: Paulie Walnuts \| 4711/);
   const log = x.db.prepare("SELECT details FROM audit_logs WHERE action='member.verification_updated'").get();
   assert.match(log.details, /Paulie Walnuts/);
+});
+
+test("Bestehende Namen werden einmalig auf „Vorname Nachname | ID“ umgestellt, eigene Namen bleiben", async () => {
+  const { migrateNicknameFormat } = await import("../src/nickname-migration.js");
+  const { testDb } = await import("./helpers.js");
+  const db = testDb(), now = new Date().toISOString();
+  const insert = (userId, id, first, last) => db.prepare("INSERT INTO member_verifications(guild_id,user_id,ingame_id,first_name,last_name,nickname,verified_at,updated_at) VALUES(?,?,?,?,?,?,?,?)").run(G, userId, id, first, last, `${id} | ${first} ${last}`, now, now);
+  insert("30000000000000001", "12", "Tony", "Soprano");
+  insert("30000000000000002", "13", "Paulie", "Walnuts");
+  const renamed = [];
+  const member = (id, nickname) => ({ id, nickname, setNickname: async n => { renamed.push([id, n]); } });
+  const guild = { ownerId: "1", members: { fetch: async id => id === "30000000000000001" ? member(id, "12 | Tony Soprano") : member(id, "Paulie (eigener Name)") } };
+  const client = { user: { id: "bot" }, guilds: { cache: new Map([[G, guild]]) } };
+  const config = { DISCORD_GUILD_ID: G };
+  const result = await migrateNicknameFormat({ db, client, config, delayMs: 0 });
+  assert.deepEqual(renamed, [["30000000000000001", "Tony Soprano | 12"]]);
+  assert.equal(result.renamed, 1);
+  assert.equal(db.prepare("SELECT nickname FROM member_verifications WHERE user_id='30000000000000002'").get().nickname, "Paulie Walnuts | 13", "gespeicherter Name immer aktualisiert");
+  assert.equal(await migrateNicknameFormat({ db, client, config, delayMs: 0 }), null, "läuft nur einmal");
 });

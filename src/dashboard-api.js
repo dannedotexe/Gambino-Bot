@@ -90,7 +90,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const fetched = await g.members.fetch({ user: missing.slice(0, 100) }).catch(() => null);
       if (fetched?.forEach) fetched.forEach(m => names.set(m.id, m.displayName ?? m.user?.username));
     }
-    // Verifizierte Mitglieder erscheinen mit „ID | Vorname Nachname“, auch wenn Discord den Namen nicht ändern konnte.
+    // Verifizierte Mitglieder erscheinen mit „Vorname Nachname | ID“, auch wenn Discord den Namen nicht ändern konnte.
     const verified = new Map(unique.length ? db.prepare(`SELECT user_id,nickname FROM member_verifications WHERE guild_id=? AND user_id IN (${unique.map(() => "?").join(",")})`).all(guildId, ...unique).map(r => [r.user_id, r.nickname]) : []);
     return Object.fromEntries(unique.map(id => [id, verified.get(id) ?? g?.members?.cache?.get?.(id)?.displayName ?? names.get(id) ?? client.users?.cache?.get?.(id)?.username ?? null]));
   }

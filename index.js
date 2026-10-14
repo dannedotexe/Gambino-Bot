@@ -14,6 +14,7 @@ import { createTicketService } from "./src/services/tickets.js";
 import { createActivityService } from "./src/services/activity.js";
 import { sendWelcome } from "./src/welcome.js";
 import { trackRankChange } from "./src/rank-tracking.js";
+import { migrateNicknameFormat } from "./src/nickname-migration.js";
 
 let config;
 try { config=loadConfig(); }
@@ -38,6 +39,7 @@ client.once(Events.ClientReady,ready=>{
   console.log(`Gambino Bot bereit als ${ready.user.tag} (Version ${currentVersion()}).`);
   startScheduler({db,client,config,series});
   void adoptLeadershipDefaults();
+  void migrateNicknameFormat({db,client,config}).then(r=>{if(r)console.log(`Namensformat umgestellt: ${r.renamed} umbenannt, ${r.skipped} übersprungen, ${r.failed} fehlgeschlagen.`);}).catch(error=>console.warn("Namensformat konnte nicht umgestellt werden:",error.message));
 });
 // Von der Leitung genannte IDs einmalig übernehmen, falls noch nichts eingestellt ist. Gesetzt wird nur, was
 // auf dem konfigurierten Server wirklich existiert und den richtigen Typ hat; jede Übernahme wird protokolliert.

@@ -525,8 +525,10 @@ async function start() {
     state.me = await response.json(); state.timezone = state.me.settings.timezone || state.timezone;
     $("app-version").textContent = state.me.version ?? "–";
     login.classList.add("hidden"); dashboard.classList.remove("hidden");
-    // Verifizierte Namen haben das Format „ID | Vorname Nachname“: Name groß, ID klein darunter.
-    const fullName = String(state.me.member.name || "Staff").trim(), parts = /^(\d+)\s*\|\s*(.+)$/.exec(fullName);
+    // Verifizierte Namen: „Vorname Nachname | ID“ (ältere Einträge noch „ID | Vorname Nachname“). Name groß, ID klein darunter.
+    const fullName = String(state.me.member.name || "Staff").trim();
+    const newer = /^(.+?)\s*\|\s*(\d+)$/.exec(fullName), older = /^(\d+)\s*\|\s*(.+)$/.exec(fullName);
+    const parts = newer ? [null, newer[2], newer[1]] : older;
     const displayName = parts ? parts[2] : fullName;
     $("staff-name").textContent = displayName; $("staff-name").title = fullName;
     $("staff-avatar").textContent = (displayName.match(/\p{L}/u)?.[0] ?? displayName.charAt(0) ?? "G").toUpperCase();

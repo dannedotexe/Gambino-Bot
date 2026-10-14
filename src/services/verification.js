@@ -3,7 +3,7 @@ import { audit } from "../database.js";
 const NAME = /^[A-Za-zÀ-ÖØ-öø-ÿĀ-žẞ' -]{2,20}$/u;
 export const MAX_NICKNAME = 32;
 
-/** Prüft die Angaben und baut den Discord-Namen „ID | Vorname Nachname“. Wirft verständliche Fehler. */
+/** Prüft die Angaben und baut den Discord-Namen „Vorname Nachname | ID“. Wirft verständliche Fehler. */
 export function buildVerification({ ingameId, firstName, lastName }) {
   const id = String(ingameId ?? "").trim().replace(/^#/, "");
   if (!/^\d{1,10}$/.test(id)) throw new Error("Die Ingame-ID darf nur aus Ziffern bestehen (z. B. 12345).");
@@ -12,7 +12,7 @@ export function buildVerification({ ingameId, firstName, lastName }) {
   if (!NAME.test(first)) throw new Error("Bitte einen gültigen Vornamen angeben (2–20 Buchstaben, keine Zahlen oder Sonderzeichen).");
   if (!NAME.test(last)) throw new Error("Bitte einen gültigen Nachnamen angeben (2–20 Buchstaben, keine Zahlen oder Sonderzeichen).");
   const capitalize = name => name.split(/([ -])/).map(part => (part.length > 1 ? part.charAt(0).toLocaleUpperCase("de-AT") + part.slice(1) : part)).join("");
-  const nickname = `${id} | ${capitalize(first)} ${capitalize(last)}`;
+  const nickname = `${capitalize(first)} ${capitalize(last)} | ${id}`;
   if (nickname.length > MAX_NICKNAME) throw new Error(`Der Name „${nickname}“ ist zu lang (Discord erlaubt höchstens ${MAX_NICKNAME} Zeichen). Bitte kürze den Vor- oder Nachnamen.`);
   return { ingameId: id, firstName: capitalize(first), lastName: capitalize(last), nickname };
 }

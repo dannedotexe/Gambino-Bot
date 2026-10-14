@@ -149,6 +149,7 @@ const ACTIONS = {
   "member.verification_updated": "Verifizierung aktualisiert",
   "member.verification_failed": "Verifizierung fehlgeschlagen",
   "member.verification_reset": "Verifizierung zurückgesetzt",
+  "member.nickname_format": "Namensformat umgestellt",
 };
 
 const ACTION_EMOJI = {
