@@ -5,7 +5,9 @@ import { createFinance } from "../src/services/finance.js";
 import { closeDuePolls, createPollService, pollPayload, validatePoll } from "../src/polls.js";
 import { createHandler } from "../src/commands.js";
 import { createDashboardApi } from "../src/dashboard-api.js";
-import { toCsv } from "../src/csv-export.js";
+import { buildTable } from "../src/export.js";
+import { toXlsx } from "../src/xlsx.js";
+import { inflateRawSync } from "node:zlib";
 import { loadConfig } from "../src/config.js";
 
 const G = "10000000000000001", TZ = "Europe/Vienna", CH = "50000000000000001";
@@ -65,7 +67,7 @@ test("Discord: Buttons, Zwischenstand verdeckt, Rollenbeschränkung, automatisch
   assert.match(f.edits.at(-1).embeds[0].data.description, /100 %/, "am Ende sichtbar");
 });
 
-test("Website: Abstimmung starten und CSV-Export mit Rechten, BOM, Semikolon und Formelschutz", async () => {
+test("Website: Abstimmung starten und Excel-Export mit Rechten, Text-IDs, Zahlenformaten und Formelschutz", async () => {
   const db = testDb(), f = fakeClient(), cfg = config(), finance = createFinance(db);
   finance.credit({ guildId: G, userId: A, actorId: STAFF, cents: 250000050, reason: "=HYPERLINK(\"x\")", key: "k1" });
   finance.sanction({ guildId: G, userId: A, actorId: STAFF, cents: 10000, reason: "Zu spät; Funk aus" });
@@ -76,18 +78,34 @@ test("Website: Abstimmung starten und CSV-Export mit Rechten, BOM, Semikolon und
   assert.equal((await post(as(), "/api/polls", { question: "Treffen?", options: ["Fr", "Sa"], hours: 24 })).status, 403);
   assert.equal((await post(as("staff"), "/api/polls", { question: "Treffen?", options: ["Fr", "Sa"], hours: 24 })).status, 200);
   assert.equal(f.sent.length, 1);
-  assert.equal((await get(as("staff"), "/api/export/accounts.csv")).status, 403, "Konten nur mit Finanz-Einsicht");
-  const accounts = await get(as("finance"), "/api/export/accounts.csv");
+  assert.equal((await get(as("staff"), "/api/export/accounts.xlsx")).status, 403, "Konten nur mit Finanz-Einsicht");
+  const accounts = await get(as("finance"), "/api/export/accounts.xlsx");
   assert.equal(accounts.status, 200);
-  assert.equal(accounts.type, "text/csv; charset=utf-8");
-  assert.match(accounts.headers["Content-Disposition"], /attachment; filename="gambinos-accounts-\d{4}-\d{2}-\d{2}\.csv"/);
-  assert.ok(accounts.body.startsWith("﻿Mitglied;Discord-ID;"));
-  assert.match(accounts.body, /2500000,50/);
-  const tx = (await get(as("finance"), "/api/export/transactions.csv")).body;
-  assert.match(tx, /'=HYPERLINK/, "Formeln werden entschärft");
-  const sanctions = (await get(as("staff"), "/api/export/sanctions.csv")).body;
-  assert.match(sanctions, /"Zu spät; Funk aus"/);
-  assert.equal((await get(as("staff"), "/api/export/unbekannt.csv")).status, 404);
+  assert.equal(accounts.type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  assert.match(accounts.headers["Content-Disposition"], /attachment; filename="gambinos-accounts-\d{4}-\d{2}-\d{2}\.xlsx"/);
+  assert.equal(accounts.body.subarray(0, 2).toString(), "PK", "echte ZIP-/XLSX-Datei");
+  const sheet = unzipEntry(accounts.body, "xl/worksheets/sheet1.xml");
+  assert.match(sheet, new RegExp(`<t xml:space="preserve">${A}</t>`), "Discord-ID als Text, nicht als Zahl");
+  assert.match(sheet, /<c r="B2" s="2"><v>2500000\.5<\/v>/, "Betrag als Zahl mit Währungsformat");
+  const tx = unzipEntry((await get(as("finance"), "/api/export/transactions.xlsx")).body, "xl/worksheets/sheet1.xml");
+  assert.match(tx, /t="inlineStr"[^>]*><is><t xml:space="preserve">=HYPERLINK/, "Formeln bleiben reiner Text");
+  assert.doesNotMatch(tx, /<f>/);
+  assert.equal((await get(as("staff"), "/api/export/sanctions.xlsx")).status, 200);
+  assert.equal((await get(as("staff"), "/api/export/unbekannt.xlsx")).status, 404);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM audit_logs WHERE action='admin.export'").get().n, 3);
-  assert.equal(toCsv(["a", "b"], [["-5,50", "-A1"]]), "\uFEFFa;b\r\n-5,50;'-A1\r\n", "negative Zahlen bleiben Zahlen");
+  const table = buildTable("sanctions", { db, guildId: G, finance, name: id => id });
+  assert.equal(table.columns.find(c => c.label === "Betrag").type, "money");
+  assert.ok(toXlsx({ sheet: "Leer", columns: [{ label: "A", type: "text" }], rows: [] }).length > 500);
 });
+
+/** Liest eine Datei aus dem ZIP (für Tests). */
+function unzipEntry(buffer, name) {
+  let offset = 0;
+  while (buffer.readUInt32LE(offset) === 0x04034b50) {
+    const size = buffer.readUInt32LE(offset + 18), nameLength = buffer.readUInt16LE(offset + 26), extra = buffer.readUInt16LE(offset + 28);
+    const entry = buffer.subarray(offset + 30, offset + 30 + nameLength).toString(), start = offset + 30 + nameLength + extra;
+    if (entry === name) return inflateRawSync(buffer.subarray(start, start + size)).toString();
+    offset = start + size;
+  }
+  throw new Error(`${name} nicht gefunden`);
+}

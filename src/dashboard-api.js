@@ -30,7 +30,7 @@ import { AnnouncementError, createAnnouncementService, deliverAnnouncement, vali
 import { createRankHistory } from "./services/ranks.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
-import { EXPORTS, buildExport } from "./csv-export.js";
+import { EXPORTS, buildExportFile } from "./export.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -221,7 +221,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const items = polls.list(guildId, 30).map(p => ({ ...p, results: polls.results(p.id), voters: polls.voters(p.id) }));
       return withNames({ polls: items, defaultChannel: config.CHANNEL_POLLS ?? null }, items.flatMap(p => [p.created_by, ...(p.voters ?? []).map(v => v.user_id)]));
     }],
-    [/^\/api\/export\/([a-z]+)\.csv$/, async (member, url, [, kind]) => {
+    [/^\/api\/export\/([a-z]+)\.xlsx$/, async (member, url, [, kind]) => {
       const definition = EXPORTS[kind];
       if (!definition) throw new HttpError(404, "Unbekannter Export.");
       const allowed = definition.group === "sanctionsView" ? can(member, "staff") || can(member, "financeView") || can(member, "moderation") : can(member, definition.group);
@@ -229,10 +229,10 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const ids = new Set(db.prepare("SELECT user_id FROM accounts WHERE guild_id=? UNION SELECT user_id FROM sanctions WHERE guild_id=? UNION SELECT actor_id FROM sanctions WHERE guild_id=? UNION SELECT user_id FROM transactions WHERE guild_id=? UNION SELECT actor_id FROM transactions WHERE guild_id=? UNION SELECT user_id FROM member_warnings WHERE guild_id=? UNION SELECT actor_id FROM member_warnings WHERE guild_id=? UNION SELECT user_id FROM member_absences WHERE guild_id=? UNION SELECT created_by FROM member_absences WHERE guild_id=?").all(...Array(9).fill(guildId)).map(r => r.user_id));
       if (kind === "events") for (const r of db.prepare("SELECT DISTINCT p.user_id FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=?").all(guildId)) ids.add(r.user_id);
       const names = await resolveNames([...ids]);
-      const content = buildExport(kind, { db, guildId, timezone: config.TIMEZONE, finance, name: id => (id && names[id]) || (id ? `…${String(id).slice(-5)}` : "") });
+      const content = buildExportFile(kind, { db, guildId, timezone: config.TIMEZONE, finance, name: id => (id && names[id]) || (id ? `…${String(id).slice(-5)}` : "") });
       audit(db, guildId, member.id, "admin.export", null, { name: definition.label });
       const day = new Date().toISOString().slice(0, 10);
-      return { __file: true, content, type: "text/csv; charset=utf-8", filename: `gambinos-${kind}-${day}.csv` };
+      return { __file: true, content, type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename: `gambinos-${kind}-${day}.xlsx` };
     }],
     [/^\/api\/announcements$/, async member => {
       need(member, "staff", "Staff-Rolle");
