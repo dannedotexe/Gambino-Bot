@@ -138,7 +138,7 @@ test("Staff-Dashboard prüft Rollen und protokolliert Antrag-Übernahme und Able
     assert.equal(db.prepare("SELECT status FROM events WHERE id=?").get(createdEvent.id).status, "cancelled");
 
     const page = await request("/");
-    assert.match(await page.text(), /gambinos-banner\.gif/);
+    assert.match(await page.text(), /class="discord-btn" href="\/login"/);
     assert.equal((await request("/assets/app.js")).headers.get("content-type"), "text/javascript; charset=utf-8");
     assert.equal((await request("/assets/style.css")).headers.get("content-type"), "text/css; charset=utf-8");
     const gif = await request("/assets/gambinos-profile.gif");
