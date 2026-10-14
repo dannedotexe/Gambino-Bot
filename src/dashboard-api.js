@@ -550,7 +550,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
     }],
     [/^\/api\/warnings\/([\w-]+)\/delete$/, async (member, body, [, id]) => {
       need(member, "leaders", "Leitungsrolle");
-      const row = warningService.remove({ guildId, warningId: id, actorId: member.id, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }) });
+      const row = warningService.remove({ guildId, warningId: id, actorId: member.id, allowSelf: member.owner, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }) });
       return { message: `Verwarnung gelöscht. Noch aktiv: ${warningService.activeCount(guildId, row.user_id, { expireDays: config.WARN_EXPIRE_DAYS })}.` };
     }],
     [/^\/api\/warnings\/([\w-]+)\/revoke$/, async (member, body, [, id]) => {
@@ -558,7 +558,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const existing = warningService.get(guildId, id);
       if (!existing) throw new HttpError(404, "Diese Verwarnung wurde nicht gefunden.");
       if (existing.actor_id !== member.id && !can(member, "staff")) throw new HttpError(403, "Verwarnungen anderer Teammitglieder kann nur Staff oder die Leitung zurücknehmen.");
-      const row = warningService.revoke({ guildId, warningId: id, actorId: member.id, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }) });
+      const row = warningService.revoke({ guildId, warningId: id, actorId: member.id, allowSelf: member.owner, reason: text(body.reason, { min: 3, max: 300, label: "Grund" }) });
       const active = warningService.activeCount(guildId, row.user_id, { expireDays: config.WARN_EXPIRE_DAYS });
       if (config.WARN_DM_ENABLED) {
         const dm = new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  VERWARNUNG" }).setTitle("✅ Verwarnung zurückgenommen")

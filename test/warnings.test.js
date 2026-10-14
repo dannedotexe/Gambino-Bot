@@ -199,3 +199,14 @@ test("Website: Verwarnung endgültig löschen nur durch die Leitung, Vorgang ble
   assert.match(x.db.prepare("SELECT details FROM audit_logs WHERE action='sanction.warning_deleted'").get().details, /Testeintrag/);
   assert.equal((await post(as(LEADER, "leaders"), `/api/warnings/${id}/delete`, { reason: "nochmal" })).status, 404);
 });
+
+test("Bot-Owner dürfen eigene (Test-)Verwarnungen entfernen, andere nicht", async () => {
+  const x = setup();
+  const api = createDashboardApi({ db: x.db, client: x.client, config: x.config });
+  const post = (member, path, body) => api.post(member, new URL(path, "https://dash.example"), body);
+  const insert = userId => x.db.prepare("INSERT INTO member_warnings(id,guild_id,user_id,actor_id,reason,created_at) VALUES(?,?,?,?,?,?)").run(`w-${userId}`, GUILD, userId, userId, "Test", new Date().toISOString());
+  insert(LEADER);
+  assert.equal((await post({ id: LEADER, owner: false, roles: [ROLE.leaders] }, `/api/warnings/w-${LEADER}/delete`, { reason: "Test weg" })).status, 400);
+  assert.equal((await post({ id: LEADER, owner: true, roles: [ROLE.leaders] }, `/api/warnings/w-${LEADER}/delete`, { reason: "Test weg" })).status, 200);
+  assert.equal(count(x.db), 0);
+});

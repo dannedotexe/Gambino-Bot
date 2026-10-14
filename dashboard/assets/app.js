@@ -12,8 +12,11 @@ const uuid = () => crypto.randomUUID();
 /** Buttons zum Zurücknehmen (zählt nicht mehr, bleibt sichtbar) und endgültigen Löschen (nur Leitung) einer Verwarnung. */
 function warningActions(w) {
   const caps = state.me.capabilities, me = state.me.member.id;
-  const revoke = caps.warnings && w.state === "active" && w.user_id !== me && (caps.sanctions || w.actor_id === me);
-  const remove = caps.leaders && w.user_id !== me;
+  // Eigene Verwarnungen darf nur jemand anderes entfernen – außer Bot-Owner (z. B. für Testeinträge).
+  const own = w.user_id === me && !state.me.member.owner;
+  if (own && caps.warnings) return '<span class="muted">Eigene Verwarnung – kann nur jemand anderes entfernen</span>';
+  const revoke = caps.warnings && w.state === "active" && (caps.sanctions || w.actor_id === me);
+  const remove = caps.leaders || state.me.member.owner;
   return `${revoke ? btn("Zurücknehmen", "warning-revoke", { id: w.id }) : ""}${remove ? btn("Löschen", "warning-delete", { id: w.id }, "reject") : ""}`;
 }
 /** Klickbarer Name, öffnet das Mitgliederprofil. */

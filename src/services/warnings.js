@@ -71,13 +71,13 @@ export function createWarningService(db) {
 
   const get = (guildId, id) => db.prepare("SELECT * FROM member_warnings WHERE guild_id=? AND id=?").get(guildId, id) ?? null;
 
-  const revoke = db.transaction(({ guildId, warningId, actorId, reason }) => {
+  const revoke = db.transaction(({ guildId, warningId, actorId, reason, allowSelf = false }) => {
     const text = String(reason ?? "").trim();
     if (!text) throw new WarningError("Für die Rücknahme ist ein Grund erforderlich.");
     const row = get(guildId, warningId);
     if (!row) throw new WarningError("Diese Verwarnung wurde nicht gefunden.", "NOT_FOUND");
     if (row.revoked_at) throw new WarningError("Diese Verwarnung wurde bereits zurückgenommen.", "ALREADY_REVOKED");
-    if (row.user_id === actorId) throw new WarningError("Eigene Verwarnungen kann nur jemand anderes zurücknehmen.", "SELF_REVOKE");
+    if (row.user_id === actorId && !allowSelf) throw new WarningError("Eigene Verwarnungen kann nur jemand anderes zurücknehmen.", "SELF_REVOKE");
     const ts = now();
     db.prepare("UPDATE member_warnings SET revoked_at=?,revoked_by=?,revoke_reason=? WHERE id=? AND revoked_at IS NULL").run(ts, actorId, text, warningId);
     audit(db, guildId, actorId, "sanction.warning_revoked", row.user_id, { warningId, reason: text, originalReason: row.reason });
@@ -85,12 +85,12 @@ export function createWarningService(db) {
   });
 
   /** Löscht eine Verwarnung endgültig (z. B. Fehleintrag oder Testdaten). Der Vorgang selbst bleibt im Audit-Log. */
-  const remove = db.transaction(({ guildId, warningId, actorId, reason }) => {
+  const remove = db.transaction(({ guildId, warningId, actorId, reason, allowSelf = false }) => {
     const text = String(reason ?? "").trim();
     if (!text) throw new WarningError("Für das Löschen ist ein Grund erforderlich.");
     const row = get(guildId, warningId);
     if (!row) throw new WarningError("Diese Verwarnung wurde nicht gefunden.", "NOT_FOUND");
-    if (row.user_id === actorId) throw new WarningError("Eigene Verwarnungen kann nur jemand anderes löschen.", "SELF_REVOKE");
+    if (row.user_id === actorId && !allowSelf) throw new WarningError("Eigene Verwarnungen kann nur jemand anderes löschen.", "SELF_REVOKE");
     db.prepare("DELETE FROM member_warnings WHERE id=? AND guild_id=?").run(warningId, guildId);
     audit(db, guildId, actorId, "sanction.warning_deleted", row.user_id, { warningId, reason: text, originalReason: row.reason, wasRevoked: row.revoked_at ? "ja" : "nein" });
     return row;

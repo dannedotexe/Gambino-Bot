@@ -320,7 +320,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         const target=i.options.get?.("mitglied")?.value??null;
         const rows=target?warningService.list(g,target,{limit:25,expireDays:config.WARN_EXPIRE_DAYS}).filter(r=>r.state==="active"):warningService.recent(g,{limit:100,activeOnly:true,expireDays:config.WARN_EXPIRE_DAYS});
         const nick=id=>verifications.byUser(g,id)?.nickname??i.guild?.members?.cache?.get?.(id)?.displayName??`Mitglied …${id.slice(-5)}`;
-        choices=rows.filter(r=>r.user_id!==i.user.id).map(r=>({name:`${target?"":`${nick(r.user_id)} · `}${new Date(r.created_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})} · ${r.reason} · ${r.id.slice(0,8)}`.slice(0,100),value:r.id}));
+        choices=rows.filter(r=>r.user_id!==i.user.id||isOwner(i)).map(r=>({name:`${target?"":`${nick(r.user_id)} · `}${new Date(r.created_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})} · ${r.reason} · ${r.id.slice(0,8)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="aktivitaeten"&&series&&can(i,"events")){
         choices=series.list(g).map(r=>({name:`${r.active?"🟢":"⚪"} ${r.name} · ${describeSchedule(r)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="giveaway"&&sub==="abbrechen"&&can(i,"staff")){
@@ -448,7 +448,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if(!existing)return respond(i,active.length?"Diese Verwarnung wurde nicht gefunden. Bitte aus der Vorschlagsliste wählen oder das Feld leer lassen (dann wird die neueste genommen).":`<@${target.id}> hat keine aktiven Verwarnungen.`);
     // Reine Moderationsrollen nehmen nur eigene Verwarnungen zurück; Staff und Leitung alle.
     if(existing.actor_id!==u&&!can(i,"staff"))return respond(i,"Verwarnungen anderer Teammitglieder kann nur Staff oder die Leitung zurücknehmen.");
-    const row=warningService.revoke({guildId:g,warningId:existing.id,actorId:u,reason:i.options.getString("grund")});
+    const row=warningService.revoke({guildId:g,warningId:existing.id,actorId:u,allowSelf:isOwner(i),reason:i.options.getString("grund")});
     const remaining=warningService.activeCount(g,row.user_id,{expireDays:config.WARN_EXPIRE_DAYS});
     if(config.WARN_DM_ENABLED)await client.users.fetch(row.user_id).then(user=>user.send({embeds:[embed("✅ Verwarnung zurückgenommen",`Deine Verwarnung vom <t:${unix(row.created_at)}:d> („${row.reason}“) wurde zurückgenommen.\n**Grund:** ${row.revoke_reason}\n**Aktive Verwarnungen:** ${remaining}`)]})).catch(()=>{});
     return answer(i,{...fieldsEmbed("↩️ Verwarnung zurückgenommen",[{name:"Mitglied",value:`<@${row.user_id}>`,inline:true},{name:"Noch aktiv",value:String(remaining),inline:true},{name:"Ursprünglicher Grund",value:row.reason},{name:"Grund der Rücknahme",value:row.revoke_reason}],"Die Verwarnung zählt nicht mehr. In der Historie bleibt sie als „zurückgenommen“ sichtbar."),ephemeral:true});
