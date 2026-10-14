@@ -9,7 +9,7 @@ export const PANEL_TEXTS = {
     label: "Bewerbungs-Panel", channelKey: "CHANNEL_APPLICATION_PANEL",
     fields: {
       color: { label: "Farbe", type: "color", default: "#d4af37" },
-      author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  FAMILIENBÜRO" },
+      author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  BEWERBUNGEN" },
       title: { label: "Titel", max: 256, default: "📋  Bewerbungen & Rang-Anträge" },
       description: { label: "Beschreibung", max: 4000, multiline: true, default: "Wähle den passenden Antrag aus. Beide Formulare fragen gezielt die Informationen ab, die das Leitungsteam für die Entscheidung braucht." },
       field1Name: { label: "Feld 1 – Überschrift", max: 256, default: "🤝  Familienbeitritt" },

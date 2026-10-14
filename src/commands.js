@@ -34,7 +34,7 @@ import { MOD_ACTIONS } from "./services/moderation-log.js";
 
 const isoNow=()=>new Date().toISOString();
 const unix=iso=>Math.floor(new Date(iso).getTime()/1000);
-const embed=(title,description)=>new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  FAMILIENVERWALTUNG"}).setTitle(title).setDescription(description).setFooter({text:"GAMBINOS  •  Grand-RP"}).setTimestamp();
+const embed=(title,description)=>new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  GRAND-RP"}).setTitle(title).setDescription(description).setFooter({text:"GAMBINOS  •  Grand-RP"}).setTimestamp();
 const fieldsEmbed=(title,fields,description="")=>{const panel=embed(title,description||null);if(fields.length)panel.addFields(fields.slice(0,25));return {embeds:[panel]};};
 export const ticketCard=(category,requesterId,claimedBy=null)=>embed(`🎫 ${category}`,`**Antragsteller:** <@${requesterId}>\n**Status:** ${claimedBy?`🔎 In Bearbeitung · <@${claimedBy}>`:"🟡 Offen – wartet auf Staff"}\n\nBeschreibe dein Anliegen hier im privaten Ticket. Staff kann das Ticket über die Schaltflächen verwalten.`);
 export const ticketClosedCard=(category,requesterId)=>embed(`🔒 ${category} · geschlossen`,`**Antragsteller:** <@${requesterId}>\n**Status:** Geschlossen\n\nDieses Ticket ist abgeschlossen. Der Verlauf bleibt für das zuständige Team gespeichert.`);
@@ -129,7 +129,7 @@ export function buildTicketPanelPayload(config,texts=defaultsFor("ticket")) {
 export function buildApplicationReviewPayload(kind,userId,answers,decision=null,reason="",reviewerId=null) {
   const labels=new Map([...questionsFor(kind,{}),...applicationQuestions(kind)].map(question=>[question.id,question.label]));
   const panel=new EmbedBuilder().setColor(0xd4af37)
-    .setAuthor({name:"GAMBINOS  •  FAMILIENBÜRO"})
+    .setAuthor({name:"GAMBINOS  •  BEWERBUNGEN"})
     .setTitle(`${kind==="rang"?"🏅 Rang-Antrag":"🤝 Bewerbung"}`)
     .setDescription(`**Antragsteller:** <@${userId}>\n**Eingereichte Angaben:**${decision?`\n\n**Status:** ${decision==="accepted"?"✅ Angenommen":decision==="rejected"?"❌ Abgelehnt":decision==="withdrawn"?"↩️ Zurückgezogen":`🔎 In Prüfung · <@${reviewerId}>`}`:""}`)
     .addFields(Object.entries(answers).map(([key,value])=>({name:labels.get(key)??key,value:String(value||"—").slice(0,1024),inline:false})))

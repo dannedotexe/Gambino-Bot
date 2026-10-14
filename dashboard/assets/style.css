@@ -1,4 +1,4 @@
-/* Gambinos Familienbüro – Staff-Dashboard */
+/* Gambinos – Staff-Dashboard */
 :root{color-scheme:dark;--bg:#0c0b0e;--surface:#17151b;--surface2:#1d1a21;--line:#2c2830;--line2:#3a3540;--text:#f4efed;--muted:#a59d9b;--faint:#6f686d;--red:#dc2634;--gold:#e1bd67;--green:#3fbf82;--green-bg:#123524;--blue:#6c7cf0;--warn:#f0c66b;--danger:#ff9aa1;--radius:12px;--radius-sm:8px;--shadow:0 12px 32px #0006;--sidebar:252px}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:radial-gradient(1200px 500px at 70% -10%,#4a1019 0,transparent 60%),radial-gradient(800px 600px at -10% 60%,#1d0e13 0,transparent 55%),var(--bg);color:var(--text);font:14px/1.45 "DM Sans",Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased}

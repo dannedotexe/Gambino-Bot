@@ -179,7 +179,7 @@ function renderTabs() {
     return `${group ? `<div class="nav-group">${escapeHtml(group)}</div>` : ""}${items.map(id => `<button type="button" class="nav-item ${state.tab === id ? "active" : ""}" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ""}>${icon(id)}<span>${escapeHtml(allowed.get(id))}</span>${badge(id)}</button>`).join("")}`;
   }).join("");
   $("page-title").textContent = allowed.get(state.tab) ?? "Übersicht";
-  document.title = `${allowed.get(state.tab) ?? "Übersicht"} · Gambinos Familienbüro`;
+  document.title = `${allowed.get(state.tab) ?? "Übersicht"} · Gambinos Dashboard`;
   for (const [id] of TABS) $(`tab-${id}`).classList.toggle("hidden", id !== state.tab);
   document.querySelectorAll(".needs-staff").forEach(el => el.classList.toggle("hidden", !caps.staff));
   document.querySelectorAll(".needs-events").forEach(el => el.classList.toggle("hidden", !caps.events));
@@ -438,7 +438,7 @@ const loaders = { members: loadMembers, overview: loadOverview, applications: lo
 const actions = {
   "app-claim": ({ id }) => post(`/api/applications/${id}/claim`).then(r => notify(r.message)).then(refresh),
   "app-accept": ({ id }) => confirmAction("Antrag annehmen?", "Der Antragsteller erhält sofort eine private Nachricht.", "Annehmen", () => post(`/api/applications/${id}/decision`, { status: "accepted" }), false),
-  "app-reject": ({ id }) => openForm({ eyebrow: "FAMILIENBÜRO", title: "Antrag ablehnen", intro: "<p>Der Antragsteller erhält diesen Grund als private Nachricht.</p>", danger: true, submit: "Mit Begründung ablehnen", fields: [{ name: "reason", label: "Begründung", type: "textarea", required: true, rows: 4 }], onSubmit: v => post(`/api/applications/${id}/decision`, { status: "rejected", reason: v.reason }) }),
+  "app-reject": ({ id }) => openForm({ eyebrow: "ANTRÄGE", title: "Antrag ablehnen", intro: "<p>Der Antragsteller erhält diesen Grund als private Nachricht.</p>", danger: true, submit: "Mit Begründung ablehnen", fields: [{ name: "reason", label: "Begründung", type: "textarea", required: true, rows: 4 }], onSubmit: v => post(`/api/applications/${id}/decision`, { status: "rejected", reason: v.reason }) }),
   "app-note": ({ id }) => openForm({ eyebrow: "INTERN", title: "Notiz zum Antrag", intro: "<p>Nur für das Team sichtbar; wird zusätzlich im Review-Channel gepostet.</p>", fields: [{ name: "note", label: "Notiz", type: "textarea", required: true }], submit: "Notiz speichern", onSubmit: v => post(`/api/applications/${id}/note`, v) }),
   "app-role": ({ id }) => openForm({ eyebrow: "RANG-ROLLE", title: "Rolle vergeben", intro: "<p>Nur ausdrücklich freigegebene Rang-Rollen. Hierarchie und Rechte werden vor der Vergabe geprüft; die Vergabe wird protokolliert.</p>", fields: [{ name: "roleId", label: "Rolle", type: "select", required: true, options: state.me.settings.rankRoles.map(r => [r.roleId, r.label]) }], submit: "Rolle vergeben", onSubmit: v => post(`/api/applications/${id}/role`, v) }),
   "ticket-claim": ({ id }) => post(`/api/tickets/${id}/claim`).then(r => notify(r.message)).then(refresh),

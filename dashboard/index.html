@@ -2,23 +2,23 @@
 <html lang="de">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#111114"><meta name="description" content="Gambinos Familienverwaltung – Staff Dashboard"><title>Gambinos · Familienbüro</title>
+  <meta name="theme-color" content="#111114"><meta name="description" content="Gambinos – Staff-Dashboard"><title>Gambinos · Dashboard</title>
   <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script>
 </head>
 <body>
   <div id="progress" class="progress" aria-hidden="true"></div>
   <section id="login" class="login-screen">
-    <div class="login-card"><img class="login-banner" src="/assets/gambinos-banner.gif" alt="Gambinos"><div class="login-content"><div class="eyebrow">STAFF PORTAL · GRAND-RP</div><h1>Das Familienbüro.</h1><p>Melde dich mit Discord an. Zugriff erhalten nur konfigurierte Gambinos-Staffrollen. Anträge, Tickets, Events, Familienkonto, Sanktionen, Giveaways und Einstellungen lassen sich hier verwalten.</p><a class="primary" href="/login">Mit Discord anmelden <span>↗</span></a><p id="message" class="message"></p></div></div>
+    <div class="login-card"><img class="login-banner" src="/assets/gambinos-banner.gif" alt="Gambinos"><div class="login-content"><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1>Staff-Dashboard</h1><p>Melde dich mit deinem Discord-Konto an. Zugang haben nur Mitglieder mit einer freigeschalteten Gambinos-Teamrolle.</p><a class="primary" href="/login">Mit Discord anmelden <span>↗</span></a><p id="message" class="message"></p></div></div>
   </section>
   <div id="dashboard" class="app hidden">
     <aside id="sidebar" class="sidebar" aria-label="Navigation">
-      <a class="brand" href="/"><img class="brand-mark" src="/assets/gambinos-profile.gif" alt=""><span><b>GAMBINOS</b><small>FAMILIENBÜRO</small></span></a>
+      <a class="brand" href="/"><img class="brand-mark" src="/assets/gambinos-profile.gif" alt=""><span><b>GAMBINOS</b><small>DASHBOARD</small></span></a>
       <nav id="tabs" class="nav"></nav>
       <div class="sidebar-foot"><div class="me"><span id="staff-avatar" class="avatar">G</span><div><b id="staff-name">Staff</b><small id="staff-role">Staff-Dashboard</small></div></div><button id="logout" class="logout-btn" type="button" aria-label="Abmelden" title="Abmelden"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9"/></svg></button></div>
     </aside>
     <div id="scrim" class="scrim"></div>
     <main class="content">
-      <header class="topbar"><button id="menu-toggle" class="icon-btn" type="button" aria-label="Menü öffnen" aria-controls="sidebar" aria-expanded="false"><span></span><span></span><span></span></button><div class="crumb"><small>GAMBINOS · Familienbüro</small><b id="page-title">Übersicht</b></div><div class="live"><i></i>Live<span id="updated-at"></span></div></header>
+      <header class="topbar"><button id="menu-toggle" class="icon-btn" type="button" aria-label="Menü öffnen" aria-controls="sidebar" aria-expanded="false"><span></span><span></span><span></span></button><div class="crumb"><small>GAMBINOS · Dashboard</small><b id="page-title">Übersicht</b></div><div class="live"><i></i>Live<span id="updated-at"></span></div></header>
 
       <section id="tab-overview" class="tab-panel">
         <div class="hero"><div><div class="eyebrow">GAMBINOS · GRAND-RP</div><h1 id="greeting">Willkommen</h1><p>Das Wichtigste auf einen Blick – klicke auf eine Kachel, um direkt dorthin zu springen.</p></div><div id="quick-actions" class="quick"></div></div>
@@ -30,7 +30,7 @@
       </section>
 
       <section id="tab-applications" class="tab-panel hidden">
-        <div class="section-intro"><div><div class="eyebrow">FAMILIENBÜRO</div><h2>Bewerbungen & Rang-Anträge</h2><p>Übernehmen, kommentieren und entscheiden. Antragsteller werden privat benachrichtigt.</p></div><div class="section-tools"><select id="applications-filter" aria-label="Filter"><option value="open">Offen & in Prüfung</option><option value="closed">Abgeschlossen</option></select><input class="search" data-target="applications-list" type="search" placeholder="Suchen …" aria-label="Suchen"></div></div>
+        <div class="section-intro"><div><div class="eyebrow">ANTRÄGE</div><h2>Bewerbungen & Rang-Anträge</h2><p>Übernehmen, kommentieren und entscheiden. Antragsteller werden privat benachrichtigt.</p></div><div class="section-tools"><select id="applications-filter" aria-label="Filter"><option value="open">Offen & in Prüfung</option><option value="closed">Abgeschlossen</option></select><input class="search" data-target="applications-list" type="search" placeholder="Suchen …" aria-label="Suchen"></div></div>
         <div id="applications-list" class="queue"></div>
       </section>
 

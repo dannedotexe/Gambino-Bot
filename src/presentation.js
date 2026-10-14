@@ -36,7 +36,7 @@ export function brandedTextEmbed(text, title = null) {
   const tone = responseTone(text);
   return new EmbedBuilder()
     .setColor(COLORS[tone])
-    .setAuthor({ name: "GAMBINOS  •  FAMILIENVERWALTUNG" })
+    .setAuthor({ name: "GAMBINOS  •  GRAND-RP" })
     .setTitle(title ?? responseTitle(String(text), tone))
     .setDescription(String(text).slice(0, 4096))
     .setFooter({ text: "GAMBINOS  •  Grand-RP Familienserver" })
@@ -61,7 +61,7 @@ export function applicationDecisionDm({ kind, status, applicationId, reason = ""
   const label = kind === "rang" ? "Rang-Antrag" : "Familienbewerbung";
   const embed = new EmbedBuilder()
     .setColor(accepted ? COLORS.success : COLORS.error)
-    .setAuthor({ name: "GAMBINOS  •  FAMILIENBÜRO" })
+    .setAuthor({ name: "GAMBINOS  •  BEWERBUNGEN" })
     .setTitle(accepted ? "✅ Antrag angenommen" : "❌ Antrag abgelehnt")
     .setDescription(accepted
       ? `Dein **${label}** wurde angenommen. Das Team meldet sich bei dir, falls noch etwas zu tun ist.`
@@ -75,7 +75,7 @@ export function applicationSubmittedDm({ kind, applicationId }) {
   const label = kind === "rang" ? "Dein Rang-Antrag" : "Deine Familienbewerbung";
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
-    .setAuthor({ name: "GAMBINOS  •  FAMILIENBÜRO" })
+    .setAuthor({ name: "GAMBINOS  •  BEWERBUNGEN" })
     .setTitle("📨 Antrag sicher eingegangen")
     .setDescription(`${label} wurde an das zuständige Team weitergeleitet. Du erhältst hier eine Nachricht, sobald die Prüfung beginnt oder eine Entscheidung getroffen wurde.`)
     .addFields({ name: "Referenz", value: `\`${shortReference(applicationId)}\``, inline: true })
@@ -88,7 +88,7 @@ export function applicationInReviewDm({ kind, applicationId, reviewerId }) {
   const label = kind === "rang" ? "Dein Rang-Antrag" : "Deine Familienbewerbung";
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
-    .setAuthor({ name: "GAMBINOS  •  FAMILIENBÜRO" })
+    .setAuthor({ name: "GAMBINOS  •  BEWERBUNGEN" })
     .setTitle("🔎 Antrag wird bearbeitet")
     .setDescription(`${label} wurde von unserem Team übernommen und ist jetzt in Bearbeitung. Wir prüfen deine Angaben und melden uns, sobald es Neuigkeiten gibt.`)
     .addFields({ name: "Referenz", value: `\`${shortReference(applicationId)}\``, inline: true });

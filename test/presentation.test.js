@@ -49,7 +49,7 @@ test("einfache Befehlsantworten werden gebrandet und behalten Ephemeral-Optionen
   const payload = presentInteractionPayload({ content: "Sanktion wurde gespeichert.", ephemeral: true });
   assert.equal(payload.flags, MessageFlags.Ephemeral);
   assert.equal(payload.ephemeral, undefined);
-  assert.equal(payload.embeds[0].data.author.name, "GAMBINOS  •  FAMILIENVERWALTUNG");
+  assert.equal(payload.embeds[0].data.author.name, "GAMBINOS  •  GRAND-RP");
   assert.match(payload.embeds[0].data.title, /Sanktion/);
   assert.equal(payload.embeds[0].data.description, "Sanktion wurde gespeichert.");
 });
