@@ -352,17 +352,6 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const byActor = Object.entries(payouts.reduce((m, p) => ({ ...m, [p.actor_id]: (m[p.actor_id] ?? 0) + (p.net_cents ?? 0) }), {})).map(([actorId, net]) => ({ actorId, net })).sort((a, b) => b.net - a.net);
       return withNames({ payouts, totals, byActor, days }, payouts.flatMap(p => [p.user_id, p.actor_id]));
     }],
-    // Gutschriften-Log: wer wem wie viel aufs Familienkonto gebucht hat (optional inkl. Korrekturen und Erstattungen).
-    [/^\/api\/credits$/, async (member, url) => {
-      need(member, "financeView", "Finanzrolle");
-      const days = Math.min(3650, Math.max(0, Number(url.searchParams.get("days") ?? 30) || 0));
-      const since = days ? new Date(Date.now() - days * 86_400_000).toISOString() : "";
-      const types = url.searchParams.get("type") === "all" ? ["credit", "correction_credit", "correction_debit", "sanction_refund"] : ["credit"];
-      const rows = db.prepare(`SELECT id,user_id,actor_id,type,amount_cents,reason,created_at FROM transactions WHERE guild_id=? AND created_at>=? AND type IN (${types.map(() => "?").join(",")}) ORDER BY created_at DESC,rowid DESC LIMIT 1000`).all(guildId, since, ...types);
-      const signed = t => t.type === "correction_debit" ? -t.amount_cents : t.amount_cents;
-      const sum = key => Object.entries(rows.reduce((m, t) => ({ ...m, [t[key]]: { cents: (m[t[key]]?.cents ?? 0) + signed(t), count: (m[t[key]]?.count ?? 0) + 1 } }), {})).map(([id, v]) => ({ id, ...v })).sort((a, b) => b.cents - a.cents);
-      return withNames({ credits: rows, total: rows.reduce((n, t) => n + signed(t), 0), byActor: sum("actor_id"), byMember: sum("user_id").slice(0, 10), days }, rows.flatMap(t => [t.user_id, t.actor_id]));
-    }],
     [/^\/api\/account-closures$/, async member => {
       need(member, "financeView", "Finanzrolle");
       const g = await guild().catch(() => null);

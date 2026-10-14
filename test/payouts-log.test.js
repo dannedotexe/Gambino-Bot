@@ -38,21 +38,3 @@ test("Mindestbetrag: kleinere Auszahlung wird abgelehnt, Mein Bereich zeigt den 
   assert.equal(mine.body.account.minimum, 5_000);
   assert.equal(mine.body.account.gross, 4_000);
 });
-
-test("Gutschriften-Log: wer wem wie viel gebucht hat, Summen pro Buchendem", async () => {
-  const db = testDb(), finance = createFinance(db), A = "40000000000000001", B = "40000000000000002";
-  finance.credit({ guildId: G, userId: U, actorId: A, cents: 5_000, reason: "Bankraub", key: "c1" });
-  finance.credit({ guildId: G, userId: U, actorId: B, cents: 2_000, reason: "Event", key: "c2" });
-  finance.correction({ guildId: G, userId: U, actorId: A, cents: 500, direction: "debit", reason: "Tippfehler", key: "k1" });
-  const config = loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: G, ROLE_FINANCE: FIN });
-  const guild = { id: G, members: { cache: new Map(), fetch: async () => new Map() }, channels: { fetch: async () => null } };
-  const api = createDashboardApi({ db, client: { guilds: { cache: new Map([[G, guild]]), fetch: async () => guild }, users: { cache: new Map() } }, config });
-  const get = q => api.get({ id: "1", owner: false, roles: [FIN] }, new URL(`/api/credits${q}`, "https://x"));
-  const only = await get("?days=0");
-  assert.equal(only.body.credits.length, 2);
-  assert.deepEqual(only.body.byActor.map(a => [a.id, a.cents]), [[A, 5_000], [B, 2_000]]);
-  const all = await get("?days=0&type=all");
-  assert.equal(all.body.total, 6_500);
-  assert.equal((await api.get({ id: "1", owner: false, roles: [] }, new URL("/api/credits", "https://x"))).status, 403);
-  assert.equal(buildTable("credits", { db, guildId: G, name: id => id, finance }), null, "kein eigener Excel-Export – steckt in „Buchungen“");
-});

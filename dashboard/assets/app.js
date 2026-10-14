@@ -40,7 +40,7 @@ const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP
 const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit: "Korrektur (+)", correction_debit: "Korrektur (−)", sanction_refund: "Sanktions-Erstattung" };
 const TABS = [
   ["overview", "Übersicht", c => c.team], ["mine", "Mein Bereich", c => c.mine], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
-  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["credits", "Gutschriften", c => c.financeView], ["payouts", "Auszahlungen", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
+  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["payouts", "Auszahlungen", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
   ["announcements", "Ankündigungen", c => c.announcements], ["polls", "Abstimmungen", c => c.polls], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.admin], ["settings", "Einstellungen", c => c.settings],
 ];
 
@@ -50,7 +50,6 @@ const ICONS = {
   tickets: "M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z M13 5v2 M13 17v2 M13 11v2",
   events: "M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M16 2v4 M8 2v4 M3 10h18",
   finance: "M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
-  credits: "M12 5v14 M5 12h14 M3 3h18v18H3z",
   payouts: "M2 7h20v12H2z M2 11h20 M6 15h4 M16 3l3 4 M8 3L5 7",
   sanctions: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z M12 8v4 M12 16h.01",
   giveaways: "M20 12v10H4V12 M2 7h20v5H2z M12 22V7 M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z",
@@ -65,7 +64,7 @@ const ICONS = {
   settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
-const NAV_GROUPS = [["", ["overview", "mine"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "credits", "payouts", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
+const NAV_GROUPS = [["", ["overview", "mine"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "payouts", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });
@@ -376,17 +375,6 @@ async function loadFinance() {
   $("accounts-list").innerHTML = data.accounts.length ? `<div class="table-row table-head"><span>Mitglied</span><span>Brutto</span><span>Sanktionen</span><span>Netto</span><span></span></div>` + data.accounts.map(a => `<div class="table-row"><span><b>${plink(a.userId)}</b>${a.eligible ? '<em class="ok">auszahlbar</em>' : a.gross > 0 ? '<em class="warn">unter Mindestbetrag</em>' : ""}</span><span data-label="Brutto">${money(a.gross)}</span><span data-label="Sanktionen">${a.openSanctions ? `${money(a.openSanctions)}${a.remainingAfter ? ` <small>(Rest danach ${money(a.remainingAfter)})</small>` : ""}` : "—"}</span><span data-label="Netto"><b>${money(a.net)}</b></span><span class="actions tight">${btn("Details", "account-details", { user: a.userId })}${caps.finance ? btn("+ Gutschrift", "credit", { user: a.userId }) : ""}${caps.finance && a.gross > 0 ? btn("Auszahlen", "payout", { user: a.userId }, "accept") : ""}${caps.leaders ? btn("Korrektur", "correction", { user: a.userId }) : ""}</span></div>`).join("") : empty("Noch keine Familienkonten.");
   document.querySelectorAll("#tab-finance .search").forEach(filterList);
 }
-async function loadCredits() {
-  const data = await api(`/api/credits?days=${$("credits-filter").value}&type=${$("credits-type").value}`);
-  const signed = t => t.type === "correction_debit" ? -t.amount_cents : t.amount_cents;
-  $("credits-totals").innerHTML = [["Buchungen", data.credits.length, "#"], ["Summe", money(data.total), "$"], ["Verschiedene Empfänger", new Set(data.credits.map(c => c.user_id)).size, "👥"], ["Verschiedene Buchende", data.byActor.length, "✎"]]
-    .map(([label, value, symbol]) => `<div class="stat"><span class="symbol">${symbol}</span><div class="label">${label}</div><div class="value small">${value}</div></div>`).join("");
-  const nm = id => state.names[id] || `Mitglied …${String(id).slice(-4)}`;
-  $("credits-actors").innerHTML = data.byActor.map(a => row(nm(a.id), `${money(a.cents)} in ${a.count} Buchung${a.count === 1 ? "" : "en"}`)).join("") || empty("Keine Buchungen.");
-  $("credits-members").innerHTML = data.byMember.map(a => row(nm(a.id), `${money(a.cents)} in ${a.count} Buchung${a.count === 1 ? "" : "en"}`)).join("") || empty("Keine Buchungen.");
-  $("credits-list").innerHTML = data.credits.length ? `<div class="table-row table-head credit-row"><span>Datum</span><span>Gebucht von</span><span>an</span><span>Betrag</span><span>Grund</span></div>` + data.credits.map(t => `<div class="table-row credit-row"><span data-label="Datum">${date(t.created_at)}${t.type !== "credit" ? `<small class="block">${escapeHtml(txLabels[t.type] ?? t.type)}</small>` : ""}</span><span data-label="Gebucht von"><b>${who(t.actor_id)}</b></span><span data-label="an">${plink(t.user_id)}</span><span data-label="Betrag"><b>${signed(t) < 0 ? "−" : "+"}${money(Math.abs(signed(t)))}</b></span><span data-label="Grund">${escapeHtml(t.reason)}</span></div>`).join("") : empty("Keine Gutschriften in diesem Zeitraum.");
-  document.querySelectorAll("#tab-credits .search").forEach(filterList);
-}
 async function loadPayouts() {
   const data = await api(`/api/payouts?days=${$("payouts-filter").value}`), t = data.totals;
   $("payouts-totals").innerHTML = [["Auszahlungen", t.count, "#"], ["Brutto", money(t.gross), "$"], ["Sanktionen verrechnet", money(t.deduction), "−"], ["Ausgezahlt (netto)", money(t.net), "→"]]
@@ -475,7 +463,7 @@ async function loadMembers() {
   document.querySelectorAll("#tab-members .search").forEach(filterList);
 }
 
-const loaders = { members: loadMembers, overview: loadOverview, applications: loadApplications, tickets: loadTickets, events: loadEvents, finance: loadFinance, payouts: loadPayouts, credits: loadCredits, sanctions: loadSanctions, giveaways: loadGiveaways, stats: loadStats, audit: loadAudit };
+const loaders = { members: loadMembers, overview: loadOverview, applications: loadApplications, tickets: loadTickets, events: loadEvents, finance: loadFinance, payouts: loadPayouts, sanctions: loadSanctions, giveaways: loadGiveaways, stats: loadStats, audit: loadAudit };
 
 // ------------------------------------------------------------------ Aktionen
 const actions = {
@@ -546,7 +534,7 @@ document.addEventListener("click", async event => {
   catch (error) { notify(error.message, "error"); }
   finally { busy = false; button.disabled = false; }
 });
-for (const [id, tab] of [["applications-filter", "applications"], ["tickets-filter", "tickets"], ["events-filter", "events"], ["sanctions-filter", "sanctions"], ["payouts-filter", "payouts"], ["credits-filter", "credits"], ["credits-type", "credits"], ["warnings-filter", "sanctions"], ["stats-filter", "stats"], ["audit-filter", "audit"]]) $(id).addEventListener("change", () => state.tab === tab && refresh());
+for (const [id, tab] of [["applications-filter", "applications"], ["tickets-filter", "tickets"], ["events-filter", "events"], ["sanctions-filter", "sanctions"], ["payouts-filter", "payouts"], ["warnings-filter", "sanctions"], ["stats-filter", "stats"], ["audit-filter", "audit"]]) $(id).addEventListener("change", () => state.tab === tab && refresh());
 $("menu-toggle").addEventListener("click", () => (document.body.classList.contains("menu-open") ? closeMenu() : openMenu()));
 $("scrim").addEventListener("click", closeMenu);
 document.addEventListener("keydown", event => { if (event.key === "Escape") closeMenu(); });
