@@ -31,6 +31,8 @@ export function createDashboard({ db, client, config, settings = null, series = 
   const ticketService = createTicketService(db);
   const categoryLabel = id => (config.TICKET_CATEGORIES_JSON ?? []).find(category => category.id === id)?.label ?? id;
   const sign = value => createHmac("sha256", secret).update(value).digest("base64url");
+  const SESSION_MS = 7 * 24 * 60 * 60_000;
+  const sessionCookie = userId => { const payload = Buffer.from(JSON.stringify({ sub: userId, exp: Date.now() + SESSION_MS })).toString("base64url"); return cookie(`${payload}.${sign(payload)}`, SESSION_MS / 1000); };
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
   const send = (res, status, body, type = "application/json; charset=utf-8", headers = {}) => {
     res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Frame-Options": "DENY", "Content-Security-Policy": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data: https://cdn.discordapp.com", ...headers });
@@ -38,7 +40,15 @@ export function createDashboard({ db, client, config, settings = null, series = 
   };
   const memberFor = async userId => {
     const guild = client.guilds.cache.get(config.DISCORD_GUILD_ID) ?? await client.guilds.fetch(config.DISCORD_GUILD_ID);
-    const member = await guild.members.fetch(userId).catch(() => null);
+    // Nur „Unbekanntes Mitglied“ heißt wirklich: nicht mehr auf dem Server. Bei kurzen Discord-Störungen (Rate-Limit,
+    // Netzwerk) wird der zwischengespeicherte Stand genutzt statt die Person auszuloggen.
+    let member = null;
+    try { member = await guild.members.fetch(userId); }
+    catch (error) {
+      if (error?.code === 10007 || error?.code === 10013) return null;
+      member = guild.members.cache.get(userId) ?? null;
+      if (!member) throw Object.assign(new Error("Discord ist gerade nicht erreichbar."), { temporary: true });
+    }
     if (!member) return null;
     const roles = staffRoleIds().filter(id => member.roles.cache.has(id));
     const owner = config.BOT_OWNER_IDS?.includes(userId) ?? false;
@@ -75,7 +85,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
       await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status === "review" ? "review" : null, row.review_note ?? "", row.reviewer_id), components: applicationReviewComponents(row.id, row.status) }).catch(() => {});
     } else await message.edit({ ...buildApplicationReviewPayload(row.kind, row.user_id, JSON.parse(row.answers), row.status, row.review_note ?? ""), components: [] }).catch(() => {});
   };
-  const sessionFor = async req => {
+  const sessionFor = async (req, res = null) => {
     const raw = req.headers.cookie?.split(";").map(x => x.trim()).find(x => x.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
     if (!raw) return null;
     const [payload, signature] = raw.split(".");
@@ -86,7 +96,10 @@ export function createDashboard({ db, client, config, settings = null, series = 
     let session;
     try { session = JSON.parse(Buffer.from(payload, "base64url").toString()); } catch { return null; }
     if (session.exp < Date.now()) return null;
-    return memberFor(session.sub);
+    const member = await memberFor(session.sub);
+    // Gleitende Sitzung: wer die Seite nutzt, bleibt angemeldet; nach SESSION_DAYS ohne Besuch ist eine neue Anmeldung nötig.
+    if (member && res && session.exp - Date.now() < SESSION_MS - 12 * 60 * 60_000) res.setHeader("Set-Cookie", sessionCookie(session.sub));
+    return member;
   };
   const count = (sql, ...params) => db.prepare(sql).get(...params)?.n ?? 0;
   const summary = (includeFinance = false) => {
@@ -127,14 +140,15 @@ export function createDashboard({ db, client, config, settings = null, series = 
         const userResponse = await fetch("https://discord.com/api/users/@me", { headers: { Authorization: `Bearer ${token.access_token}` } });
         const user = await userResponse.json();
         if (!userResponse.ok || !await memberFor(user.id)) return loginFailure(config.DASHBOARD_MEMBER_AREA ? "Kein Zugang: Dir fehlt die Familienrolle. Bitte melde dich bei der Leitung." : "Die Website ist derzeit nur für das Team freigeschaltet.");
-        const payload = Buffer.from(JSON.stringify({ sub: user.id, exp: Date.now() + 8 * 60 * 60_000 })).toString("base64url");
-        res.writeHead(302, { Location: "/", "Cache-Control": "no-store", "Set-Cookie": cookie(`${payload}.${sign(payload)}`, 8 * 60 * 60) }); return res.end();
+        res.writeHead(302, { Location: "/", "Cache-Control": "no-store", "Set-Cookie": sessionCookie(user.id) }); return res.end();
       }
       if (req.method === "POST" && url.pathname === "/logout") {
         res.writeHead(204, { "Set-Cookie": cookie("", 0), "Cache-Control": "no-store" }); return res.end();
       }
       if (url.pathname.startsWith("/api/")) {
-        const member = await sessionFor(req);
+        let member;
+        try { member = await sessionFor(req, res); }
+        catch (error) { if (error.temporary) return send(res, 503, { error: error.message, temporary: true }); throw error; }
         if (!member) return send(res, 401, { error: "Bitte melde dich mit Discord an." });
         if (req.method === "POST" && req.headers.origin !== new URL(config.DASHBOARD_PUBLIC_URL).origin) return send(res, 403, { error: "Ungültige Anfragequelle." });
         // Live-Kanal: meldet dem Browser sofort, wenn sich Rollen der angemeldeten Person ändern.
