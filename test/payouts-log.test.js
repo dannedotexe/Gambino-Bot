@@ -39,7 +39,7 @@ test("Mindestbetrag: kleinere Auszahlung wird abgelehnt, Mein Bereich zeigt den 
   assert.equal(mine.body.account.gross, 4_000);
 });
 
-test("Gutschriften-Log: wer wem wie viel gebucht hat, Summen pro Buchendem; Excel", async () => {
+test("Gutschriften-Log: wer wem wie viel gebucht hat, Summen pro Buchendem", async () => {
   const db = testDb(), finance = createFinance(db), A = "40000000000000001", B = "40000000000000002";
   finance.credit({ guildId: G, userId: U, actorId: A, cents: 5_000, reason: "Bankraub", key: "c1" });
   finance.credit({ guildId: G, userId: U, actorId: B, cents: 2_000, reason: "Event", key: "c2" });
@@ -54,6 +54,5 @@ test("Gutschriften-Log: wer wem wie viel gebucht hat, Summen pro Buchendem; Exce
   const all = await get("?days=0&type=all");
   assert.equal(all.body.total, 6_500);
   assert.equal((await api.get({ id: "1", owner: false, roles: [] }, new URL("/api/credits", "https://x"))).status, 403);
-  const table = buildTable("credits", { db, guildId: G, name: id => id, finance });
-  assert.equal(table.rows.length, 3);
+  assert.equal(buildTable("credits", { db, guildId: G, name: id => id, finance }), null, "kein eigener Excel-Export – steckt in „Buchungen“");
 });

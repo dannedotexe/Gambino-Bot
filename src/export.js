@@ -5,7 +5,6 @@ export const EXPORTS = {
   accounts: { label: "Kontostände", group: "financeView" },
   transactions: { label: "Buchungen", group: "financeView" },
   payouts: { label: "Auszahlungen", group: "financeView" },
-  credits: { label: "Gutschriften", group: "financeView" },
   sanctions: { label: "Sanktionen", group: "sanctionsView" },
   warnings: { label: "Verwarnungen", group: "moderation" },
   events: { label: "Event-Teilnahmen", group: "anyStaff" },
@@ -30,9 +29,6 @@ export function buildTable(kind, { db, guildId, name, finance }) {
     case "transactions":
       return { sheet: "Buchungen", columns: [col("Datum", "date"), col("Mitglied"), col("Art"), col("Betrag", "money"), col("Brutto", "money"), col("Sanktionsabzug", "money"), col("Netto", "money"), col("Grund"), col("Gebucht von"), col("Discord-ID"), col("Referenz")],
         rows: all("SELECT * FROM transactions WHERE guild_id=? ORDER BY created_at DESC,rowid DESC").map(t => { const payout = t.type === "payout"; return [t.created_at, name(t.user_id), txLabels[t.type] ?? t.type, money(["payout", "correction_debit"].includes(t.type) ? -t.amount_cents : t.amount_cents), payout ? money(t.gross_cents) : null, payout ? money(t.deduction_cents) : null, payout ? money(t.net_cents) : null, t.reason, name(t.actor_id), t.user_id, t.id.slice(0, 8)]; }) };
-    case "credits":
-      return { sheet: "Gutschriften", columns: [col("Datum", "date"), col("Empfänger"), col("Betrag", "money"), col("Art"), col("Grund"), col("Gebucht von"), col("Discord-ID Empfänger"), col("Discord-ID Buchender"), col("Referenz")],
-        rows: all("SELECT * FROM transactions WHERE guild_id=? AND type IN ('credit','correction_credit','correction_debit','sanction_refund') ORDER BY created_at DESC,rowid DESC").map(t => [t.created_at, name(t.user_id), money(t.type === "correction_debit" ? -t.amount_cents : t.amount_cents), txLabels[t.type] ?? t.type, t.reason, name(t.actor_id), t.user_id, t.actor_id, t.id.slice(0, 8)]) };
     case "payouts":
       return { sheet: "Auszahlungen", columns: [col("Datum", "date"), col("Mitglied"), col("Brutto", "money"), col("Sanktionsabzug", "money"), col("Ausgezahlt (netto)", "money"), col("Verrechnete Sanktionen"), col("Ausgezahlt von"), col("Notiz"), col("Discord-ID"), col("Referenz")],
         rows: all("SELECT * FROM transactions WHERE guild_id=? AND type='payout' ORDER BY created_at DESC,rowid DESC").map(t => [t.created_at, name(t.user_id), money(t.gross_cents), money(t.deduction_cents), money(t.net_cents),
