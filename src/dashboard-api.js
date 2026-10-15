@@ -30,6 +30,7 @@ import { AnnouncementError, createAnnouncementService, deliverAnnouncement, vali
 import { createRankHistory, rankFor } from "./services/ranks.js";
 import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
 import { createAccessLog } from "./services/access-log.js";
+import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
@@ -227,6 +228,11 @@ export function createDashboardApi({ db, client, config, settings = null, series
       if (profile.discord.name) names.set(userId, profile.verification?.nickname ?? profile.discord.name);
       const ids = [userId, ...(profile.applications ?? []).map(a => a.reviewer_id), ...(profile.tickets ?? []).map(t => t.claimed_by), ...(profile.warnings?.items ?? []).flatMap(w => [w.actor_id, w.revoked_by]), ...(profile.moderation ?? []).map(m => m.actor_id), ...(profile.sanctions ?? []).map(s => s.actor_id), ...profile.absences.flatMap(a => [a.created_by, a.ended_by]), ...profile.rankHistory.map(r => r.actor_id)];
       return withNames({ profile }, ids);
+    }],
+    [/^\/api\/role-snapshots$/, async member => {
+      needOwner(member);
+      const snapshots = createRoleSnapshots(db).list(guildId);
+      return withNames({ snapshots, keep: config.ROLE_SNAPSHOT_KEEP ?? 14 }, snapshots.map(s => s.actor_id).filter(Boolean));
     }],
     [/^\/api\/access-log$/, async member => {
       needOwner(member);
@@ -617,6 +623,22 @@ export function createDashboardApi({ db, client, config, settings = null, series
       await ensurePanels({ db, client, config, series }).catch(() => {});
       const total = Object.values(result.removed).reduce((a, b) => a + b, 0);
       return { message: `Zurückgesetzt: ${result.areas.length} Bereiche, ${total} Einträge entfernt.${backup ? ` Backup: ${path.basename(backup)}` : ""}` };
+    }],
+    [/^\/api\/role-snapshots$/, async member => {
+      needOwner(member);
+      const result = await takeSnapshot({ db, client, config, kind: "manual", actorId: member.id });
+      return { message: `Rollen von ${result.members} Mitgliedern gesichert.` };
+    }],
+    [/^\/api\/role-snapshots\/([\w-]+)\/(preview|restore)$/, async (member, body, [, id, action]) => {
+      needOwner(member);
+      const mode = body.mode === "exact" ? "exact" : "add";
+      const userId = body.userId ? snowflake(body.userId) : null;
+      if (action === "restore" && String(body.confirm ?? "").trim().toUpperCase() !== "WIEDERHERSTELLEN") throw new HttpError(400, "Bitte zur Bestätigung WIEDERHERSTELLEN eintippen.");
+      try {
+        const result = await restoreSnapshot({ db, client, config, snapshotId: id, mode, userId, actorId: member.id, dryRun: action === "preview" });
+        if (action === "preview") return withNames(result, result.changes.map(c => c.userId));
+        return { message: `Wiederhergestellt: ${result.ok} Mitglied(er)${result.failed ? `, ${result.failed} fehlgeschlagen (Rechte/Hierarchie prüfen)` : ""}. Der Stand davor wurde gesichert.` };
+      } catch (error) { if (error.status === 404) throw new HttpError(404, error.message); throw error; }
     }],
     [/^\/api\/my\/absence$/, async (member, body) => {
       if (!member.family && member.team === false) throw new HttpError(403, "Abmeldungen gibt es nur für Familienmitglieder.");

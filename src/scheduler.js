@@ -14,6 +14,7 @@ import { sendDueAnnouncements } from "./announcements.js";
 import { closeDuePolls } from "./polls.js";
 import { checkEventMinimums, processNoShows } from "./event-checks.js";
 import { sendWeeklyReport } from "./weekly-report.js";
+import { runDailySnapshot } from "./role-snapshots.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
 /**
@@ -81,6 +82,7 @@ export function startScheduler({db,client,config,series=null}) {
         await processNoShows({db,client,config,reference:now}).catch(error=>console.warn("No-Show-Prüfung fehlgeschlagen:",error.message));
         await sendWeeklyReport({db,client,config,reference:now}).catch(error=>console.warn("Wochenbericht fehlgeschlagen:",error.message));
         await runDailyInactivity({db,client,config,reference:now}).catch(error=>console.warn("Inaktivitätsprüfung fehlgeschlagen:",error.message));
+        await runDailySnapshot({db,client,config,reference:now}).catch(error=>console.warn("Rollen-Sicherung fehlgeschlagen:",error.message));
       }
       client.gambinoSchedulerTick=Date.now();
       await deliverAuditLogs(db,client,config,now);

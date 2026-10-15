@@ -154,6 +154,14 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS access_log_ip ON access_log(guild_id,ip);
     `),
   },
+  {
+    version: 11,
+    name: "rollen-sicherungen",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS role_snapshots (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('auto','manual','before_restore')), actor_id TEXT, member_count INTEGER NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS role_snapshots_time ON role_snapshots(guild_id,created_at);
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

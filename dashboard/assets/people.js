@@ -99,6 +99,7 @@ async function loadStatus() {
   const kv = [["Bot", s.bot.tag ?? "—"], ["Mitglieder auf dem Server", s.bot.guildMembers ?? "—"], ["Prozess läuft seit", `${duration(s.process.uptimeSeconds)} (${date(s.process.startedAt)})`], ["Arbeitsspeicher", `${s.process.memoryMb} MB`], ["Node.js", s.process.node], ["Datenbank", `${bytes(s.database.sizeBytes)} · Schema v${s.database.schema}`], ["Letzte Änderung", s.version.update?.message ?? "—"], ["Log-Zustellung (24 h)", s.logs.failedLast24h ? `${s.logs.failedLast24h} fehlgeschlagen` : "ohne Fehler"]];
   $("status-details").innerHTML = kv.map(([k, v]) => `<div><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join("");
   $("status-warnings").innerHTML = s.warnings.map(w => row("Hinweis", w)).join("") || empty("Keine offenen Konfigurationspunkte. ");
+  await loadSnapshots();
   await loadAccessLog();
 }
 
@@ -118,6 +119,34 @@ async function loadAccessLog() {
   $("access-list").innerHTML = d.entries.length ? `<div class="table-row table-head access-row"><span>Zeit</span><span>Person</span><span>IP-Adresse</span><span>Art</span><span>Gerät</span></div>` + d.entries.map(e => `<div class="table-row access-row"><span data-label="Zeit">${date(e.created_at)}</span><span data-label="Person"><b>${e.user_id ? who(e.user_id) : "nicht angemeldet"}</b></span><span data-label="IP"><code>${escapeHtml(e.ip)}</code></span><span data-label="Art">${e.kind === "login_denied" ? '<em class="warn">Abgewiesen</em>' : accessKinds[e.kind] ?? e.kind}</span><span data-label="Gerät">${escapeHtml(device(e.user_agent))}</span></div>`).join("") : empty("Noch keine Zugriffe protokolliert.");
   document.querySelectorAll("#tab-status .search").forEach(filterList);
 }
+
+// ------------------------------------------------------------------ Rollen-Sicherungen (nur Bot-Owner)
+const snapshotKinds = { auto: "Automatisch (täglich)", manual: "Manuell", before_restore: "Vor Wiederherstellung" };
+async function loadSnapshots() {
+  const d = await api("/api/role-snapshots");
+  state.cache.snapshots = Object.fromEntries(d.snapshots.map(s => [s.id, s]));
+  $("snapshots-info").textContent = `Der Bot sichert jeden Tag, wer welche Rollen hat (die letzten ${d.keep} automatischen bleiben). Vor jeder Wiederherstellung wird der aktuelle Stand zusätzlich gesichert – so lässt sich alles rückgängig machen.`;
+  $("snapshots-list").innerHTML = d.snapshots.map(s => `<div class="row"><div><div class="row-title">${date(s.created_at)} · ${escapeHtml(snapshotKinds[s.kind] ?? s.kind)}</div><div class="row-sub">${s.member_count} Mitglieder${s.actor_id ? ` · von ${who(s.actor_id)}` : ""}</div></div><div class="actions tight">${btn("Wiederherstellen …", "roles-restore", { id: s.id })}</div></div>`).join("") || empty("Noch keine Sicherung – die erste entsteht automatisch innerhalb einer Minute oder über „Jetzt sichern“.");
+}
+function restoreConfirm(id, values, preview) {
+  const s = state.cache.snapshots[id];
+  const lines = preview.changes.map(c => `<li><b>${who(c.userId)}</b>${c.addNames.length ? ` <span class="ok">+ ${c.addNames.map(escapeHtml).join(", ")}</span>` : ""}${c.removeNames.length ? ` <span class="warn">− ${c.removeNames.map(escapeHtml).join(", ")}</span>` : ""}</li>`).join("");
+  const notes = [preview.missing ? `${preview.missing} Mitglied(er) aus der Sicherung sind nicht mehr auf dem Server und werden übersprungen.` : "", preview.skippedRoles.length ? `Nicht vergebbar (gelöscht, verwaltet oder über der Bot-Rolle): ${preview.skippedRoles.map(escapeHtml).join(", ")}.` : ""].filter(Boolean).map(t => `<p class="subtle">${t}</p>`).join("");
+  if (!preview.changes.length) return openForm({ eyebrow: "ROLLEN", title: "Nichts zu tun", intro: `<p>Der aktuelle Stand entspricht bereits der Sicherung vom ${date(s.created_at)}.</p>${notes}` });
+  openForm({ eyebrow: "ROLLEN WIEDERHERSTELLEN", title: `${preview.changes.length} Mitglied(er) ändern`, danger: true, submit: "Jetzt wiederherstellen",
+    intro: `<p>Sicherung vom <b>${date(s.created_at)}</b> · ${values.mode === "exact" ? "exakt (fehlende Rollen vergeben <b>und</b> neue entfernen)" : "nur fehlende Rollen wieder vergeben"}.</p><ul class="alloc scroll">${lines}</ul>${notes}<p class="subtle">Der aktuelle Stand wird vorher automatisch gesichert.</p>`,
+    fields: [{ name: "confirm", label: "Zur Bestätigung WIEDERHERSTELLEN eintippen", required: true, max: 20 }],
+    onSubmit: v => post(`/api/role-snapshots/${id}/restore`, { ...values, confirm: v.confirm }) });
+}
+Object.assign(actions, {
+  "roles-snapshot": () => confirmAction("Rollen jetzt sichern?", "Der aktuelle Rollenstand aller Mitglieder wird gespeichert.", "Sichern", () => post("/api/role-snapshots"), false),
+  "roles-restore": ({ id }) => {
+    const s = state.cache.snapshots[id];
+    openForm({ eyebrow: "ROLLEN WIEDERHERSTELLEN", title: `Sicherung vom ${date(s.created_at)}`, intro: "<p>Zuerst siehst du eine Vorschau – geändert wird erst nach Bestätigung.</p>", submit: "Vorschau anzeigen",
+      fields: [{ name: "mode", label: "Was soll passieren?", type: "select", options: [["add", "Nur fehlende Rollen wieder vergeben (empfohlen)"], ["exact", "Exakt wie damals (auch Rollen entfernen, die neu dazukamen)"]] }, { ...memberField("", "Nur dieses Mitglied (leer = alle)"), required: false }],
+      onSubmit: async values => { const preview = await post(`/api/role-snapshots/${id}/preview`, values); setTimeout(() => restoreConfirm(id, values, preview), 60); return {}; } });
+  },
+});
 
 loaders.activity = loadActivity;
 loaders.status = loadStatus;
