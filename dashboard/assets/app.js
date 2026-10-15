@@ -245,6 +245,7 @@ async function loadOverview() {
     [todo.reviewApplications, "Anträge in Prüfung", "Warten auf eine Entscheidung.", "applications", caps.applications],
     [todo.overdueEvents, "Events nicht beendet", "Startzeit ist über 3 Stunden vorbei – beenden und Anwesenheit eintragen.", "events", caps.events],
     [todo.accountClosures, "Konto-Löschungen bestätigen", "Mitglieder haben die Familie verlassen – Konto löschen oder behalten?", "finance", caps.financeView],
+    [todo.attendanceOpen, "Anwesenheit eintragen", "Beendete Events ohne abgeschlossene Anwesenheit – erst danach zählen No-Shows.", "events", caps.events],
     [todo.payoutsDue, "Auszahlungen möglich", "Mitglieder mit auszahlbarem Familienguthaben.", "finance", caps.financeView],
     [todo.eventsNext24h, "Events in den nächsten 24 Std.", "Teilnehmerliste prüfen.", "events", caps.staff],
   ].filter(([n, , , , ok]) => ok && n > 0);
@@ -347,10 +348,11 @@ async function loadEvents() {
     const actions = caps.events ? [
       e.status === "scheduled" ? btn("Bearbeiten", "event-edit", { id: e.id }) : "",
       e.status !== "cancelled" ? btn("Anwesenheit", "event-attendance", { id: e.id }, "primary-action") : "",
-      e.status === "scheduled" ? btn("Beenden", "event-end", { id: e.id }, "accept") : "",
+      e.status !== "cancelled" && !e.attendance_closed_at && new Date(e.starts_at) <= new Date() ? btn("Anwesenheit abschließen", "event-att-close", { id: e.id }, "accept") : "",
+      e.status === "scheduled" && new Date(e.starts_at) > new Date() ? btn("Beenden", "event-end", { id: e.id }, "accept") : "",
       e.status === "scheduled" ? btn("Absagen", "event-cancel", { id: e.id }, "reject") : "",
     ].join("") : "";
-    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${statusLabels[e.status]}</span><h3>${escapeHtml(e.name)}</h3></div><span class="badge">${active.length}${e.max_participants ? `/${e.max_participants}` : ""} Teilnehmende</span></div>
+    return `<article class="manage-card compact"><div class="manage-card-head"><div><span class="type-pill">${statusLabels[e.status]}</span>${e.status !== "cancelled" && !e.attendance_closed_at && new Date(e.starts_at) <= new Date() ? ' <span class="type-pill warn">Anwesenheit offen</span>' : e.attendance_closed_at ? ' <span class="type-pill">✓ Anwesenheit</span>' : ""}<h3>${escapeHtml(e.name)}</h3></div><span class="badge">${active.length}${e.max_participants ? `/${e.max_participants}` : ""} Teilnehmende</span></div>
       <p class="manage-meta">${date(e.starts_at)} · ${escapeHtml(e.location)} · Veranstalter: <b>${who(e.host_id)}</b>${e.equipment ? ` · Ausrüstung: ${escapeHtml(e.equipment)}` : ""}</p>
       ${e.description ? `<p class="desc">${escapeHtml(e.description)}</p>` : ""}<div class="chips">${chips || '<span class="muted">Noch keine Anmeldungen</span>'}</div><div class="actions">${actions}</div></article>`;
   }).join("") || empty(scope === "upcoming" ? "Keine geplanten Events." : "Keine vergangenen Events.");
@@ -483,7 +485,9 @@ const actions = {
   "event-edit": ({ id }) => { const e = state.cache.events[id]; openForm({ eyebrow: "EVENT BEARBEITEN", title: e.name, intro: "<p>Die Ankündigung in Discord wird automatisch aktualisiert. Bei geänderter Startzeit werden Erinnerungen neu geplant.</p>", fields: eventFields(e), submit: "Speichern", onSubmit: v => post(`/api/events/${id}/update`, { ...v, startsAt: v.startsAt === toLocalInput(e.starts_at) ? "" : fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null, minimum: v.minimum ? Number(v.minimum) : null }) }); },
   "event-attendance": ({ id }) => attendanceDialog(id),
   "att": async ({ event, user, status }) => { const r = await post(`/api/events/${event}/attendance`, { userId: user, status }); notify(r.message); await loadEvents(); attendanceDialog(event); },
-  "event-end": ({ id }) => confirmAction("Event beenden?", "Die Anmeldung wird geschlossen. Anwesenheit kann weiterhin dokumentiert werden.", "Beenden", () => post(`/api/events/${id}/end`), false),
+  "event-end": ({ id }) => confirmAction("Event beenden?", "Die Anmeldung wird geschlossen. Danach die Anwesenheit eintragen und abschließen – erst dann ist das Event fertig.", "Beenden", () => post(`/api/events/${id}/end`), false),
+  "event-att-close": ({ id }) => { const e = state.cache.events[id], present = e.participants.filter(p => p.status === "present").length, open = e.participants.filter(p => p.status === "signed_up").length;
+    confirmAction("Anwesenheit abschließen?", `${present} als anwesend markiert. ${open ? `<b>${open} noch nicht markiert</b> – sie werden auf „nicht da“ gesetzt und zählen als No-Show (außer sie waren abgemeldet).` : "Alle sind markiert."} Danach ist das Event abgeschlossen und das Ergebnis wird gepostet.`, "Abschließen", () => post(`/api/events/${id}/attendance/close`), open > 0); },
   "event-cancel": ({ id }) => confirmAction("Event absagen?", "Die Anmeldung wird geschlossen und die Ankündigung als abgesagt markiert.", "Absagen", () => post(`/api/events/${id}/cancel`)),
   "credit": ({ user }) => openForm({ eyebrow: "FAMILIENKONTO", title: "Gutschrift buchen", intro: "<p>Erhöht das noch auszuzahlende Familienguthaben des Mitglieds.</p>", fields: [memberField(user, "Empfänger"), { name: "amount", label: "Betrag ($)", type: "money", required: true }, { name: "reason", label: "Buchungsgrund", required: true, max: 300, placeholder: "z. B. Event Bankraub 12.10." }], submit: "Gutschrift buchen", onSubmit: (rid => v => post(`/api/accounts/${v.userId}/credit`, { amount: v.amount, reason: v.reason, requestId: rid }))(uuid()) }),
   "account-open": () => openForm({ eyebrow: "FAMILIENKONTO", title: "Familienkonto anlegen", intro: "<p>Legt ein leeres Konto (0 $) an. Das Mitglied erscheint danach in der Auszahlungsliste und kann Gutschriften erhalten.</p>", fields: [memberField(), { name: "note", label: "Notiz", hint: "(optional)", max: 300, placeholder: "z. B. neues Familienmitglied" }], submit: "Konto anlegen", onSubmit: v => post(`/api/accounts/${v.userId}/open`, { note: v.note }) }),

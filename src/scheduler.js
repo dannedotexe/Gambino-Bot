@@ -15,6 +15,7 @@ import { closeDuePolls } from "./polls.js";
 import { checkEventMinimums, processNoShows } from "./event-checks.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { runDailySnapshot } from "./role-snapshots.js";
+import { requestAttendance, requestDueAttendance } from "./attendance.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
 /**
@@ -53,7 +54,7 @@ export function startScheduler({db,client,config,series=null}) {
       for(const giveaway of announce)await announceGiveaway(db,client,giveaway).catch(error=>console.warn(`Giveaway-Ergebnis ${giveaway.id} noch nicht zugestellt:`,error.message));
       if(series){
         await createSeriesEvents({db,client,config,series,reference:now}).catch(error=>console.error("Aktivitäten konnten nicht angelegt werden:",error.message));
-        await endSeriesEvents({db,client,config,reference:now,onEnded:event=>postEventResult({db,client,config,event})}).catch(error=>console.error("Aktivitäten konnten nicht beendet werden:",error.message));
+        await endSeriesEvents({db,client,config,reference:now,onEnded:event=>requestAttendance({db,client,config,event})}).catch(error=>console.error("Aktivitäten konnten nicht beendet werden:",error.message));
       }
       await checkEventMinimums({db,client,config,reference:now}).catch(error=>console.warn("Mindestteilnehmer-Prüfung fehlgeschlagen:",error.message));
       await sendReminders(db,client,config,now);
@@ -79,6 +80,7 @@ export function startScheduler({db,client,config,series=null}) {
       if(Date.now()-lastAbsence>60_000){
         lastAbsence=Date.now();
         await syncAbsenceRoles({db,client,config,reference:now}).catch(error=>console.warn("Abmelde-Rollen konnten nicht abgeglichen werden:",error.message));
+        await requestDueAttendance({db,client,config,reference:now}).catch(error=>console.warn("Anwesenheits-Abfrage fehlgeschlagen:",error.message));
         await processNoShows({db,client,config,reference:now}).catch(error=>console.warn("No-Show-Prüfung fehlgeschlagen:",error.message));
         await sendWeeklyReport({db,client,config,reference:now}).catch(error=>console.warn("Wochenbericht fehlgeschlagen:",error.message));
         await runDailyInactivity({db,client,config,reference:now}).catch(error=>console.warn("Inaktivitätsprüfung fehlgeschlagen:",error.message));

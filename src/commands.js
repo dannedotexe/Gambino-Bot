@@ -19,6 +19,7 @@ import { syncNativeAutomod } from "./moderation.js";
 import { describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { buildActivityBoard, publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
+import { handleAttendanceInteraction, requestAttendance } from "./attendance.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
 import { buildVerification, createVerificationService } from "./services/verification.js";
@@ -852,9 +853,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const participants=participantsOf(id);
       const message=await eventMessage(i.guild,row);
       await refreshEventPosts({db,client,config,event:row,state:status});
-      if(sub==="beenden")await postEventResult({db,client,config,event:row});
+      if(sub==="beenden")await requestAttendance({db,client,config,event:row}).catch(()=>{});
       if(sub==="absagen"&&participants.length&&message?.channel&&!(row.series_id&&config.EVENT_SERIES_DELETE_ENDED))await message.channel.send({content:`${participants.slice(0,50).map(p=>`<@${p.user_id}>`).join(" ")}`,embeds:[logEmbed("❌ Event abgesagt",`**${row.name}** am <t:${unix(row.starts_at)}:F> findet nicht statt.${reason?`\n**Grund:** ${reason}`:""}`,"warning")],allowedMentions:{users:participants.slice(0,50).map(p=>p.user_id)}}).catch(()=>{});
-      return respond(i,`Event **${row.name}** wurde ${sub==="beenden"?"beendet":"abgesagt"}.`);
+      return respond(i,sub==="beenden"?`Event **${row.name}** wurde beendet. Bitte jetzt die Anwesenheit eintragen (Button im Event-Log oder Website) – erst danach ist es abgeschlossen.`:`Event **${row.name}** wurde abgesagt.`);
     }
   }
   async function eventMessage(guild,event){const channel=await targetChannel(guild,event.channel_id);return channel&&event.message_id?channel.messages.fetch(event.message_id).catch(()=>null):null;}
@@ -1378,7 +1379,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   async function eventButton(i){const [,action]=i.customId.split(":");if(action==="join"||action==="leave")return button(i);
     if(action==="dm"){const next=!reminderPrefs.wantsDm(i.guildId,i.user.id);reminderPrefs.set(i.guildId,i.user.id,next);return answer(i,{content:next?"🔔 Erinnerungen kommen ab jetzt **per DM** (für alle Events). Im Channel wirst du nicht mehr erwähnt. Nochmal klicken schaltet es wieder aus.":"Erinnerungen kommen wieder **im Channel** mit Erwähnung.",ephemeral:true});}return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
 
-  return {command,autocomplete,button,select,modal,reviewButton,eventButton};
+  const attendance=i=>handleAttendanceInteraction({i,db,client:i.client??client,config});
+  return {command,autocomplete,button,select,modal,reviewButton,eventButton,attendance};
 }
 
 /** Lädt bis zu `limit` Nachrichten (seitenweise à 100) chronologisch. Wirft bei fehlendem Zugriff. */
@@ -1458,4 +1460,4 @@ async function applicationReviewChannel(guild,config,kind){
   return channels?.find(channel=>channel?.isTextBased()&&channel.name.includes(channelName)&&channel.parent?.name.toLowerCase().includes("staff"))??null;
 }
 
-export async function handleComponent(i,handlers){if(i.isButton()){if(i.customId.startsWith("application:"))return handlers.reviewButton(i);if(i.customId.startsWith("event:"))return handlers.eventButton(i);return handlers.button(i);}if(i.isStringSelectMenu())return handlers.select(i);if(i.isModalSubmit())return handlers.modal(i);}
+export async function handleComponent(i,handlers){if(i.customId?.startsWith("att:")&&handlers.attendance)return handlers.attendance(i);if(i.isButton()){if(i.customId.startsWith("application:"))return handlers.reviewButton(i);if(i.customId.startsWith("event:"))return handlers.eventButton(i);return handlers.button(i);}if(i.isStringSelectMenu())return handlers.select(i);if(i.isModalSubmit())return handlers.modal(i);}

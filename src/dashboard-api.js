@@ -31,6 +31,7 @@ import { createRankHistory, rankFor } from "./services/ranks.js";
 import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
+import { afterClose, closeAttendance, requestAttendance } from "./attendance.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
@@ -501,8 +502,19 @@ export function createDashboardApi({ db, client, config, settings = null, series
       })();
       if (!row) throw new HttpError(409, "Das Event ist nicht mehr geplant.");
       await refreshEventMessage(row, { closedTitle: "BEENDET" });
-      await postEventResult({ db, client, config, event: row }).catch(() => {});
-      return { message: "Event beendet. Anwesenheit kann weiterhin dokumentiert werden." };
+      await requestAttendance({ db, client, config, event: row }).catch(() => {});
+      return { message: "Event beendet. Jetzt bitte die Anwesenheit eintragen und abschließen." };
+    }],
+    [/^\/api\/events\/([\w-]+)\/attendance\/close$/, async (member, body, [, id]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const existing = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=?").get(id, guildId);
+      if (!existing || existing.status === "cancelled") throw new HttpError(404, "Event nicht gefunden.");
+      if (new Date(existing.starts_at) > new Date()) throw new HttpError(409, "Das Event hat noch nicht begonnen.");
+      const result = closeAttendance(db, { eventId: id, actorId: member.id });
+      if (result.error) throw new HttpError(409, result.error);
+      await afterClose({ db, client, config, event: result.event, rows: result.rows, actorId: member.id });
+      const present = result.rows.filter(r => r.status === "present").length;
+      return { message: `Anwesenheit abgeschlossen: ${present} von ${result.rows.length} da. Das Ergebnis wurde gepostet.` };
     }],
     [/^\/api\/events\/([\w-]+)\/attendance$/, async (member, body, [, id]) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");

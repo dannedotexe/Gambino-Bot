@@ -61,29 +61,30 @@ export async function checkEventMinimums({ db, client, config, reference = new D
 // ---------------------------------------------------------------- No-Shows
 /**
  * No-Show = angemeldet (oder als abwesend markiert), aber nicht als anwesend erfasst, bei einem beendeten Event,
- * für das überhaupt Anwesenheit erfasst wurde. Wer zu dem Zeitpunkt abgemeldet war, zählt nicht.
+ * dessen Anwesenheit das Event-Team abgeschlossen hat. Wer zu dem Zeitpunkt abgemeldet war, zählt nicht.
  */
 export function noShowsOf(db, config, guildId, userId, { reference = new Date() } = {}) {
   const since = new Date(reference.getTime() - config.NOSHOW_WINDOW_DAYS * 24 * HOUR).toISOString();
   const absences = createAbsenceService(db);
   return db.prepare(`SELECT e.id,e.name,e.starts_at FROM event_participants p JOIN events e ON e.id=p.event_id
-    WHERE e.guild_id=? AND p.user_id=? AND e.status='ended' AND p.status IN ('signed_up','absent') AND e.starts_at>=? AND e.starts_at<=?
-    AND EXISTS(SELECT 1 FROM event_participants x WHERE x.event_id=e.id AND x.status='present') ORDER BY e.starts_at DESC`).all(guildId, userId, since, reference.toISOString())
+    WHERE e.guild_id=? AND p.user_id=? AND e.status='ended' AND e.attendance_closed_at IS NOT NULL AND p.status IN ('signed_up','absent') AND e.starts_at>=? AND e.starts_at<=?
+    ORDER BY e.starts_at DESC`).all(guildId, userId, since, reference.toISOString())
     .filter(e => !absences.wasAbsent(guildId, userId, e.starts_at, config.TIMEZONE));
 }
 
-/** Verarbeitet neue No-Shows (6–72 Stunden nach Start, damit Anwesenheit nachgetragen werden kann). */
+/** Verarbeitet neue No-Shows, sobald das Event-Team die Anwesenheit abgeschlossen hat. */
 export async function processNoShows({ db, client, config, reference = new Date() }) {
   if (!config.NOSHOW_THRESHOLD) return [];
-  const from = new Date(reference.getTime() - 72 * HOUR).toISOString(), to = new Date(reference.getTime() - 6 * HOUR).toISOString();
+  // Nur Events, deren Anwesenheit vom Event-Team abgeschlossen wurde – das ist die verbindliche Quelle.
+  const from = new Date(reference.getTime() - config.NOSHOW_WINDOW_DAYS * 24 * HOUR).toISOString(), to = reference.toISOString();
   const candidates = db.prepare(`SELECT e.id event_id,e.guild_id,e.name,e.starts_at,p.user_id FROM event_participants p JOIN events e ON e.id=p.event_id
-    WHERE e.status='ended' AND p.status IN ('signed_up','absent') AND e.starts_at>=? AND e.starts_at<=?
-    AND EXISTS(SELECT 1 FROM event_participants x WHERE x.event_id=e.id AND x.status='present')
-    AND NOT EXISTS(SELECT 1 FROM noshow_notices n WHERE n.event_id=e.id AND n.user_id=p.user_id)`).all(from, to);
+    WHERE e.status='ended' AND e.attendance_closed_at IS NOT NULL AND p.status IN ('signed_up','absent') AND e.starts_at>=? AND e.starts_at<=?
+    AND NOT EXISTS(SELECT 1 FROM noshow_notices n WHERE n.event_id=e.id AND n.user_id=p.user_id) ORDER BY e.starts_at`).all(from, to);
   const absences = createAbsenceService(db), actions = [];
   for (const c of candidates) {
     if (absences.wasAbsent(c.guild_id, c.user_id, c.starts_at, config.TIMEZONE)) { db.prepare("INSERT OR IGNORE INTO noshow_notices(event_id,user_id,guild_id,count,action,created_at) VALUES(?,?,?,?,?,?)").run(c.event_id, c.user_id, c.guild_id, 0, "excused", reference.toISOString()); continue; }
-    const count = noShowsOf(db, config, c.guild_id, c.user_id, { reference }).length;
+    // Stand zum Zeitpunkt dieses Events zählen, damit bei mehreren nachgetragenen Events nur einmal reagiert wird.
+    const count = noShowsOf(db, config, c.guild_id, c.user_id, { reference: new Date(Math.min(reference.getTime(), new Date(c.starts_at).getTime() + 1)) }).length;
     const react = count >= config.NOSHOW_THRESHOLD;
     const action = react ? config.NOSHOW_ACTION : "counted";
     if (!db.prepare("INSERT OR IGNORE INTO noshow_notices(event_id,user_id,guild_id,count,action,created_at) VALUES(?,?,?,?,?,?)").run(c.event_id, c.user_id, c.guild_id, count, action, reference.toISOString()).changes) continue;

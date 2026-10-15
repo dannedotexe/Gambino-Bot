@@ -66,13 +66,15 @@ test("Erinnerung: DM für Personen mit DM-Wunsch, Channel-Erwähnung für alle a
   assert.match(JSON.stringify(card.embeds[0].data.fields), /mind\. 4/);
 });
 
-test("No-Shows: nur bei erfasster Anwesenheit, Abgemeldete zählen nicht, Meldung ab Grenze", async () => {
+test("No-Shows: nur bei abgeschlossener Anwesenheit, Abgemeldete zählen nicht, Meldung ab Grenze", async () => {
   const db = testDb(), f = fake(), config = cfg({ NOSHOW_THRESHOLD: "3", NOSHOW_ACTION: "both" });
   const hoursAgo = h => new Date(Date.now() - h * 3_600_000).toISOString();
   addEvent(db, { id: "old1", startsAt: hoursAgo(24 * 10), status: "ended", people: [[A, "signed_up"], [C, "present"]] });
   addEvent(db, { id: "old2", startsAt: hoursAgo(24 * 5), status: "ended", people: [[A, "absent"], [C, "present"]] });
   addEvent(db, { id: "noatt", startsAt: hoursAgo(24 * 3), status: "ended", people: [[A, "signed_up"]] }); // keine Anwesenheit erfasst
   addEvent(db, { id: "new", startsAt: hoursAgo(12), status: "ended", people: [[A, "signed_up"], [B, "signed_up"], [C, "present"]] });
+  // Verbindlich: nur Events mit abgeschlossener Anwesenheit zählen („noatt“ ist nicht abgeschlossen).
+  db.prepare("UPDATE events SET attendance_closed_at=? WHERE id IN ('old1','old2','new')").run(hoursAgo(1));
   // B war an dem Tag abgemeldet
   const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Vienna" }).format(new Date(hoursAgo(12)));
   db.prepare("INSERT INTO member_absences(id,guild_id,user_id,starts_on,ends_on,reason,created_by,created_at) VALUES('ab',?,?,?,?,'Urlaub',?,?)").run(G, B, day, day, B, hoursAgo(48));
