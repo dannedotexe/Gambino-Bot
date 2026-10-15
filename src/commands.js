@@ -6,7 +6,7 @@ import {
 import { audit, getSetting, setSetting } from "./database.js";
 import { FinanceError, formatMoney, parseMoney } from "./services/finance.js";
 import { accessGroups, configWarnings, hasRole } from "./config.js";
-import { BRAND_COLOR, applicationDecisionDm, applicationInReviewDm, applicationSubmittedDm, logEmbed, presentInteractionPayload } from "./presentation.js";
+import { BRAND_COLOR, numberedMentions, applicationDecisionDm, applicationInReviewDm, applicationSubmittedDm, logEmbed, presentInteractionPayload } from "./presentation.js";
 import { createEventService } from "./services/events.js";
 import { createGiveawayService } from "./services/giveaways.js";
 import { canHandleTicket, createTicketService } from "./services/tickets.js";
@@ -1438,7 +1438,7 @@ export function parseEventDate(value,timezone="Europe/Vienna"){
 }
 export function eventButtons(id){return new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`event:join:${id}`).setLabel("Teilnehmen").setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`event:leave:${id}`).setLabel("Abmelden").setStyle(ButtonStyle.Secondary));}
 export function eventEmbed(e,count,participants=[]){
-  const list=participants.length?participants.slice(0,30).map(x=>`<@${x.user_id}>`).join(", ")+(participants.length>30?`, +${participants.length-30} weitere`:""):"Noch keine Anmeldungen";
+  const list=numberedMentions(participants.map(x=>x.user_id),{empty:"Noch keine Anmeldungen"});
   return embed(`📅 ${e.name}`.slice(0,256),e.description||"Familien-Event").addFields(
     {name:"🕒 Wann",value:`<t:${unix(e.starts_at)}:F> · <t:${unix(e.starts_at)}:R>`,inline:true},
     {name:"📍 Treffpunkt",value:e.location||"Noch nicht angegeben",inline:true},

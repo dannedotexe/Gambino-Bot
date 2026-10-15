@@ -233,3 +233,16 @@ export function logEmbed(title, description, tone = "info") {
     .setAuthor({ name: "GAMBINOS  •  SERVER-LOG" }).setTitle(title)
     .setDescription(String(description).slice(0, 4096)).setFooter({ text: "GAMBINOS  •  Serverprotokoll" }).setTimestamp();
 }
+
+/** Nummerierte Liste „1. @Name“ je Zeile, passend für ein Embed-Feld (max. 1024 Zeichen, Rest als „… +N weitere“). */
+export function numberedMentions(userIds, { empty = "—", suffix = () => "" } = {}) {
+  if (!userIds.length) return empty;
+  const lines = [];
+  for (const [index, id] of userIds.entries()) {
+    const line = `${index + 1}. <@${id}>${suffix(id)}`;
+    const rest = userIds.length - index;
+    if ([...lines, line].join("\n").length > 1024 - 20 && rest > 0) { lines.push(`… +${rest} weitere`); break; }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}

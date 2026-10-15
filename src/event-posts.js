@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "disc
 import { splitAndSendDms } from "./reminder-prefs.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 import { describeSchedule } from "./services/event-series.js";
+import { numberedMentions } from "./presentation.js";
 
 /*
  * Alle Discord-Posts eines Events an einer Stelle:
@@ -37,7 +38,7 @@ export function eventCardPayload({ event, participants = [], texts = defaultsFor
   if (event.host_id && event.host_id !== botId && !event.series_id) fields.push({ name: "👤 Veranstalter", value: `<@${event.host_id}>`, inline: true });
   if (event.equipment) fields.push({ name: "🧰 Ausrüstung", value: event.equipment.slice(0, 1024), inline: false });
   if (event.notes && event.notes !== "Automatisch aus dem Aktivitätenplan erstellt.") fields.push({ name: "ℹ️ Hinweise", value: event.notes.slice(0, 1024), inline: false });
-  const list = participants.length ? participants.slice(0, 40).map(p => `<@${p.user_id}>`).join(", ") + (participants.length > 40 ? ` +${participants.length - 40}` : "") : (texts.emptyParticipants || "—");
+  const list = numberedMentions(participants.map(p => p.user_id), { empty: texts.emptyParticipants || "—" });
   fields.push({ name: `🙋 ${texts.participantsLabel || "Teilnehmende"} (${participants.length}${event.max_participants ? `/${event.max_participants}` : ""}${event.min_participants ? ` · mind. ${event.min_participants}` : ""})`, value: list.slice(0, 1024), inline: false });
   embed.addFields(fields);
   const footer = series ? `${texts.seriesFooter || "Wiederkehrende Aktivität"} · ${describeSchedule(series)}` : texts.footer;
