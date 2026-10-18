@@ -32,6 +32,7 @@ import { CLOSURE_REASONS, createAccountClosureService } from "./services/account
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
 import { afterClose, closeAttendance, requestAttendance } from "./attendance.js";
+import { ControlError, announceControl } from "./state-control.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
@@ -504,6 +505,13 @@ export function createDashboardApi({ db, client, config, settings = null, series
       await refreshEventMessage(row, { closedTitle: "BEENDET" });
       await requestAttendance({ db, client, config, event: row }).catch(() => {});
       return { message: "Event beendet. Jetzt bitte die Anwesenheit eintragen und abschließen." };
+    }],
+    [/^\/api\/events\/control$/, async (member, body) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      try {
+        const result = await announceControl({ db, client, config, actorId: member.id, family: body.family, when: body.when });
+        return { message: `Staatliche Kontrolle gegen ${String(body.family).trim()} angekündigt – Beginn ${new Intl.DateTimeFormat("de-AT", { timeStyle: "short", timeZone: config.TIMEZONE }).format(result.startsAt)} Uhr.` };
+      } catch (error) { if (error instanceof ControlError) throw new HttpError(400, error.message); throw error; }
     }],
     [/^\/api\/events\/([\w-]+)\/attendance\/close$/, async (member, body, [, id]) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");
