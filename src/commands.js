@@ -34,7 +34,6 @@ import { buildLeaderboard } from "./leaderboard.js";
 import { postAbsence } from "./absence-posts.js";
 import { BAN_DELETE_CHOICES, MOD_PERMISSIONS, TIMEOUT_CHOICES, formatMinutes, hierarchyProblem, performModeration } from "./member-moderation.js";
 import { MOD_ACTIONS } from "./services/moderation-log.js";
-import { createReminderPrefs } from "./reminder-prefs.js";
 import { cancelEvent } from "./event-checks.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, pollPayload, validatePoll } from "./polls.js";
 
@@ -206,7 +205,6 @@ export function buildCommands() {
     .addSubcommand(s=>s.setName("bearbeiten").setDescription("Geplantes Event ändern").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("name").setDescription("Neuer Name").setMaxLength(100)).addStringOption(o=>o.setName("start").setDescription("Datum und Uhrzeit, z. B. 31.12.2026 19:00 (Server-Zeitzone)")).addStringOption(o=>o.setName("treffpunkt").setDescription("Neuer Treffpunkt").setMaxLength(100)).addStringOption(o=>o.setName("beschreibung").setDescription("Neue Beschreibung").setMaxLength(1000)).addIntegerOption(o=>o.setName("maximum").setDescription("Neues Teilnehmerlimit").setMinValue(1).setMaxValue(500)).addIntegerOption(o=>o.setName("mindestens").setDescription("Neue Mindestteilnehmerzahl").setMinValue(1).setMaxValue(500)).addStringOption(o=>o.setName("ausruestung").setDescription("Neue Ausrüstung").setMaxLength(500)).addStringOption(o=>o.setName("hinweise").setDescription("Neue Teilnahmehinweise").setMaxLength(500)))
     .addSubcommand(s=>s.setName("anwesenheit").setDescription("Teilnahme dokumentieren (Event-Team)").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addUserOption(o=>o.setName("mitglied").setDescription("Teilnehmer").setRequired(true)).addStringOption(o=>o.setName("status").setDescription("Teilnahme").setRequired(true).addChoices({name:"Anwesend",value:"present"},{name:"Abwesend",value:"absent"})))
     .addSubcommand(s=>s.setName("beenden").setDescription("Event abschließen").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)))
-    .addSubcommand(s=>s.setName("erinnerung").setDescription("Wie du an Events erinnert wirst").addStringOption(o=>o.setName("modus").setDescription("Erinnerungsart").setRequired(true).addChoices({name:"Per DM (privat, ohne Ping im Channel)",value:"dm"},{name:"Im Event-Channel erwähnen",value:"channel"})))
     .addSubcommand(s=>s.setName("absagen").setDescription("Event absagen").addStringOption(o=>o.setName("id").setDescription("Event auswählen").setRequired(true).setAutocomplete(true)).addStringOption(o=>o.setName("grund").setDescription("Grund für die Absage").setMaxLength(300)));
   const apps = new SlashCommandBuilder().setName("antrag").setDescription("Bewerbung und Rang-Anträge")
     .addSubcommand(s=>s.setName("bewerben").setDescription("Bewerbung einreichen").addStringOption(o=>o.setName("typ").setDescription("Bewerbungstyp").setRequired(true).addChoices({name:"Familienbeitritt",value:"bewerbung"},{name:"Rang-Antrag",value:"rang"})))
@@ -289,7 +287,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   questionConfig=config;
   // Live berechnet: Rollenänderungen über Website/Discord gelten sofort.
   const groups=new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
-  const polls=createPollService(db),reminderPrefs=createReminderPrefs(db);
+  const polls=createPollService(db);
   const verifications=createVerificationService(db),warningService=createWarningService(db),absences=createAbsenceService(db),activity=createActivityService(db);
   const pendingModeration=new Map();
   const events=createEventService(db),giveaways=createGiveawayService(db),tickets=createTicketService(db),applications=createApplicationService(db);
@@ -772,11 +770,6 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   async function eventCommand(i,sub,g,u) {
     const invalidDate=()=>respond(i,`Bitte ein gültiges zukünftiges Datum eingeben, z. B. 31.12.2026 19:00 (${config.TIMEZONE}).`);
     const participantsOf=id=>events.participants(id);
-    if(sub==="erinnerung"){
-      const dm=i.options.getString("modus")==="dm";
-      reminderPrefs.set(g,u,dm);
-      return respond(i,dm?"🔔 Du bekommst Event-Erinnerungen ab jetzt **per DM** und wirst im Channel nicht mehr erwähnt. (Bei geschlossenen DMs wirst du weiterhin im Channel erwähnt.)":"Du wirst bei Event-Erinnerungen wieder **im Channel erwähnt**.");
-    }
     if(sub==="erstellen") {
       const denied=guard(i,"events","Event-Team");if(denied)return respond(i,denied);
       const start=parseEventDate(i.options.getString("start"),config.TIMEZONE);
@@ -1387,7 +1380,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   }
 
   async function eventButton(i){const [,action]=i.customId.split(":");if(action==="join"||action==="leave")return button(i);
-    if(action==="dm"){const next=!reminderPrefs.wantsDm(i.guildId,i.user.id);reminderPrefs.set(i.guildId,i.user.id,next);return answer(i,{content:next?"🔔 Erinnerungen kommen ab jetzt **per DM** (für alle Events). Im Channel wirst du nicht mehr erwähnt. Nochmal klicken schaltet es wieder aus.":"Erinnerungen kommen wieder **im Channel** mit Erwähnung.",ephemeral:true});}return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
+    if(action==="dm")return answer(i,{content:"Erinnerungen per DM gibt es nicht mehr – sie kommen im Event-Channel. Der Button verschwindet bei der nächsten Aktualisierung des Posts.",ephemeral:true});
+    return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
 
   const attendance=i=>handleAttendanceInteraction({i,db,client:i.client??client,config});
   return {command,autocomplete,button,select,modal,reviewButton,eventButton,attendance};

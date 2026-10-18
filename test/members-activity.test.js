@@ -238,7 +238,7 @@ test("Website: Aktivität, Profil mit Rechten, Status, Abmeldung eintragen und E
   assert.equal((await post(as(STAFF, "staff"), `/api/absences/${id}/end`, {})).status, 200);
 });
 
-test("Mein Bereich: nur eigene Daten, eigene Abmeldung und DM-Erinnerung; Team-Bereiche bleiben gesperrt", async () => {
+test("Mein Bereich: nur eigene Daten und eigene Abmeldung; Team-Bereiche bleiben gesperrt", async () => {
   const x = setup();
   const api = createDashboardApi({ db: x.db, client: x.client, config: x.config });
   const me = { id: MEMBER, displayName: "Web", owner: false, roles: [], family: true, team: false };
@@ -256,7 +256,5 @@ test("Mein Bereich: nur eigene Daten, eigene Abmeldung und DM-Erinnerung; Team-B
   assert.equal((await post("/api/my/absence", { from: "heute", until: "morgen", reason: "Urlaub" })).status, 200);
   assert.equal((await get("/api/my")).body.absences.open.reason, "Urlaub");
   assert.equal((await post("/api/my/absence/end", {})).status, 200);
-  assert.equal((await post("/api/my/reminders", { dm: true })).status, 200);
-  assert.equal((await get("/api/my")).body.reminders.dm, true);
   assert.equal((await post("/api/absences", { userId: OTHER, from: "heute", until: "morgen", reason: "x" })).status, 403);
 });

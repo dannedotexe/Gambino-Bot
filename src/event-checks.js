@@ -5,7 +5,6 @@ import { refreshEventPosts } from "./event-posts.js";
 import { createAbsenceService } from "./services/absences.js";
 import { createWarningService } from "./services/warnings.js";
 import { deliverWarning } from "./warn-actions.js";
-import { splitAndSendDms } from "./reminder-prefs.js";
 
 const HOUR = 3_600_000;
 const unix = iso => Math.floor(new Date(iso).getTime() / 1000);
@@ -15,7 +14,7 @@ const activeParticipants = (db, eventId) => db.prepare("SELECT user_id FROM even
 // ---------------------------------------------------------------- Mindestteilnehmer
 export const minimumFor = (event, config) => event.min_participants ?? (config.EVENT_MIN_PARTICIPANTS > 0 ? config.EVENT_MIN_PARTICIPANTS : null);
 
-/** Sagt ein Event ab, aktualisiert die Posts und informiert die Angemeldeten (DM-Wunsch wird beachtet). */
+/** Sagt ein Event ab, aktualisiert die Posts und informiert die Angemeldeten im Event-Channel. */
 export async function cancelEvent({ db, client, config, eventId, actorId, reason }) {
   const row = db.transaction(() => {
     const changed = db.prepare("UPDATE events SET status='cancelled' WHERE id=? AND status='scheduled' RETURNING *").get(eventId);
@@ -26,7 +25,7 @@ export async function cancelEvent({ db, client, config, eventId, actorId, reason
   await refreshEventPosts({ db, client, config, event: row, state: "cancelled" }).catch(() => {});
   const participants = activeParticipants(db, eventId).slice(0, 50);
   const embed = logEmbed("❌ Event abgesagt", `**${row.name}** am <t:${unix(row.starts_at)}:F> findet nicht statt.${reason ? `\n**Grund:** ${reason}` : ""}`, "warning");
-  const pings = await splitAndSendDms({ db, client, guildId: row.guild_id, userIds: participants, embed });
+  const pings = participants;
   const channel = await fetchChannel(client, row.channel_id);
   if (pings.length && channel?.send && !(row.series_id && config.EVENT_SERIES_DELETE_ENDED)) await channel.send({ content: pings.map(id => `<@${id}>`).join(" "), embeds: [embed], allowedMentions: { users: pings } }).catch(() => {});
   return row;

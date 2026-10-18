@@ -53,7 +53,6 @@ async function openProfile(userId) {
     ["Letzte Nachricht", p.activity.lastMessage ? `${ago(p.activity.lastMessage)} (${p.activity.messages} erfasst)` : "keine erfasst"],
     ["Event-Teilnahmen", `${p.activity.participations}${p.activity.lastEvent ? ` · zuletzt ${ago(p.activity.lastEvent)}` : ""}`],
     ["No-Shows", `${p.noShows.length} in ${p.noShowWindow} Tagen${p.noShows.length ? ` · zuletzt ${escapeHtml(p.noShows[0].name)}` : ""}`],
-    ["Event-Erinnerungen", p.dmReminders ? "per DM" : "im Channel"],
     ...(p.warnings ? [["Aktive Verwarnungen", String(p.warnings.active)]] : []),
     ...(p.finance ? [["Familienguthaben", p.finance.hasAccount ? `${money(p.finance.plan.gross)} · netto ${money(p.finance.plan.net)}` : "kein Konto"]] : []),
   ];

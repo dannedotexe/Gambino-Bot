@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { testDb } from "./helpers.js";
 import { createFinance } from "../src/services/finance.js";
 import { checkEventMinimums, noShowsOf, processNoShows } from "../src/event-checks.js";
-import { createReminderPrefs } from "../src/reminder-prefs.js";
 import { sendEventReminder, eventCardPayload } from "../src/event-posts.js";
 import { createAbsenceService } from "../src/services/absences.js";
 import { createHandler } from "../src/commands.js";
@@ -41,30 +40,28 @@ test("Mindestteilnehmer: Meldung ans Event-Team genau einmal, Standardwert greif
   assert.equal(db.prepare("SELECT status FROM events WHERE id='e1'").get().status, "scheduled");
 });
 
-test("Mindestteilnehmer: automatische Absage informiert Angemeldete (DM-Wunsch beachtet)", async () => {
+test("Mindestteilnehmer: automatische Absage informiert Angemeldete im Channel", async () => {
   const db = testDb(), f = fake(), config = cfg({ EVENT_MIN_AUTO_CANCEL: "true" });
-  createReminderPrefs(db).set(G, A, true);
   addEvent(db, { id: "e1", startsAt: inMinutes(10), min: 4, people: [[A, "signed_up"], [B, "signed_up"]] });
   const [r] = await checkEventMinimums({ db, client: f.client, config });
   assert.equal(r.action, "cancelled");
   assert.equal(db.prepare("SELECT status FROM events WHERE id='e1'").get().status, "cancelled");
-  assert.deepEqual(f.dms.map(d => d.id), [A], "A bekommt DM");
+  assert.equal(f.dms.length, 0, "keine DMs mehr");
   const ping = f.posts.find(p => p.id === CH);
-  assert.match(ping.content, new RegExp(B)); assert.doesNotMatch(ping.content, new RegExp(A), "A wird nicht erwähnt");
+  assert.match(ping.content, new RegExp(A)); assert.match(ping.content, new RegExp(B));
 });
 
-test("Erinnerung: DM für Personen mit DM-Wunsch, Channel-Erwähnung für alle anderen", async () => {
+test("Erinnerung: ohne Ping-Rolle werden die Angemeldeten erwähnt, keine DMs; Karte ohne DM-Button", async () => {
   const db = testDb(), f = fake(), config = cfg();
-  createReminderPrefs(db).set(G, B, true);
   addEvent(db, { id: "e1", startsAt: inMinutes(60), people: [[A, "signed_up"], [B, "signed_up"]] });
-  await sendEventReminder({ db, client: f.client, config, event: db.prepare("SELECT * FROM events WHERE id='e1'").get() });
-  assert.deepEqual(f.dms.map(d => d.id), [B]);
-  assert.match(f.dms[0].content, /discord\.com\/channels/, "DM enthält Link zur Event-Karte");
-  assert.equal(f.replies[0].content, `<@${A}>`);
+  await sendEventReminder({ db, client: f.client, config: { ...config, EVENT_PING_ROLES: [], ROLE_MEMBERS: [] }, event: db.prepare("SELECT * FROM events WHERE id='e1'").get() });
+  assert.equal(f.dms.length, 0);
+  assert.equal(f.replies[0].content, `<@${A}> <@${B}>`);
   const card = eventCardPayload({ event: { id: "e1", name: "x", starts_at: inMinutes(60), status: "scheduled", min_participants: 4 }, participants: [] });
-  assert.ok(card.components[0].components.some(b => b.data.custom_id === "event:dm:e1"));
+  assert.ok(!card.components[0].components.some(b => String(b.data.custom_id).startsWith("event:dm:")));
   assert.match(JSON.stringify(card.embeds[0].data.fields), /mind\. 4/);
 });
+
 
 test("No-Shows: nur bei abgeschlossener Anwesenheit, Abgemeldete zählen nicht, Meldung ab Grenze", async () => {
   const db = testDb(), f = fake(), config = cfg({ NOSHOW_THRESHOLD: "3", NOSHOW_ACTION: "both" });
@@ -85,21 +82,6 @@ test("No-Shows: nur bei abgeschlossener Anwesenheit, Abgemeldete zählen nicht, 
   assert.match(f.posts.find(p => p.id === LOG).content, new RegExp(ROLE.leaders));
   assert.equal(db.prepare("SELECT COUNT(*) n FROM member_warnings WHERE user_id=?").get(A).n, 1, "automatische Verwarnung");
   assert.equal((await processNoShows({ db, client: f.client, config })).length, 0, "nicht doppelt");
-});
-
-test("Discord: Erinnerungsart umschalten per Button und /event erinnerung", async () => {
-  const db = testDb(), f = fake(), config = cfg();
-  const handler = createHandler({ db, finance: createFinance(db), config, client: { ...f.client, ws: { ping: 1 } } });
-  const replies = [];
-  const click = { customId: "event:dm:e1", guildId: G, user: { id: A }, member: { roles: { cache: new Map() } }, inGuild: () => true, isButton: () => true, reply: async p => { replies.push(p); } };
-  await handler.eventButton(click);
-  assert.equal(createReminderPrefs(db).wantsDm(G, A), true);
-  await handler.eventButton(click);
-  assert.equal(createReminderPrefs(db).wantsDm(G, A), false);
-  const cmd = { id: "1", commandName: "event", guildId: G, user: { id: A }, member: { roles: { cache: new Map() } }, inGuild: () => true, isChatInputCommand: () => true, options: { getSubcommand: () => "erinnerung", getString: () => "dm", getUser: () => null, getInteger: () => null }, reply: async p => { replies.push(p); } };
-  await handler.command(cmd);
-  assert.equal(createReminderPrefs(db).wantsDm(G, A), true);
-  assert.match(JSON.stringify(replies.at(-1)), /per DM/);
 });
 
 test("Erinnerung: ohne Anmeldungen keine Nachricht; {minuten} ist eine feste Zahl", async () => {

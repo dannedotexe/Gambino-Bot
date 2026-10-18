@@ -1,5 +1,4 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
-import { splitAndSendDms } from "./reminder-prefs.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 import { describeSchedule } from "./services/event-series.js";
 import { numberedMentions } from "./presentation.js";
@@ -46,7 +45,6 @@ export function eventCardPayload({ event, participants = [], texts = defaultsFor
   const components = !look ? [new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`event:join:${event.id}`).setLabel(texts.joinButton || "Teilnehmen").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`event:leave:${event.id}`).setLabel(texts.leaveButton || "Abmelden").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`event:dm:${event.id}`).setLabel(texts.dmButton || "🔔 Erinnerung per DM").setStyle(ButtonStyle.Secondary),
   )] : [];
   return { embeds: [embed], components };
 }
@@ -130,14 +128,11 @@ export async function sendEventReminder({ db, client, config, event }) {
   const card = await fetchMessage(client, event.channel_id, event.message_id);
   const embed = new EmbedBuilder().setColor(colorNumber(texts.color || "#d4af37"))
     .setDescription(`${fillTemplate(texts.reminderText, event)}${event.location ? `\n📍 ${event.location}` : ""}${event.equipment ? `\n🧰 ${event.equipment}` : ""}`.slice(0, 4000));
-  // Wer Erinnerungen per DM möchte, bekommt sie privat und wird im Channel nicht erwähnt.
-  const link = card?.url ?? (event.channel_id && event.message_id && config.DISCORD_GUILD_ID ? `https://discord.com/channels/${config.DISCORD_GUILD_ID}/${event.channel_id}/${event.message_id}` : null);
-  const participants = await splitAndSendDms({ db, client, guildId: event.guild_id ?? config.DISCORD_GUILD_ID, userIds: all, embed, link });
   // Im Channel wird die Familienrolle markiert statt jede angemeldete Person einzeln (Event-Ping-Rolle, sonst Familienrolle).
   const roles = (config.EVENT_PING_ROLES?.length ? config.EVENT_PING_ROLES : config.ROLE_MEMBERS ?? []).slice(0, 5);
   const payload = roles.length
     ? { content: roles.map(id => `<@&${id}>`).join(" "), embeds: [embed], allowedMentions: { roles, repliedUser: false } }
-    : { content: participants.length ? participants.map(id => `<@${id}>`).join(" ") : undefined, embeds: [embed], allowedMentions: { users: participants, repliedUser: false } };
+    : { content: all.map(id => `<@${id}>`).join(" "), embeds: [embed], allowedMentions: { users: all, repliedUser: false } };
   // Nur die neueste Erinnerung bleibt stehen; die vorige wird gelöscht (hält den Event-Channel sauber).
   await deleteReminder({ db, client, event });
   const channel = card ? null : await getChannel(client, event.channel_id);

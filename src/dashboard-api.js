@@ -37,7 +37,6 @@ import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
 import { noShowsOf } from "./event-checks.js";
-import { createReminderPrefs } from "./reminder-prefs.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -157,7 +156,6 @@ export function createDashboardApi({ db, client, config, settings = null, series
         events: { upcoming, past, stats: activity.eventStats(guildId, userId), noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
         rank: { current: rank?.label ?? null, history: rankHistory.forUser(guildId, userId, 15).map(r => ({ from: r.from_label, to: r.to_label, kind: r.kind, created_at: r.created_at })) },
         absences: { open: absences.openFor(guildId, userId, day), list: absences.forUser(guildId, userId, 10).map(a => ({ id: a.id, starts_on: a.starts_on, ends_on: a.ends_on, reason: a.reason, ended_at: a.ended_at })), maxDays: config.ABSENCE_MAX_DAYS },
-        reminders: { dm: createReminderPrefs(db).wantsDm(guildId, userId) },
         leaderboard,
       }, [userId, ...Object.values(leaderboard).flat().map(r => r.userId)]);
     }],
@@ -216,7 +214,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         verification: verifications.byUser(guildId, userId),
         activity: { ...activity.eventStats(guildId, userId), lastMessage: activity.lastMessage(guildId, userId)?.last_message_at ?? null, messages: activity.lastMessage(guildId, userId)?.messages ?? 0, trackingSince: activity.trackingSince(guildId) },
         rankHistory: rankHistory.forUser(guildId, userId, 20),
-        noShows: noShowsOf(db, config, guildId, userId), noShowWindow: config.NOSHOW_WINDOW_DAYS, dmReminders: createReminderPrefs(db).wantsDm(guildId, userId),
+        noShows: noShowsOf(db, config, guildId, userId), noShowWindow: config.NOSHOW_WINDOW_DAYS,
         absences: absences.forUser(guildId, userId, 10), absentNow: absences.absentUserIds(guildId, today()).has(userId),
         events: db.prepare("SELECT e.id,e.name,e.starts_at,e.status AS event_status,p.status FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status<>'left' ORDER BY e.starts_at DESC LIMIT 15").all(guildId, userId)
           .map(e => ({ ...e, excused: e.status === "absent" && absences.wasAbsent(guildId, userId, e.starts_at, config.TIMEZONE), upcoming: e.starts_at > iso })),
@@ -672,11 +670,6 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const row = absences.end({ guildId, absenceId: open.id, actorId: member.id });
       if (open.starts_on <= today()) await postAbsence({ client, config, row, kind: "ended" });
       return { message: "Abmeldung beendet – willkommen zurück!" };
-    }],
-    [/^\/api\/my\/reminders$/, async (member, body) => {
-      const dm = body.dm === true;
-      createReminderPrefs(db).set(guildId, member.id, dm);
-      return { message: dm ? "Event-Erinnerungen kommen jetzt per privater Nachricht." : "Event-Erinnerungen kommen wieder im Event-Channel." };
     }],
     [/^\/api\/absences$/, async (member, body) => {
       need(member, "staff", "Staff-Rolle");

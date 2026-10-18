@@ -19,7 +19,6 @@ async function loadMine() {
     myStat("Event-Teilnahmen", escapeHtml(e.stats.participations), "#"),
     myStat("No-Shows", e.noShowLimit ? `${e.noShows} von ${e.noShowLimit} <small>(${e.noShowWindow} Tage)</small>` : escapeHtml(e.noShows)),
   ].join("");
-  $("my-reminder-label").textContent = d.reminders.dm ? "Erinnerung: per DM" : "Erinnerung: im Channel";
   $("my-absence-label").textContent = d.absences.open ? "Abmeldung beenden" : "Abmelden";
   $("my-transactions").innerHTML = a.transactions.map(t => myRow(`${txLabels[t.type] ?? t.type} · ${t.type === "payout" ? `${money(t.net_cents)} ausgezahlt${t.deduction_cents ? ` (Abzug ${money(t.deduction_cents)})` : ""}` : `${["payout", "correction_debit"].includes(t.type) ? "−" : "+"}${money(t.amount_cents)}`}`, `${date(t.created_at)} · ${escapeHtml(t.reason)}`)).join("") || empty("Noch keine Buchungen.");
   $("my-discipline").innerHTML = [
@@ -50,11 +49,5 @@ Object.assign(actions, {
     openForm({ eyebrow: "ABMELDUNG", title: "Abmelden", intro: `<p>Z. B. Urlaub oder Pause. Höchstens ${state.cache.mine?.absences.maxDays ?? 60} Tage. Den Grund sieht nur das Team.</p>`,
       fields: [{ name: "from", label: "Von", required: true, value: "heute", hint: "heute, morgen oder 20.10." }, { name: "until", label: "Bis (inklusive)", required: true, placeholder: "27.10." }, { name: "reason", label: "Grund", required: true, max: 300 }],
       submit: "Abmelden", onSubmit: v => post("/api/my/absence", v) });
-  },
-  "my-reminders": () => {
-    const dm = state.cache.mine?.reminders.dm;
-    openForm({ eyebrow: "EVENT-ERINNERUNGEN", title: "Wie willst du erinnert werden?", intro: "<p>Vor Events, für die du angemeldet bist, erinnert dich der Bot.</p>",
-      fields: [{ name: "dm", label: "Erinnerung", type: "select", value: dm ? "dm" : "channel", options: [["channel", "Im Event-Channel (Erwähnung)"], ["dm", "Per privater Nachricht (DM)"]] }],
-      submit: "Speichern", onSubmit: v => post("/api/my/reminders", { dm: v.dm === "dm" }) });
   },
 });
