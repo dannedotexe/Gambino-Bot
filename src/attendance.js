@@ -41,7 +41,7 @@ export async function requestAttendance({ db, client, config, event }) {
   if (!channel?.send) return false;
   const team = accessGroups(config).events;
   const message = await channel.send({ content: team.length ? team.map(id => `<@&${id}>`).join(" ") : undefined, allowedMentions: { roles: team },
-    embeds: [attendanceEmbed(row, rows)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`att:open:${row.id}`).setLabel("📋 Event vorbei – Anwesenheit eintragen").setStyle(ButtonStyle.Primary))] }).catch(() => null);
+    embeds: [attendanceEmbed(row, rows)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`att:open:${row.id}`).setLabel("📋 Event vorbei – Anwesenheit eintragen").setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(`att:skip:${row.id}`).setLabel("🚫 Nicht gespielt").setStyle(ButtonStyle.Secondary))] }).catch(() => null);
   if (message) db.prepare("UPDATE events SET attendance_channel_id=?,attendance_message_id=? WHERE id=?").run(channel.id, message.id, row.id);
   return Boolean(message);
 }
@@ -63,6 +63,29 @@ export function addPresent(db, { eventId, userIds }) {
 }
 
 /** Abschluss: alle nicht als anwesend Markierten werden abwesend; das Event ist danach fertig. */
+/** Event fand nicht statt: abgeschlossen ohne Anwesenheit – niemand bekommt einen No-Show. */
+export function markNotPlayed(db, { eventId, actorId }) {
+  return db.transaction(() => {
+    const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
+    if (!event) return { error: "Event nicht gefunden." };
+    if (event.attendance_closed_at) return { error: "Die Anwesenheit wurde bereits abgeschlossen.", event };
+    const now = new Date().toISOString();
+    db.prepare("UPDATE events SET status='cancelled',attendance_closed_at=?,attendance_closed_by=? WHERE id=?").run(now, actorId, eventId);
+    audit(db, event.guild_id, actorId, "event.not_played", eventId, { name: event.name });
+    return { event: db.prepare("SELECT * FROM events WHERE id=?").get(eventId) };
+  })();
+}
+
+/** Nach „Nicht gespielt“: Posts als abgesagt markieren bzw. löschen, Event-Check-Nachricht aktualisieren. */
+export async function afterNotPlayed({ db, client, config, event, actorId }) {
+  await refreshEventPosts({ db, client, config, event, state: "cancelled" }).catch(() => {});
+  if (event.attendance_channel_id && event.attendance_message_id) {
+    const channel = await client.channels.fetch(event.attendance_channel_id).catch(() => null);
+    const message = await channel?.messages?.fetch(event.attendance_message_id).catch(() => null);
+    await message?.edit({ content: `🚫 **${event.name}** wurde nicht gespielt · eingetragen von <@${actorId}>. Es zählen keine No-Shows.`, embeds: [], components: [] }).catch(() => {});
+  }
+}
+
 export function closeAttendance(db, { eventId, actorId }) {
   return db.transaction(() => {
     const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
@@ -180,7 +203,8 @@ async function pickerPayload({ db, i, event }) {
     .setPlaceholder("➕ Nicht angemeldet, aber da – Mitglieder hinzufügen").setMinValues(1).setMaxValues(25));
   const buttons = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`att:close:${event.id}`).setLabel(`✅ Abschließen (${present}/${rows.length} da)`).setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`att:all:${event.id}`).setLabel("Alle waren da").setStyle(ButtonStyle.Secondary));
+    new ButtonBuilder().setCustomId(`att:all:${event.id}`).setLabel("Alle waren da").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`att:skip:${event.id}`).setLabel("🚫 Nicht gespielt").setStyle(ButtonStyle.Secondary));
   const more = rows.length > PER_MENU * MAX_MENUS ? `\n⚠️ Mehr als ${PER_MENU * MAX_MENUS} Angemeldete – den Rest bitte auf der Website eintragen.` : "";
   return { content: `**${event.name}** – wähle alle aus, die **wirklich da waren**. Wer nicht angemeldet war, aber da war, kommt über ➕ dazu. Die Auswahl wird sofort gespeichert; „Abschließen“ setzt alle anderen auf *nicht da* (No-Show).${more}`, components: [...menus, add, buttons] };
 }
@@ -198,6 +222,15 @@ export async function handleAttendanceInteraction({ i, db, client, config }) {
     const rows = participantsOf(db, event.id), start = Number(offset) || 0;
     applySelection(db, { eventId: event.id, optionIds: rows.slice(start, start + PER_MENU).map(r => r.user_id), selectedIds: i.values });
     return i.update(await pickerPayload({ db, i, event }));
+  }
+  if (action === "skip") {
+    const result = markNotPlayed(db, { eventId: event.id, actorId: i.user.id });
+    if (result.error) return i.reply({ content: result.error, flags: MessageFlags.Ephemeral });
+    const text = `🚫 **${event.name}** als „nicht gespielt“ eingetragen. Niemand bekommt einen No-Show.`;
+    if (i.message?.flags?.has?.(MessageFlags.Ephemeral)) await i.update({ content: text, components: [] });
+    else await i.reply({ content: text, flags: MessageFlags.Ephemeral });
+    await afterNotPlayed({ db, client, config, event: result.event, actorId: i.user.id });
+    return null;
   }
   if (action === "add") {
     addPresent(db, { eventId: event.id, userIds: i.values.filter(id => !i.users?.get?.(id)?.bot) });

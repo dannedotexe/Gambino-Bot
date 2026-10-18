@@ -70,6 +70,7 @@ async function openProfile(userId) {
     actions ? `<div class="actions">${actions}</div>` : "",
     section("Rang-Historie", list((p.rankHistory ?? []).map(r => line(`${{ promotion: "Beförderung", demotion: "Degradierung", change: "Rangänderung" }[r.kind]}: ${escapeHtml(r.from_label ?? "—")} → ${escapeHtml(r.to_label ?? "—")}`, `${date(r.created_at)}${r.actor_id ? ` · von ${who(r.actor_id)}` : ""}${r.reason ? ` · ${escapeHtml(r.reason)}` : ""}${r.source === "website" ? " · manuell eingetragen" : ""}`)))),
     section("Events", list(p.events.map(e => line(escapeHtml(e.name), `${date(e.starts_at)}${e.event_status === "cancelled" ? " · abgesagt" : ""}`, e.excused ? "entschuldigt" : e.upcoming && e.status === "signed_up" ? "angemeldet" : statusLabels[e.status] ?? e.status)))),
+    section(`No-Shows (${p.noShows.length} in ${p.noShowWindow} Tagen)`, list(p.noShows.map(n => `<div class="row"><div><div class="row-title">${escapeHtml(n.name)}</div><div class="row-sub">${date(n.starts_at)}</div></div>${caps.events ? `<div class="actions tight">${btn("Entfernen", "noshow-remove", { event: n.id, user: userId })}</div>` : ""}</div>`))),
     section("Abmeldungen", list(p.absences.map(a => line(`${day(a.starts_on)} – ${day(a.ends_on)}`, `${escapeHtml(a.reason)}${a.ended_at ? ` · beendet ${date(a.ended_at)}` : ""}`)))),
     p.warnings ? section(`Verwarnungen (${p.warnings.active} aktiv)`, list(p.warnings.items.map(w => { const buttons = warningActions(w); return `<div class="row"><div><div class="row-title">${escapeHtml(w.reason)} <span class="badge">${warnStateLabels[w.state]}</span></div><div class="row-sub">${date(w.created_at)} · von ${who(w.actor_id)}${w.revoked_at ? ` · zurückgenommen: ${escapeHtml(w.revoke_reason ?? "")}` : ""}</div></div>${buttons ? `<div class="actions tight">${buttons}</div>` : ""}</div>`; }))) : "",
     p.moderation ? section("Moderation", list(p.moderation.map(m => line(modLabels[m.action] ?? m.action, `${date(m.created_at)} · ${escapeHtml(m.reason)} · von ${who(m.actor_id)}${m.duration_minutes ? ` · ${m.duration_minutes} Min.` : ""}`, m.result === "applied" ? "" : "fehlgeschlagen")))) : "",
@@ -145,6 +146,11 @@ Object.assign(actions, {
       fields: [{ name: "mode", label: "Was soll passieren?", type: "select", options: [["add", "Nur fehlende Rollen wieder vergeben (empfohlen)"], ["exact", "Exakt wie damals (auch Rollen entfernen, die neu dazukamen)"]] }, { ...memberField("", "Nur dieses Mitglied (leer = alle)"), required: false }],
       onSubmit: async values => { const preview = await post(`/api/role-snapshots/${id}/preview`, values); setTimeout(() => restoreConfirm(id, values, preview), 60); return {}; } });
   },
+});
+
+Object.assign(actions, {
+  "noshow-remove": ({ event, user }) => openForm({ eyebrow: "NO-SHOW", title: "No-Show entfernen", intro: "<p>Der No-Show zählt danach nicht mehr (z. B. entschuldigt oder falsch eingetragen). Eine bereits automatisch vergebene Verwarnung bitte separat zurücknehmen.</p>",
+    fields: [{ name: "reason", label: "Grund (optional)", max: 300 }], submit: "Entfernen", onSubmit: async v => { const r = await post(`/api/noshows/${event}/${user}/remove`, v); notify(r.message); setTimeout(() => openProfile(user), 60); return {}; } }),
 });
 
 loaders.activity = loadActivity;

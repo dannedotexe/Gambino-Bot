@@ -32,6 +32,7 @@ export const RESET_AREAS = {
   events: { label: "Events, Anmeldungen & Anwesenheit (die Aktivitäten-Vorlagen bleiben)", default: true, sql: [
     "DELETE FROM event_reminders WHERE event_id IN (SELECT id FROM events WHERE guild_id=@g)",
     "DELETE FROM noshow_notices WHERE guild_id=@g",
+    "DELETE FROM noshow_excuses WHERE guild_id=@g",
     "DELETE FROM event_participants WHERE event_id IN (SELECT id FROM events WHERE guild_id=@g)",
     "DELETE FROM events WHERE guild_id=@g",
   ] },

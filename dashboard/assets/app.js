@@ -349,6 +349,7 @@ async function loadEvents() {
       e.status === "scheduled" ? btn("Bearbeiten", "event-edit", { id: e.id }) : "",
       e.status !== "cancelled" ? btn("Anwesenheit", "event-attendance", { id: e.id }, "primary-action") : "",
       e.status !== "cancelled" && !e.attendance_closed_at && new Date(e.starts_at) <= new Date() ? btn("Anwesenheit abschließen", "event-att-close", { id: e.id }, "accept") : "",
+      e.status !== "cancelled" && !e.attendance_closed_at && new Date(e.starts_at) <= new Date() ? btn("Nicht gespielt", "event-not-played", { id: e.id }, "reject") : "",
       e.status === "scheduled" && new Date(e.starts_at) > new Date() ? btn("Beenden", "event-end", { id: e.id }, "accept") : "",
       e.status === "scheduled" ? btn("Absagen", "event-cancel", { id: e.id }, "reject") : "",
     ].join("") : "";
@@ -489,6 +490,7 @@ const actions = {
     submit: "Ankündigen", onSubmit: v => post("/api/events/control", v) }),
   "att": async ({ event, user, status }) => { const r = await post(`/api/events/${event}/attendance`, { userId: user, status }); notify(r.message); await loadEvents(); attendanceDialog(event); },
   "event-end": ({ id }) => confirmAction("Event beenden?", "Die Anmeldung wird geschlossen. Danach die Anwesenheit eintragen und abschließen – erst dann ist das Event fertig.", "Beenden", () => post(`/api/events/${id}/end`), false),
+  "event-not-played": ({ id }) => confirmAction("Event nicht gespielt?", "Das Event wird ohne Anwesenheit abgeschlossen. Niemand bekommt einen No-Show, die Event-Posts werden als abgesagt markiert.", "Nicht gespielt", () => post(`/api/events/${id}/not-played`)),
   "event-att-close": ({ id }) => { const e = state.cache.events[id], present = e.participants.filter(p => p.status === "present").length, open = e.participants.filter(p => p.status === "signed_up").length;
     confirmAction("Anwesenheit abschließen?", `${present} als anwesend markiert. ${open ? `<b>${open} noch nicht markiert</b> – sie werden auf „nicht da“ gesetzt und zählen als No-Show (außer sie waren abgemeldet).` : "Alle sind markiert."} Danach ist das Event abgeschlossen und das Ergebnis wird gepostet.`, "Abschließen", () => post(`/api/events/${id}/attendance/close`), open > 0); },
   "event-cancel": ({ id }) => confirmAction("Event absagen?", "Die Anmeldung wird geschlossen und die Ankündigung als abgesagt markiert.", "Absagen", () => post(`/api/events/${id}/cancel`)),

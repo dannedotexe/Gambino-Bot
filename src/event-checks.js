@@ -67,8 +67,19 @@ export function noShowsOf(db, config, guildId, userId, { reference = new Date() 
   const absences = createAbsenceService(db);
   return db.prepare(`SELECT e.id,e.name,e.starts_at FROM event_participants p JOIN events e ON e.id=p.event_id
     WHERE e.guild_id=? AND p.user_id=? AND e.status='ended' AND e.attendance_closed_at IS NOT NULL AND p.status IN ('signed_up','absent') AND e.starts_at>=? AND e.starts_at<=?
+    AND NOT EXISTS(SELECT 1 FROM noshow_excuses x WHERE x.event_id=e.id AND x.user_id=p.user_id)
     ORDER BY e.starts_at DESC`).all(guildId, userId, since, reference.toISOString())
     .filter(e => !absences.wasAbsent(guildId, userId, e.starts_at, config.TIMEZONE));
+}
+
+/** Entfernt einen No-Show (zählt danach nicht mehr). Die Teilnahme selbst bleibt dokumentiert. */
+export function removeNoShow(db, { guildId, eventId, userId, actorId, reason = "" }) {
+  const event = db.prepare("SELECT id,name FROM events WHERE id=? AND guild_id=?").get(eventId, guildId);
+  if (!event) return { error: "Event nicht gefunden." };
+  const inserted = db.prepare("INSERT OR IGNORE INTO noshow_excuses(event_id,user_id,guild_id,actor_id,reason,created_at) VALUES(?,?,?,?,?,?)").run(eventId, userId, guildId, actorId, String(reason ?? "").trim().slice(0, 300) || null, new Date().toISOString()).changes;
+  if (!inserted) return { error: "Dieser No-Show wurde bereits entfernt." };
+  audit(db, guildId, actorId, "event.noshow_removed", userId, { name: event.name, reason: String(reason ?? "").trim() || "—" });
+  return { ok: true, event };
 }
 
 /** Verarbeitet neue No-Shows, sobald das Event-Team die Anwesenheit abgeschlossen hat. */
@@ -78,6 +89,7 @@ export async function processNoShows({ db, client, config, reference = new Date(
   const from = new Date(reference.getTime() - config.NOSHOW_WINDOW_DAYS * 24 * HOUR).toISOString(), to = reference.toISOString();
   const candidates = db.prepare(`SELECT e.id event_id,e.guild_id,e.name,e.starts_at,p.user_id FROM event_participants p JOIN events e ON e.id=p.event_id
     WHERE e.status='ended' AND e.attendance_closed_at IS NOT NULL AND p.status IN ('signed_up','absent') AND e.starts_at>=? AND e.starts_at<=?
+    AND NOT EXISTS(SELECT 1 FROM noshow_excuses x WHERE x.event_id=e.id AND x.user_id=p.user_id)
     AND NOT EXISTS(SELECT 1 FROM noshow_notices n WHERE n.event_id=e.id AND n.user_id=p.user_id) ORDER BY e.starts_at`).all(from, to);
   const absences = createAbsenceService(db), actions = [];
   for (const c of candidates) {

@@ -111,3 +111,30 @@ test("Win/Lose: Win verteilt den Betrag an jeden Anwesenden, nur einmal; Win nur
   assert.equal(balance(A), 2_500_000, "nicht doppelt");
   assert.equal(x.db.prepare("SELECT outcome FROM events WHERE id='e1'").get().outcome, "win");
 });
+
+test("Nicht gespielt: Event abgeschlossen ohne No-Shows, danach keine Anwesenheit mehr", async () => {
+  const x = setup();
+  await requestAttendance({ ...x, event: { id: "e1" } });
+  assert.deepEqual(x.posts[0].components[0].components.map(b => b.data.custom_id), ["att:open:e1", "att:skip:e1"]);
+  const skip = interaction("att:skip:e1");
+  await handleAttendanceInteraction({ i: skip, ...x });
+  assert.match(skip.out.reply.content, /nicht gespielt/);
+  const row = x.db.prepare("SELECT status,attendance_closed_at FROM events WHERE id='e1'").get();
+  assert.equal(row.status, "cancelled"); assert.ok(row.attendance_closed_at);
+  assert.equal(noShowsOf(x.db, x.config, G, A).length, 0);
+  const again = interaction("att:open:e1");
+  await handleAttendanceInteraction({ i: again, ...x });
+  assert.match(again.out.reply.content, /bereits abgeschlossen/);
+});
+
+test("No-Show entfernen: zählt nicht mehr, nur einmal möglich", async () => {
+  const { removeNoShow } = await import("../src/event-checks.js");
+  const x = setup();
+  await handleAttendanceInteraction({ i: interaction("att:pick:e1:0", { values: [A] }), ...x });
+  await handleAttendanceInteraction({ i: interaction("att:close:e1"), ...x });
+  assert.equal(noShowsOf(x.db, x.config, G, B).length, 1);
+  assert.ok(removeNoShow(x.db, { guildId: G, eventId: "e1", userId: B, actorId: STAFF, reason: "entschuldigt" }).ok);
+  assert.equal(noShowsOf(x.db, x.config, G, B).length, 0);
+  assert.match(removeNoShow(x.db, { guildId: G, eventId: "e1", userId: B, actorId: STAFF }).error, /bereits/);
+  assert.equal(noShowsOf(x.db, x.config, G, C).length, 1, "andere bleiben");
+});

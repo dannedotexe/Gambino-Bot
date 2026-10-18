@@ -188,6 +188,13 @@ export const MIGRATIONS = [
       for (const [column, type] of [["outcome", "TEXT"], ["outcome_cents", "INTEGER"], ["outcome_by", "TEXT"], ["outcome_at", "TEXT"]]) if (!have.has(column)) db.exec(`ALTER TABLE events ADD COLUMN ${column} ${type}`);
     },
   },
+  {
+    version: 15,
+    name: "noshows-entfernen",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS noshow_excuses (event_id TEXT NOT NULL, user_id TEXT NOT NULL, guild_id TEXT NOT NULL, actor_id TEXT NOT NULL, reason TEXT, created_at TEXT NOT NULL, PRIMARY KEY(event_id,user_id));
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

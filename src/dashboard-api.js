@@ -31,12 +31,12 @@ import { createRankHistory, rankFor } from "./services/ranks.js";
 import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
-import { afterClose, closeAttendance, requestAttendance } from "./attendance.js";
+import { afterClose, afterNotPlayed, closeAttendance, markNotPlayed, requestAttendance } from "./attendance.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
-import { noShowsOf } from "./event-checks.js";
+import { noShowsOf, removeNoShow } from "./event-checks.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
 import { eventButtons, eventEmbed, giveawayButtons, giveawayCard, parseEventDate, ticketActions, ticketCard } from "./commands.js";
@@ -503,6 +503,21 @@ export function createDashboardApi({ db, client, config, settings = null, series
       await refreshEventMessage(row, { closedTitle: "BEENDET" });
       await requestAttendance({ db, client, config, event: row }).catch(() => {});
       return { message: "Event beendet. Jetzt bitte die Anwesenheit eintragen und abschließen." };
+    }],
+    [/^\/api\/events\/([\w-]+)\/not-played$/, async (member, body, [, id]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const existing = db.prepare("SELECT 1 FROM events WHERE id=? AND guild_id=?").get(id, guildId);
+      if (!existing) throw new HttpError(404, "Event nicht gefunden.");
+      const result = markNotPlayed(db, { eventId: id, actorId: member.id });
+      if (result.error) throw new HttpError(409, result.error);
+      await afterNotPlayed({ db, client, config, event: result.event, actorId: member.id });
+      return { message: "Als „nicht gespielt“ eingetragen – es zählen keine No-Shows." };
+    }],
+    [/^\/api\/noshows\/([\w-]+)\/(\d{17,20})\/remove$/, async (member, body, [, eventId, userId]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const result = removeNoShow(db, { guildId, eventId, userId, actorId: member.id, reason: body.reason });
+      if (result.error) throw new HttpError(409, result.error);
+      return { message: `No-Show bei „${result.event.name}“ entfernt.` };
     }],
     [/^\/api\/events\/control$/, async (member, body) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");
