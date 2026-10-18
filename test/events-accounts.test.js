@@ -48,7 +48,7 @@ test("Karte im Anmelde-Channel, Ankündigung mit Link und Rollen-Ping, Erinnerun
   const stored = db.prepare("SELECT * FROM events").get();
   assert.equal(await sendEventReminder({ db, client, config, event: stored }), true);
   const card = await store["60000000000000002"].messages.fetch(posted.messageId);
-  assert.equal(card.replies[0].content, "<@30000000000000005>");
+  assert.equal(card.replies[0].content, "<@&20000000000000007>", "Erinnerung markiert die Familien-/Ping-Rolle statt Einzelpersonen");
   await refreshEventPosts({ db, client, config, event: stored, state: "cancelled" });
   assert.match(card.edits.at(-1).embeds[0].toJSON().title, /Abgesagt/);
   const ann = await store["60000000000000001"].messages.fetch(posted.announceMessageId);

@@ -133,7 +133,11 @@ export async function sendEventReminder({ db, client, config, event }) {
   // Wer Erinnerungen per DM möchte, bekommt sie privat und wird im Channel nicht erwähnt.
   const link = card?.url ?? (event.channel_id && event.message_id && config.DISCORD_GUILD_ID ? `https://discord.com/channels/${config.DISCORD_GUILD_ID}/${event.channel_id}/${event.message_id}` : null);
   const participants = await splitAndSendDms({ db, client, guildId: event.guild_id ?? config.DISCORD_GUILD_ID, userIds: all, embed, link });
-  const payload = { content: participants.length ? participants.map(id => `<@${id}>`).join(" ") : undefined, embeds: [embed], allowedMentions: { users: participants, repliedUser: false } };
+  // Im Channel wird die Familienrolle markiert statt jede angemeldete Person einzeln (Event-Ping-Rolle, sonst Familienrolle).
+  const roles = (config.EVENT_PING_ROLES?.length ? config.EVENT_PING_ROLES : config.ROLE_MEMBERS ?? []).slice(0, 5);
+  const payload = roles.length
+    ? { content: roles.map(id => `<@&${id}>`).join(" "), embeds: [embed], allowedMentions: { roles, repliedUser: false } }
+    : { content: participants.length ? participants.map(id => `<@${id}>`).join(" ") : undefined, embeds: [embed], allowedMentions: { users: participants, repliedUser: false } };
   // Nur die neueste Erinnerung bleibt stehen; die vorige wird gelöscht (hält den Event-Channel sauber).
   await deleteReminder({ db, client, event });
   const channel = card ? null : await getChannel(client, event.channel_id);
