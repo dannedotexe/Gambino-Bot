@@ -200,6 +200,8 @@ Statt IDs zeigt die Website Namen an, und Mitglieder werden über eine Suche aus
 
 **Website-Zugriffe (IP-Adressen):** Jeder Seitenaufruf und jede Anmeldung (auch abgewiesene) wird mit IP-Adresse, Discord-Konto und Gerät gespeichert – sichtbar nur für Bot-Owner unter *Verwaltung → Status*. Mehrere Konten von derselben IP werden hervorgehoben. Aufbewahrung `ACCESS_LOG_DAYS` (Standard 30 Tage), danach automatisch gelöscht. Die echte IP muss der Reverse-Proxy im Header `X-Forwarded-For` mitschicken (Caddy macht das automatisch; nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`), sonst steht überall `127.0.0.1`.
 
+**Echtes HTTPS (ohne „Nicht sicher“):** Für eine nackte IP gibt es kein anerkanntes Zertifikat. Domain besorgen (kostenlos z. B. bei duckdns.org) und per A-Eintrag auf die VM-IP zeigen lassen, dann auf der VM `bash deploy/setup-https.sh <domain>` ausführen: installiert Caddy (automatisches Let's-Encrypt-Zertifikat), öffnet Port 80/443 in iptables, leitet die alte IP auf die Domain um, setzt `DASHBOARD_PUBLIC_URL` und startet den Bot neu (Backups von Caddyfile und `.env` werden angelegt). Danach im Discord Developer Portal `https://<domain>/oauth/callback` als Redirect eintragen; in der Oracle-Konsole müssen 80 und 443 in der Security List offen sein.
+
 ## Oracle-VM: Betrieb und Aktualisierung
 
 Auf der VM liegt das Repository unter `/home/ubuntu/Gambino-Bot`, der PM2-Prozess heißt `gambino-bot`.
