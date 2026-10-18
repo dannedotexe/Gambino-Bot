@@ -28,19 +28,22 @@ export function parseWhen(input, timezone, reference = new Date()) {
   return at;
 }
 
-export async function announceControl({ db, client, config, actorId, family, when }) {
+export async function announceControl({ db, client, config, actorId, family, when, mode = "defend" }) {
   const enemy = String(family ?? "").trim().replace(/\s+/g, " ");
   if (enemy.length < 2 || enemy.length > 60) throw new ControlError("Bitte die angreifende Familie angeben (2–60 Zeichen).");
   const startsAt = parseWhen(when, config.TIMEZONE);
   const id = randomUUID();
-  const event = { id, guild_id: config.DISCORD_GUILD_ID, name: `🚩 Staatliche Kontrolle – ${enemy}`.slice(0, 100), description: `**${enemy}** greift an! Alle, die können, sofort anmelden und in den Call kommen.`,
+  const attack = mode === "attack";
+  const event = { id, guild_id: config.DISCORD_GUILD_ID,
+    name: (attack ? `🚩 Staatliche Kontrolle – Angriff auf ${enemy}` : `🛡️ Staatliche Kontrolle – Verteidigung gegen ${enemy}`).slice(0, 100),
+    description: attack ? `Wir greifen **${enemy}** an! Alle, die können, anmelden und in den Call kommen.` : `**${enemy}** greift uns an! Alle, die können, sofort anmelden und in den Call kommen.`,
     starts_at: startsAt.toISOString(), location: "Staatliche Kontrolle", host_id: actorId, equipment: "", notes: "", max_participants: null, status: "scheduled" };
   const posted = await publishEvent({ db, client, config, event }).catch(error => { throw new ControlError(error.message); });
   try {
     db.transaction(() => {
       db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,announce_channel_id,announce_message_id,name,description,starts_at,location,host_id,equipment,notes,max_participants,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',?)")
         .run(id, event.guild_id, posted.channelId, posted.messageId, posted.announceChannelId, posted.announceMessageId, event.name, event.description, event.starts_at, event.location, actorId, "", "", null, new Date().toISOString());
-      audit(db, event.guild_id, actorId, "event.created", id, { name: event.name, startsAt: event.starts_at, channelId: posted.channelId, kind: "staatliche-kontrolle" });
+      audit(db, event.guild_id, actorId, "event.created", id, { name: event.name, startsAt: event.starts_at, channelId: posted.channelId, kind: attack ? "staatliche-kontrolle-angriff" : "staatliche-kontrolle-verteidigung" });
     })();
   } catch (error) { await deleteEventPosts({ client, posted }); throw error; }
   return { id, name: event.name, startsAt };

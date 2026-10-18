@@ -241,8 +241,9 @@ export function buildCommands() {
     .addUserOption(o=>o.setName("mitglied").setDescription("Wessen Verwarnung zurückgenommen wird").setRequired(true))
     .addStringOption(o=>o.setName("grund").setDescription("Grund der Rücknahme").setRequired(true).setMinLength(3).setMaxLength(300))
     .addStringOption(o=>o.setName("warnung").setDescription("Welche Verwarnung (leer = die neueste aktive)").setAutocomplete(true));
-  const control = new SlashCommandBuilder().setName("staatliche").setDescription("Staatliche Kontrolle ankündigen (spontaner Angriff)")
-    .addStringOption(o=>o.setName("familie").setDescription("Welche Familie greift an?").setRequired(true).setMaxLength(60))
+  const control = new SlashCommandBuilder().setName("staatliche").setDescription("Staatliche Kontrolle ankündigen (Angriff oder Verteidigung)")
+    .addStringOption(o=>o.setName("art").setDescription("Greifen wir an oder werden wir angegriffen?").setRequired(true).addChoices({name:"🛡️ Wir werden angegriffen",value:"defend"},{name:"🚩 Wir greifen an",value:"attack"}))
+    .addStringOption(o=>o.setName("familie").setDescription("Welche Familie?").setRequired(true).setMaxLength(60))
     .addStringOption(o=>o.setName("wann").setDescription("jetzt, in 20 (Minuten) oder 16:30").setRequired(false).setMaxLength(20));
   const absence = new SlashCommandBuilder().setName("abwesend").setDescription("Abmeldung bei der Familie (Urlaub, Pause)")
     .addSubcommand(s=>s.setName("melden").setDescription("Für einen Zeitraum abmelden").addStringOption(o=>o.setName("von").setDescription("Beginn, z. B. heute oder 20.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("bis").setDescription("Ende (inklusive), z. B. 27.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Grund – sieht nur das Team").setRequired(true).setMinLength(2).setMaxLength(300)))
@@ -376,7 +377,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="unwarn") return await unwarnCommand(i,g,u);
       if (i.commandName==="staatliche"){
         const denied=guard(i,"events","Event-Team- oder Leitungsrolle");if(denied)return respond(i,denied);
-        try{const r=await announceControl({db,client,config,actorId:u,family:i.options.getString("familie"),when:i.options.getString("wann")??"jetzt"});return respond(i,`🚩 **${r.name}** angekündigt – Beginn <t:${Math.floor(r.startsAt.getTime()/1000)}:t>.`);}
+        try{const r=await announceControl({db,client,config,actorId:u,family:i.options.getString("familie"),when:i.options.getString("wann")??"jetzt",mode:i.options.getString("art")==="attack"?"attack":"defend"});return respond(i,`🚩 **${r.name}** angekündigt – Beginn <t:${Math.floor(r.startsAt.getTime()/1000)}:t>.`);}
         catch(error){if(error instanceof ControlError)return respond(i,error.message);throw error;}
       }
       if (i.commandName==="abwesend") return await absenceCommand(i,sub,g,u);

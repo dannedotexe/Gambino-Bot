@@ -23,9 +23,11 @@ test("Staatliche Kontrolle wird als Event mit Anmeldung angekündigt; /staatlich
   const config = { ...loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: "10000000000000001" }), CHANNEL_EVENT_SIGNUP: "60000000000000001" };
   const r = await announceControl({ db, client, config, actorId: "30000000000000001", family: "Death Note", when: "in 15" });
   const row = db.prepare("SELECT * FROM events WHERE id=?").get(r.id);
-  assert.equal(row.name, "🚩 Staatliche Kontrolle – Death Note");
+  assert.equal(row.name, "🛡️ Staatliche Kontrolle – Verteidigung gegen Death Note");
+  const attack = await announceControl({ db, client, config, actorId: "30000000000000001", family: "Ballas", when: "jetzt", mode: "attack" });
+  assert.equal(attack.name, "🚩 Staatliche Kontrolle – Angriff auf Ballas");
   assert.equal(row.status, "scheduled");
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
   await assert.rejects(announceControl({ db, client, config, actorId: "x", family: "D", when: "jetzt" }), ControlError);
   assert.ok(buildCommands().some(c => c.name === "staatliche"));
 });
