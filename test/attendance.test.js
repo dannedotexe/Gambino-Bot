@@ -64,3 +64,27 @@ test("Fällige Abfragen: nur Events ab Einführung, ohne Anmeldungen wird direkt
   await requestDueAttendance({ ...x });
   assert.ok(x.db.prepare("SELECT attendance_closed_at FROM events WHERE id='e2'").get().attendance_closed_at);
 });
+
+test("Abfrage kommt bei Eventbeginn in den Event-Check-Channel", async () => {
+  const x = setup(), CHECK = "60000000000000077", checkPosts = [];
+  const checkChannel = { id: CHECK, send: async p => { checkPosts.push(p); return { id: "c1" }; } };
+  const client = { ...x.client, channels: { fetch: async id => id === CHECK ? checkChannel : x.client.channels.fetch(id) } };
+  const config = { ...x.config, CHANNEL_EVENT_CHECK: CHECK };
+  x.db.prepare("INSERT INTO guild_settings(guild_id,key,value,updated_at) VALUES(?,?,?,?)").run(G, "ATTENDANCE_SINCE", new Date(Date.now() - 86_400_000).toISOString(), new Date().toISOString());
+  x.db.prepare("UPDATE events SET starts_at=? WHERE id='e1'").run(new Date(Date.now() + 10 * 60_000).toISOString());
+  assert.equal(await requestDueAttendance({ db: x.db, client, config }), 0, "vor Beginn nichts");
+  x.db.prepare("UPDATE events SET starts_at=? WHERE id='e1'").run(new Date(Date.now() - 60_000).toISOString());
+  assert.equal(await requestDueAttendance({ db: x.db, client, config }), 1);
+  assert.equal(checkPosts.length, 1);
+  assert.equal(x.posts.length, 0, "nicht ins Event-Log");
+  assert.match(checkPosts[0].components[0].components[0].data.label, /Event vorbei/);
+});
+
+test("Anwesenheit: nicht Angemeldete können als anwesend hinzugefügt werden", async () => {
+  const x = setup(), D = "30000000000000004";
+  const add = { ...interaction("att:add:e1", { values: [D] }), users: new Map([[D, { bot: false }]]) };
+  add.update = async p => { add.out.update = p; };
+  await handleAttendanceInteraction({ i: add, ...x });
+  assert.equal(x.db.prepare("SELECT status FROM event_participants WHERE event_id='e1' AND user_id=?").get(D).status, "present");
+  assert.match(add.out.update.components.at(-1).components[0].data.label, /1\/4 da/);
+});

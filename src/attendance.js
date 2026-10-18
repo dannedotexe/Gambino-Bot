@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, StringSelectMenuBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, StringSelectMenuBuilder, UserSelectMenuBuilder } from "discord.js";
 import { accessGroups } from "./config.js";
 import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR, numberedMentions } from "./presentation.js";
@@ -10,7 +10,7 @@ import { refreshEventPosts } from "./event-posts.js";
  * Erst „Abschließen“ setzt alle anderen Angemeldeten auf abwesend; ab dann zählen sie als No-Show.
  */
 const unix = iso => Math.floor(new Date(iso).getTime() / 1000);
-const PER_MENU = 25, MAX_MENUS = 4;
+const PER_MENU = 25, MAX_MENUS = 3;
 const participantsOf = (db, eventId) => db.prepare("SELECT user_id,status FROM event_participants WHERE event_id=? AND status IN ('signed_up','present','absent') ORDER BY updated_at,user_id").all(eventId);
 
 export function attendanceEmbed(event, rows, closed = null) {
@@ -19,7 +19,7 @@ export function attendanceEmbed(event, rows, closed = null) {
     .setTitle(`${closed ? "✅" : "📋"} ${event.name}`.slice(0, 256))
     .setDescription(closed
       ? `<t:${unix(event.starts_at)}:F>\nAbgeschlossen von <@${closed.by}> · ${present.length} von ${rows.length} anwesend.`
-      : `<t:${unix(event.starts_at)}:F>\nBitte eintragen, wer **wirklich da war**. Erst nach „Abschließen“ ist das Event fertig – alle nicht Markierten zählen dann als No-Show.`);
+      : `Beginn <t:${unix(event.starts_at)}:t> (<t:${unix(event.starts_at)}:R>)\n**Event vorbei?** Dann eintragen, wer **wirklich da war**. Erst nach „Abschließen“ ist das Event fertig – alle nicht Markierten zählen dann als No-Show.`);
   if (closed) embed.addFields({ name: `✅ Anwesend (${present.length})`, value: numberedMentions(present).slice(0, 1024) }, { name: `❌ Nicht da (${missing.length})`, value: numberedMentions(missing).slice(0, 1024) });
   else embed.addFields({ name: `🙋 Angemeldet (${rows.length})`, value: numberedMentions(rows.map(r => r.user_id)).slice(0, 1024) });
   return embed;
@@ -35,12 +35,12 @@ export async function requestAttendance({ db, client, config, event }) {
     db.prepare("UPDATE events SET attendance_closed_at=?,attendance_closed_by=? WHERE id=? AND attendance_closed_at IS NULL").run(new Date().toISOString(), client.user?.id ?? "system", row.id);
     return false;
   }
-  const channelId = config.CHANNEL_EVENT_LOG || config.CHANNEL_AUDIT_LOG;
+  const channelId = config.CHANNEL_EVENT_CHECK || config.CHANNEL_EVENT_LOG || config.CHANNEL_AUDIT_LOG;
   const channel = channelId ? await client.channels.fetch(channelId).catch(() => null) : null;
   if (!channel?.send) return false;
   const team = accessGroups(config).events;
   const message = await channel.send({ content: team.length ? team.map(id => `<@&${id}>`).join(" ") : undefined, allowedMentions: { roles: team },
-    embeds: [attendanceEmbed(row, rows)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`att:open:${row.id}`).setLabel("📋 Anwesenheit eintragen").setStyle(ButtonStyle.Primary))] }).catch(() => null);
+    embeds: [attendanceEmbed(row, rows)], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`att:open:${row.id}`).setLabel("📋 Event vorbei – Anwesenheit eintragen").setStyle(ButtonStyle.Primary))] }).catch(() => null);
   if (message) db.prepare("UPDATE events SET attendance_channel_id=?,attendance_message_id=? WHERE id=?").run(channel.id, message.id, row.id);
   return Boolean(message);
 }
@@ -50,6 +50,14 @@ export function applySelection(db, { eventId, optionIds, selectedIds }) {
   const now = new Date().toISOString(), selected = new Set(selectedIds);
   db.transaction(() => {
     for (const id of optionIds) db.prepare("UPDATE event_participants SET status=?,updated_at=? WHERE event_id=? AND user_id=? AND status IN ('signed_up','present','absent')").run(selected.has(id) ? "present" : "signed_up", now, eventId, id);
+  })();
+}
+
+/** Nicht Angemeldete, die trotzdem da waren, direkt als anwesend eintragen. */
+export function addPresent(db, { eventId, userIds }) {
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    for (const id of userIds) db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,'present',?) ON CONFLICT(event_id,user_id) DO UPDATE SET status='present',updated_at=excluded.updated_at").run(eventId, id, now);
   })();
 }
 
@@ -97,11 +105,13 @@ async function pickerPayload({ db, i, event }) {
       .addOptions(chunk.map(r => ({ label: nameOf(r.user_id).slice(0, 100), value: r.user_id, default: r.status === "present" })))));
   }
   const present = rows.filter(r => r.status === "present").length;
+  const add = new ActionRowBuilder().addComponents(new UserSelectMenuBuilder().setCustomId(`att:add:${event.id}`)
+    .setPlaceholder("➕ Nicht angemeldet, aber da – Mitglieder hinzufügen").setMinValues(1).setMaxValues(25));
   const buttons = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`att:close:${event.id}`).setLabel(`✅ Abschließen (${present}/${rows.length} da)`).setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`att:all:${event.id}`).setLabel("Alle waren da").setStyle(ButtonStyle.Secondary));
   const more = rows.length > PER_MENU * MAX_MENUS ? `\n⚠️ Mehr als ${PER_MENU * MAX_MENUS} Angemeldete – den Rest bitte auf der Website eintragen.` : "";
-  return { content: `**${event.name}** – wähle alle aus, die **wirklich da waren**. Die Auswahl wird sofort gespeichert; „Abschließen“ setzt alle anderen auf *nicht da* (No-Show).${more}`, components: [...menus, buttons] };
+  return { content: `**${event.name}** – wähle alle aus, die **wirklich da waren**. Wer nicht angemeldet war, aber da war, kommt über ➕ dazu. Die Auswahl wird sofort gespeichert; „Abschließen“ setzt alle anderen auf *nicht da* (No-Show).${more}`, components: [...menus, add, buttons] };
 }
 
 /** Alle Interaktionen mit customId „att:…“ (Button und Auswahlmenü). */
@@ -115,6 +125,10 @@ export async function handleAttendanceInteraction({ i, db, client, config }) {
   if (action === "pick") {
     const rows = participantsOf(db, event.id), start = Number(offset) || 0;
     applySelection(db, { eventId: event.id, optionIds: rows.slice(start, start + PER_MENU).map(r => r.user_id), selectedIds: i.values });
+    return i.update(await pickerPayload({ db, i, event }));
+  }
+  if (action === "add") {
+    addPresent(db, { eventId: event.id, userIds: i.values.filter(id => !i.users?.get?.(id)?.bot) });
     return i.update(await pickerPayload({ db, i, event }));
   }
   if (action === "all") {
@@ -133,14 +147,15 @@ export async function handleAttendanceInteraction({ i, db, client, config }) {
 }
 
 /**
- * Fällige Anwesenheits-Abfragen: jedes Event (auch vergessene manuelle) ab EVENT_SERIES_AUTO_END_MINUTES nach Beginn.
+ * Fällige Anwesenheits-Abfragen: jedes Event (auch manuelle) ab seinem Beginn, in CHANNEL_EVENT_CHECK.
  * Erst Events ab Einführung dieser Funktion, damit nach dem Update keine Flut alter Abfragen kommt.
  */
 export async function requestDueAttendance({ db, client, config, reference = new Date() }) {
   if (!config.DISCORD_GUILD_ID) return 0;
   let since = getSetting(db, config.DISCORD_GUILD_ID, "ATTENDANCE_SINCE");
   if (!since) { since = reference.toISOString(); setSetting(db, config.DISCORD_GUILD_ID, "ATTENDANCE_SINCE", since); }
-  const cutoff = new Date(reference.getTime() - (config.EVENT_SERIES_AUTO_END_MINUTES ?? 120) * 60_000).toISOString();
+  // Abfrage schon bei Eventbeginn, damit das Team direkt nach dem Event eintragen kann.
+  const cutoff = reference.toISOString();
   const due = db.prepare("SELECT * FROM events WHERE guild_id=? AND status IN ('scheduled','ended') AND attendance_closed_at IS NULL AND attendance_message_id IS NULL AND starts_at>=? AND starts_at<=? ORDER BY starts_at LIMIT 10").all(config.DISCORD_GUILD_ID, since, cutoff);
   let sent = 0;
   for (const event of due) if (await requestAttendance({ db, client, config, event }).catch(() => false)) sent++;

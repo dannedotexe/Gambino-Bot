@@ -28,6 +28,7 @@ export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_EVENT_SIGNUP", label: "Event-Anmeldung", audience: "public", expect: ["anmeld", "event", "signup"], avoid: ["log", "ergebnis"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
   { key: "CHANNEL_ACTIVITY_BOARD", label: "Aktivitäten-Übersicht", audience: "public", expect: ["event", "info", "aktiv", "plan"], avoid: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_EVENT_RESULTS", label: "Event-Ergebnisse", audience: "public", expect: ["ergebnis", "result"], perms: ["SendMessages", "EmbedLinks"] },
+  { key: "CHANNEL_EVENT_CHECK", label: "Event-Check (Anwesenheit)", audience: "staff", expect: ["check", "anwesen", "event"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_EVENT_LOG", label: "Event-Log", audience: "any", expect: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_GIVEAWAYS", label: "Giveaways", audience: "public", expect: ["giveaway", "gewinn"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_STAFF_DASHBOARD", label: "Staff-Dashboard-Panel", audience: "staff", expect: ["dashboard", "staff"], perms: ["SendMessages", "EmbedLinks"] },
