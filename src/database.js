@@ -172,6 +172,14 @@ export const MIGRATIONS = [
       db.exec(`UPDATE events SET attendance_closed_at=starts_at WHERE status='ended' AND attendance_closed_at IS NULL AND EXISTS(SELECT 1 FROM event_participants p WHERE p.event_id=events.id AND p.status='present')`);
     },
   },
+  {
+    version: 13,
+    name: "erinnerungen-aufraeumen",
+    up: db => {
+      const have = new Set(db.prepare("PRAGMA table_info(events)").all().map(c => c.name));
+      for (const column of ["reminder_channel_id", "reminder_message_id"]) if (!have.has(column)) db.exec(`ALTER TABLE events ADD COLUMN ${column} TEXT`);
+    },
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

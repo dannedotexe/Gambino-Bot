@@ -110,7 +110,7 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
   const card = await fetchMessage(client, event.channel_id, event.message_id);
   const announcement = cardOnly ? null : await fetchMessage(client, event.announce_channel_id, event.announce_message_id);
   if (event.series_id && state !== "scheduled" && config.EVENT_SERIES_DELETE_ENDED) {
-    await card?.delete().catch(() => {}); await announcement?.delete().catch(() => {});
+    await card?.delete?.()?.catch?.(() => {}); await announcement?.delete?.()?.catch?.(() => {});
     return Boolean(card);
   }
   if (card) await card.edit({ ...eventCardPayload({ event, participants: participantsOf(db, event.id), texts, state, series: seriesOf(db, event), botId: client.user?.id }), content: state === "scheduled" ? card.content || null : null, allowedMentions: { parse: [] } }).catch(() => {});
@@ -134,7 +134,27 @@ export async function sendEventReminder({ db, client, config, event }) {
   const link = card?.url ?? (event.channel_id && event.message_id && config.DISCORD_GUILD_ID ? `https://discord.com/channels/${config.DISCORD_GUILD_ID}/${event.channel_id}/${event.message_id}` : null);
   const participants = await splitAndSendDms({ db, client, guildId: event.guild_id ?? config.DISCORD_GUILD_ID, userIds: all, embed, link });
   const payload = { content: participants.length ? participants.map(id => `<@${id}>`).join(" ") : undefined, embeds: [embed], allowedMentions: { users: participants, repliedUser: false } };
-  if (card) return card.reply(payload).then(() => true).catch(error => { console.warn(`Event-Erinnerung ${event.id} fehlgeschlagen:`, error.message); return false; });
-  const channel = await getChannel(client, event.channel_id);
-  return channel ? channel.send(payload).then(() => true).catch(() => false) : false;
+  // Nur die neueste Erinnerung bleibt stehen; die vorige wird gelöscht (hält den Event-Channel sauber).
+  await deleteReminder({ db, client, event });
+  const channel = card ? null : await getChannel(client, event.channel_id);
+  const sent = card ? await card.reply(payload).catch(error => { console.warn(`Event-Erinnerung ${event.id} fehlgeschlagen:`, error.message); return null; })
+    : channel ? await channel.send(payload).catch(() => null) : null;
+  if (sent?.id) db.prepare("UPDATE events SET reminder_channel_id=?,reminder_message_id=? WHERE id=?").run(sent.channelId ?? sent.channel?.id ?? event.channel_id, sent.id, event.id);
+  return Boolean(sent);
+}
+
+/** Löscht die zuletzt gesendete Erinnerung eines Events (falls vorhanden). */
+export async function deleteReminder({ db, client, event }) {
+  const row = db.prepare("SELECT reminder_channel_id,reminder_message_id FROM events WHERE id=?").get(event.id);
+  if (!row?.reminder_message_id) return false;
+  db.prepare("UPDATE events SET reminder_channel_id=NULL,reminder_message_id=NULL WHERE id=?").run(event.id);
+  const message = await fetchMessage(client, row.reminder_channel_id, row.reminder_message_id);
+  return Boolean(await message?.delete?.().then(() => true).catch(() => false));
+}
+
+/** Erinnerungen von Events, die begonnen haben, abgesagt oder beendet sind, verschwinden aus dem Channel. */
+export async function cleanupReminders({ db, client, reference = new Date() }) {
+  const rows = db.prepare("SELECT id FROM events WHERE reminder_message_id IS NOT NULL AND (starts_at<=? OR status<>'scheduled') LIMIT 25").all(reference.toISOString());
+  for (const row of rows) await deleteReminder({ db, client, event: row });
+  return rows.length;
 }

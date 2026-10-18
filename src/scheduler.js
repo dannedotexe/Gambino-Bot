@@ -6,7 +6,7 @@ import { createTicketService } from "./services/tickets.js";
 import { collectStats } from "./services/stats.js";
 import { createSeriesEvents, endSeriesEvents, refreshActivityBoard } from "./activity-board.js";
 import { ensurePanels, postEventResult } from "./panels.js";
-import { sendEventReminder } from "./event-posts.js";
+import { cleanupReminders, sendEventReminder } from "./event-posts.js";
 import { panelTexts } from "./services/texts.js";
 import { syncAbsenceRoles } from "./absence-posts.js";
 import { runDailyInactivity } from "./inactivity.js";
@@ -58,6 +58,7 @@ export function startScheduler({db,client,config,series=null}) {
       }
       await checkEventMinimums({db,client,config,reference:now}).catch(error=>console.warn("Mindestteilnehmer-Prüfung fehlgeschlagen:",error.message));
       await sendReminders(db,client,config,now);
+      await cleanupReminders({db,client,reference:now}).catch(error=>console.warn("Erinnerungen konnten nicht aufgeräumt werden:",error.message));
       await closeDuePolls({db,client,reference:now}).catch(error=>console.warn("Abstimmungen konnten nicht beendet werden:",error.message));
       await sendDueAnnouncements({db,client,reference:now}).catch(error=>console.warn("Ankündigungen konnten nicht gesendet werden:",error.message));
       if(Date.now()-lastTicketCheck>60_000){

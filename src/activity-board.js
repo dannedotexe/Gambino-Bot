@@ -57,7 +57,11 @@ export async function createSeriesEvents({ db, client, config, series, reference
   }
   missingChannelWarned = false;
   let created = 0;
-  for (const { series: item, startsAt } of due) {
+  // Der Reihe nach ankündigen: Solange ein früheres Event noch nicht begonnen hat, wartet das nächste
+  // (außer es beginnt in weniger als 30 Minuten). So steht im Channel nicht schon der nächste Termin.
+  const earlierPending = db.prepare("SELECT 1 FROM events WHERE guild_id=? AND status='scheduled' AND starts_at>? AND starts_at<? LIMIT 1");
+  for (const { series: item, startsAt } of due.sort((a, b) => a.startsAt - b.startsAt)) {
+    if (startsAt.getTime() - reference.getTime() > 30 * 60_000 && earlierPending.get(guildId, reference.toISOString(), startsAt.toISOString())) continue;
     const id = randomUUID(), createdAt = new Date().toISOString();
     const event = { id, guild_id: guildId, name: item.name, description: item.description || "", starts_at: startsAt.toISOString(), location: item.location, host_id: client.user.id, equipment: "", notes: "", max_participants: item.max_participants, min_participants: item.min_participants ?? null, series_id: item.id, status: "scheduled" };
     // Reservierung über den Unique-Index (series_id, starts_at): parallele Ticks oder Neustarts erzeugen kein Duplikat.

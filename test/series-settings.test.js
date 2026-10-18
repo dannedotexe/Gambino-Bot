@@ -51,7 +51,7 @@ function fakeClient() {
 
 test("aktive Aktivität erzeugt genau ein Event pro Termin, inaktive keines; Auto-Ende danach", async () => {
   const db = testDb(), series = createSeriesService(db), { client, sent, edits } = fakeClient();
-  const config = { ...loadConfig(env), CHANNEL_EVENT_ANNOUNCEMENTS: "60000000000000001" };
+  const config = { ...loadConfig(env), CHANNEL_EVENT_ANNOUNCEMENTS: "60000000000000001", EVENT_SERIES_DELETE_ENDED: false };
   const item = series.create({ guildId: G, actorId: "lead", input: { name: "Gießerei", weekdays: [1, 2, 3, 4, 5, 6, 7], times: "14:20", leadMinutes: 120 } });
   const reference = new Date("2026-10-13T11:00:00Z"); // 13:00 Wien, Start 14:20 liegt in 80 Minuten
   assert.equal(await createSeriesEvents({ db, client, config, series, reference }), 0, "inaktiv: nichts");
@@ -119,4 +119,16 @@ test("ungültige gespeicherte Werte werden beim Start übersprungen statt den Bo
   assert.equal(rejected.length, 1);
   assert.equal(config.TIMEZONE, "Europe/Vienna");
   assert.equal(config.TICKET_MAX_OPEN_PER_USER, 4);
+});
+
+test("nächste Aktivität wird erst angekündigt, wenn die vorherige begonnen hat (außer < 30 Min.)", async () => {
+  const db = testDb(), series = createSeriesService(db), { client } = fakeClient();
+  const config = { ...loadConfig(env), CHANNEL_EVENT_ANNOUNCEMENTS: "60000000000000001" };
+  series.create({ guildId: G, actorId: "lead", input: { name: "Cayo", weekdays: [1, 2, 3, 4, 5, 6, 7], times: "17:35", leadMinutes: 120, active: true } });
+  series.create({ guildId: G, actorId: "lead", input: { name: "Bizwar", weekdays: [1, 2, 3, 4, 5, 6, 7], times: "19:05", leadMinutes: 120, active: true } });
+  const names = () => db.prepare("SELECT name FROM events ORDER BY starts_at").all().map(r => r.name);
+  await createSeriesEvents({ db, client, config, series, reference: new Date("2026-10-13T15:10:00Z") }); // 17:10 Wien
+  assert.deepEqual(names(), ["Cayo"], "Bizwar wartet, Cayo hat noch nicht begonnen");
+  await createSeriesEvents({ db, client, config, series, reference: new Date("2026-10-13T15:36:00Z") }); // 17:36, Cayo läuft
+  assert.deepEqual(names(), ["Cayo", "Bizwar"]);
 });

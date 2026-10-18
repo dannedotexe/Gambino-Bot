@@ -50,7 +50,7 @@ const schema = z.object({
   TICKET_TRANSCRIPT_LIMIT: z.coerce.number().int().min(100).max(1000).default(500),
   TICKET_CATEGORIES_JSON: z.string().default('[{"id":"support","label":"Support","roleIds":[]},{"id":"beschwerde","label":"Beschwerde","roleIds":[]},{"id":"leitung","label":"Leitung","roleIds":[]}]').transform((raw,ctx)=>{try{return JSON.parse(raw);}catch{ctx.addIssue({code:"custom",message:"Muss gültiges JSON sein"});return [];}}).pipe(z.array(z.object({id:z.string().regex(/^[a-z0-9_-]{1,25}$/),label:z.string().min(1).max(100),roleIds:z.array(z.string().regex(SNOWFLAKE)).default([]),description:z.string().max(100).optional(),emoji:z.string().max(20).optional()})).min(1).max(25)).transform(categories=>categories.filter(category=>category.id!=="bewerbung")),
   EVENT_REMINDER_MINUTES: z.string().default("60,15").transform(csv).pipe(z.array(z.coerce.number().int().min(1).max(10080)).max(5)).transform(list => [...new Set(list)].sort((a, b) => b - a)),
-  EVENT_SERIES_DELETE_ENDED: bool("false"),
+  EVENT_SERIES_DELETE_ENDED: bool("true"),
   ACCOUNT_AUTO_OPEN_FOR_MEMBERS: bool("true"),
   EVENT_SERIES_AUTO_END_MINUTES: z.coerce.number().int().min(15).max(1440).default(120),
   APPLICATION_QUESTIONS_JSON: jsonValue("{}").pipe(applicationQuestionsSchema),
