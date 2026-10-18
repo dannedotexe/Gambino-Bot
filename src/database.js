@@ -180,6 +180,14 @@ export const MIGRATIONS = [
       for (const column of ["reminder_channel_id", "reminder_message_id"]) if (!have.has(column)) db.exec(`ALTER TABLE events ADD COLUMN ${column} TEXT`);
     },
   },
+  {
+    version: 14,
+    name: "event-ergebnis-win-lose",
+    up: db => {
+      const have = new Set(db.prepare("PRAGMA table_info(events)").all().map(c => c.name));
+      for (const [column, type] of [["outcome", "TEXT"], ["outcome_cents", "INTEGER"], ["outcome_by", "TEXT"], ["outcome_at", "TEXT"]]) if (!have.has(column)) db.exec(`ALTER TABLE events ADD COLUMN ${column} ${type}`);
+    },
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

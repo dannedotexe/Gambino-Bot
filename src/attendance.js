@@ -1,4 +1,5 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, StringSelectMenuBuilder, UserSelectMenuBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle, UserSelectMenuBuilder } from "discord.js";
+import { createFinance, formatMoney } from "./services/finance.js";
 import { accessGroups } from "./config.js";
 import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR, numberedMentions } from "./presentation.js";
@@ -83,9 +84,79 @@ export async function afterClose({ db, client, config, event, rows, actorId }) {
   if (event.attendance_channel_id && event.attendance_message_id) {
     const channel = await client.channels.fetch(event.attendance_channel_id).catch(() => null);
     const message = await channel?.messages?.fetch(event.attendance_message_id).catch(() => null);
-    await message?.edit({ content: "", embeds: [attendanceEmbed(event, rows, { by: actorId })], components: [] }).catch(() => {});
+    await message?.edit({ content: "", embeds: [attendanceEmbed(event, rows, { by: actorId })], components: rows.some(r => r.status === "present") ? [outcomeButtons(event.id)] : [] }).catch(() => {});
   }
   await postEventResult({ db, client, config, event }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- Ergebnis: Win / Lose
+export const outcomeButtons = eventId => new ActionRowBuilder().addComponents(
+  new ButtonBuilder().setCustomId(`att:win:${eventId}`).setLabel("🏆 Win").setStyle(ButtonStyle.Success),
+  new ButtonBuilder().setCustomId(`att:lose:${eventId}`).setLabel("❌ Lose").setStyle(ButtonStyle.Danger));
+
+/** Betrag aus Eingaben wie „25000“, „25.000“, „25 000“, „25k“, „1,5k“, „$12,50“. */
+export function parseAmount(input) {
+  let raw = String(input ?? "").trim().toLowerCase().replace(/[$\s]/g, "");
+  let factor = 1;
+  if (/k$/.test(raw)) { factor = 1000; raw = raw.slice(0, -1); } else if (/mio$|m$/.test(raw)) { factor = 1_000_000; raw = raw.replace(/mio$|m$/, ""); }
+  if (/^\d{1,3}([.,]\d{3})+$/.test(raw)) raw = raw.replace(/[.,]/g, "");
+  if (!/^\d+([.,]\d{1,2})?$/.test(raw)) return null;
+  const cents = Math.round(Number(raw.replace(",", ".")) * factor * 100);
+  return Number.isSafeInteger(cents) && cents > 0 && cents <= 100_000_000_000 ? cents : null;
+}
+
+/** Ergebnis festhalten; bei Win bekommt jeder Anwesende den Betrag gutgeschrieben (je Person und Event genau einmal). */
+export function recordOutcome(db, { eventId, outcome, cents = null, actorId }) {
+  const finance = createFinance(db);
+  return db.transaction(() => {
+    const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
+    if (!event) return { error: "Event nicht gefunden." };
+    if (!event.attendance_closed_at) return { error: "Bitte zuerst die Anwesenheit abschließen." };
+    if (event.outcome) return { error: `Für dieses Event wurde bereits „${event.outcome === "win" ? "Win" : "Lose"}“ eingetragen.` };
+    const present = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status='present' ORDER BY user_id").all(eventId).map(r => r.user_id);
+    if (outcome === "win") {
+      const day = new Date(event.starts_at).toISOString().slice(0, 10).split("-").reverse().join(".");
+      for (const userId of present) finance.credit({ guildId: event.guild_id, userId, actorId, cents, reason: `Event gewonnen: ${event.name} (${day})`.slice(0, 300), key: `event-win:${eventId}:${userId}` });
+    }
+    db.prepare("UPDATE events SET outcome=?,outcome_cents=?,outcome_by=?,outcome_at=? WHERE id=?").run(outcome, outcome === "win" ? cents : null, actorId, new Date().toISOString(), eventId);
+    audit(db, event.guild_id, actorId, "event.outcome", eventId, { name: event.name, value: outcome === "win" ? "Win" : "Lose", cents: outcome === "win" ? cents : 0, entries: present.length });
+    return { event, present, total: outcome === "win" ? cents * present.length : 0 };
+  })();
+}
+
+const isFinance = (i, config) => (config.BOT_OWNER_IDS ?? []).includes(i.user.id) || accessGroups(config).finance.some(id => i.member?.roles?.cache?.has?.(id));
+
+/** Ergebnis auch an der Nachricht im Event-Check vermerken und die Buttons entfernen. */
+async function markLogMessage(client, event, text) {
+  if (!event.attendance_channel_id || !event.attendance_message_id) return;
+  const channel = await client.channels.fetch(event.attendance_channel_id).catch(() => null);
+  const message = await channel?.messages?.fetch(event.attendance_message_id).catch(() => null);
+  if (message) await message.edit({ content: text, components: [] }).catch(() => {});
+}
+
+async function handleOutcome({ i, db, client, config, action, event }) {
+  if (action === "win" && !isFinance(i, config)) return i.reply({ content: "Geld verteilen darf nur Finanzen, Leitung oder Voller Zugriff. „Lose“ kann das Event-Team eintragen.", flags: MessageFlags.Ephemeral });
+  if (event.outcome) return i.reply({ content: `Für dieses Event wurde bereits „${event.outcome === "win" ? "Win" : "Lose"}“ eingetragen.`, flags: MessageFlags.Ephemeral });
+  if (action === "win") {
+    const present = db.prepare("SELECT COUNT(*) n FROM event_participants WHERE event_id=? AND status='present'").get(event.id).n;
+    return i.showModal(new ModalBuilder().setCustomId(`att:winmodal:${event.id}`).setTitle(`🏆 Win – ${event.name}`.slice(0, 45)).addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("amount").setLabel(`Betrag pro Person (${present} anwesend)`.slice(0, 45)).setPlaceholder("z. B. 25000 oder 25k").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20))));
+  }
+  let result;
+  if (action === "winmodal") {
+    if (!isFinance(i, config)) return i.reply({ content: "Geld verteilen darf nur Finanzen, Leitung oder Voller Zugriff.", flags: MessageFlags.Ephemeral });
+    const cents = parseAmount(i.fields.getTextInputValue("amount"));
+    if (!cents) return i.reply({ content: "Ungültiger Betrag. Beispiele: 25000, 25.000, 25k.", flags: MessageFlags.Ephemeral });
+    result = recordOutcome(db, { eventId: event.id, outcome: "win", cents, actorId: i.user.id });
+    if (result.error) return i.reply({ content: result.error, flags: MessageFlags.Ephemeral });
+    const text = `🏆 **Win** · je **${formatMoney(cents)}** an ${result.present.length} Anwesende (gesamt ${formatMoney(result.total)}) · eingetragen von <@${i.user.id}>`;
+    await markLogMessage(client, event, text);
+    return i.message ? i.update({ content: text, components: [] }) : i.reply({ content: text, flags: MessageFlags.Ephemeral });
+  }
+  result = recordOutcome(db, { eventId: event.id, outcome: "lose", actorId: i.user.id });
+  if (result.error) return i.reply({ content: result.error, flags: MessageFlags.Ephemeral });
+  await markLogMessage(client, event, `❌ **Lose** · eingetragen von <@${i.user.id}>`);
+  return i.update({ content: `❌ **Lose** · eingetragen von <@${i.user.id}>`, components: [] });
 }
 
 const isEventTeam = (i, config) => (config.BOT_OWNER_IDS ?? []).includes(i.user.id) || accessGroups(config).events.some(id => i.member?.roles?.cache?.has?.(id));
@@ -117,9 +188,10 @@ async function pickerPayload({ db, i, event }) {
 /** Alle Interaktionen mit customId „att:…“ (Button und Auswahlmenü). */
 export async function handleAttendanceInteraction({ i, db, client, config }) {
   const [, action, eventId, offset] = i.customId.split(":");
-  if (!isEventTeam(i, config)) return i.reply({ content: "Die Anwesenheit trägt nur das Event-Team oder die Leitung ein.", flags: MessageFlags.Ephemeral });
+  if (!isEventTeam(i, config) && !(["win", "winmodal"].includes(action) && isFinance(i, config))) return i.reply({ content: "Die Anwesenheit trägt nur das Event-Team oder die Leitung ein.", flags: MessageFlags.Ephemeral });
   const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
   if (!event) return i.reply({ content: "Dieses Event gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
+  if (["win", "lose", "winmodal"].includes(action)) return handleOutcome({ i, db, client, config, action, event });
   if (event.attendance_closed_at) return i.reply({ content: "Die Anwesenheit ist bereits abgeschlossen. Korrekturen gehen auf der Website (Events → Anwesenheit).", flags: MessageFlags.Ephemeral });
   if (action === "open") return i.reply({ ...(await pickerPayload({ db, i, event })), flags: MessageFlags.Ephemeral });
   if (action === "pick") {
@@ -140,7 +212,7 @@ export async function handleAttendanceInteraction({ i, db, client, config }) {
     const result = closeAttendance(db, { eventId: event.id, actorId: i.user.id });
     if (result.error) return i.update({ content: result.error, components: [] });
     const present = result.rows.filter(r => r.status === "present").length;
-    await i.update({ content: `✅ Anwesenheit für **${event.name}** abgeschlossen: ${present} von ${result.rows.length} da. Nicht Anwesende zählen als No-Show (außer sie waren abgemeldet).`, components: [] });
+    await i.update({ content: `✅ Anwesenheit für **${event.name}** abgeschlossen: ${present} von ${result.rows.length} da. Nicht Anwesende zählen als No-Show (außer sie waren abgemeldet).${present ? "\nWie ist das Event ausgegangen? Bei **Win** gibst du den Betrag ein, den jeder Anwesende aufs Konto bekommt." : ""}`, components: present ? [outcomeButtons(event.id)] : [] });
     await afterClose({ db, client, config, event: result.event, rows: result.rows, actorId: i.user.id });
   }
   return null;

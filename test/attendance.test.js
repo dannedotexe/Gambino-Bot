@@ -88,3 +88,26 @@ test("Anwesenheit: nicht Angemeldete können als anwesend hinzugefügt werden", 
   assert.equal(x.db.prepare("SELECT status FROM event_participants WHERE event_id='e1' AND user_id=?").get(D).status, "present");
   assert.match(add.out.update.components.at(-1).components[0].data.label, /1\/4 da/);
 });
+
+test("Win/Lose: Win verteilt den Betrag an jeden Anwesenden, nur einmal; Win nur mit Finanzrecht", async () => {
+  const x = setup();
+  x.config.ROLE_FINANCE = ["20000000000000003"];
+  await handleAttendanceInteraction({ i: interaction("att:pick:e1:0", { values: [A, C] }), ...x });
+  const close = interaction("att:close:e1");
+  await handleAttendanceInteraction({ i: close, ...x });
+  assert.deepEqual(close.out.update.components[0].components.map(b => b.data.custom_id), ["att:win:e1", "att:lose:e1"]);
+  const noFinance = interaction("att:win:e1");
+  await handleAttendanceInteraction({ i: noFinance, ...x });
+  assert.match(noFinance.out.reply.content, /nur Finanzen/);
+  const win = { ...interaction("att:winmodal:e1", { roles: ["20000000000000003"] }), fields: { getTextInputValue: () => "25k" }, message: {} };
+  win.update = async p => { win.out.update = p; };
+  await handleAttendanceInteraction({ i: win, ...x });
+  assert.match(win.out.update.content, /je \*\*\$25\.000,00\*\* an 2 Anwesende/);
+  const balance = id => x.db.prepare("SELECT COALESCE(balance_cents,0) b FROM accounts WHERE user_id=?").get(id)?.b ?? 0;
+  assert.deepEqual([balance(A), balance(B), balance(C)], [2_500_000, 0, 2_500_000]);
+  const again = { ...interaction("att:winmodal:e1", { roles: ["20000000000000003"] }), fields: { getTextInputValue: () => "25k" }, message: {} };
+  await handleAttendanceInteraction({ i: again, ...x });
+  assert.match(again.out.reply.content, /bereits/);
+  assert.equal(balance(A), 2_500_000, "nicht doppelt");
+  assert.equal(x.db.prepare("SELECT outcome FROM events WHERE id='e1'").get().outcome, "win");
+});
