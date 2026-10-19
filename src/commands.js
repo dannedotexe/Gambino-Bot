@@ -244,7 +244,7 @@ export function buildCommands() {
     .addStringOption(o=>o.setName("familie").setDescription("Welche Familie?").setRequired(true).setMaxLength(60))
     .addStringOption(o=>o.setName("wann").setDescription("jetzt, in 20 (Minuten) oder 16:30").setRequired(false).setMaxLength(20));
   const absence = new SlashCommandBuilder().setName("abwesend").setDescription("Abmeldung bei der Familie (Urlaub, Pause)")
-    .addSubcommand(s=>s.setName("melden").setDescription("Für einen Zeitraum abmelden").addStringOption(o=>o.setName("von").setDescription("Beginn, z. B. heute oder 20.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("bis").setDescription("Ende (inklusive), z. B. 27.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Grund – sieht nur das Team").setRequired(true).setMinLength(2).setMaxLength(300)))
+    .addSubcommand(s=>s.setName("melden").setDescription("Für einen Zeitraum abmelden").addStringOption(o=>o.setName("von").setDescription("Beginn, z. B. heute, morgen, Freitag oder 20.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("bis").setDescription("Ende, z. B. 27.10., Sonntag, 3 Tage oder 1 Woche").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Grund – sieht nur das Team").setRequired(true).setMinLength(2).setMaxLength(300)))
     .addSubcommand(s=>s.setName("beenden").setDescription("Eigene Abmeldung vorzeitig beenden (wieder da)"))
     .addSubcommand(s=>s.setName("liste").setDescription("Wer gerade abgemeldet ist (Staff)"));
   const leaderboard = new SlashCommandBuilder().setName("rangliste").setDescription("Aktivste Mitglieder nach Event-Teilnahmen")
@@ -490,7 +490,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     {name:"Zeitraum",value:`**${formatDay(row.starts_on)} – ${formatDay(row.ends_on)}**`,inline:true},{name:"Grund",value:row.reason,inline:true}],note);
   async function createAbsence(i,{from,until,reason}){
     const gate=memberGate(i);if(gate)return answer(i,{content:"Abmeldungen gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});
-    const row=absences.create({guildId:i.guildId,userId:i.user.id,actorId:i.user.id,startsOn:parseDay(from,config.TIMEZONE),endsOn:parseDay(until,config.TIMEZONE),reason,timezone:config.TIMEZONE,maxDays:config.ABSENCE_MAX_DAYS});
+    const row=absences.create({guildId:i.guildId,userId:i.user.id,actorId:i.user.id,startsOn:parseDay(from,config.TIMEZONE),endsOn:parseDay(until,config.TIMEZONE,new Date(),{base:parseDay(from,config.TIMEZONE)}),reason,timezone:config.TIMEZONE,maxDays:config.ABSENCE_MAX_DAYS});
     await answer(i,{...absenceEmbed(row),ephemeral:true});
     await postAbsence({client,config,row});
     return row;
@@ -519,7 +519,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   function openAbsenceModal(i){
     const field=(id,label,placeholder,style=TextInputStyle.Short,max=20)=>new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setPlaceholder(placeholder).setStyle(style).setRequired(true).setMaxLength(max));
     return i.showModal(new ModalBuilder().setCustomId("absence:submit").setTitle("Abmeldung").addComponents(
-      field("from","Von","heute oder 20.10."),field("until","Bis (inklusive)","z. B. 27.10. oder 27.10.2026"),field("reason","Grund (sieht nur das Team)","z. B. Urlaub",TextInputStyle.Paragraph,300)));
+      field("from","Von","heute, morgen, Freitag oder 20.10."),field("until","Bis (inklusive)","z. B. 27.10., Sonntag, 3 Tage oder 1 Woche"),field("reason","Grund (sieht nur das Team)","z. B. Urlaub",TextInputStyle.Paragraph,300)));
   }
 
   // ---------------------------------------------------------------- Rangliste

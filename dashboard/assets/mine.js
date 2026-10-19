@@ -47,7 +47,7 @@ Object.assign(actions, {
     const open = state.cache.mine?.absences.open;
     if (open) return confirmAction("Abmeldung beenden?", `Du bist bis ${myDay(open.ends_on)} abgemeldet. Bist du früher zurück?`, "Ich bin zurück", () => post("/api/my/absence/end"), false);
     openForm({ eyebrow: "ABMELDUNG", title: "Abmelden", intro: `<p>Z. B. Urlaub oder Pause. Höchstens ${state.cache.mine?.absences.maxDays ?? 60} Tage. Den Grund sieht nur das Team.</p>`,
-      fields: [{ name: "from", label: "Von", required: true, value: "heute", hint: "heute, morgen oder 20.10." }, { name: "until", label: "Bis (inklusive)", required: true, placeholder: "27.10." }, { name: "reason", label: "Grund", required: true, max: 300 }],
+      fields: [{ name: "from", label: "Von", required: true, value: "heute", hint: "heute, morgen, Freitag oder 20.10." }, { name: "until", label: "Bis (inklusive)", required: true, placeholder: "27.10., Sonntag, 3 Tage, 1 Woche" }, { name: "reason", label: "Grund", required: true, max: 300 }],
       submit: "Abmelden", onSubmit: v => post("/api/my/absence", v) });
   },
 });

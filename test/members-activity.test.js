@@ -27,6 +27,16 @@ test("Datumseingaben: heute, morgen, ohne Jahr, ISO; Unsinn wird abgelehnt", () 
   assert.equal(parseDay("2026-11-02", TZ, REF), "2026-11-02");
   assert.throws(() => parseDay("31.02.2026", TZ, REF), /kein gültiges Datum/);
   assert.throws(() => parseDay("bald", TZ, REF), /kein gültiges Datum/);
+  // Großzügige Eingaben (REF = Mi 14.10.2026)
+  assert.equal(parseDay("Freitag", TZ, REF), "2026-10-16");
+  assert.equal(parseDay("ab morgen", TZ, REF), "2026-10-15");
+  assert.equal(parseDay("nächsten Mittwoch", TZ, REF), "2026-10-21");
+  assert.equal(parseDay("20/10", TZ, REF), "2026-10-20");
+  assert.equal(parseDay("20. Oktober", TZ, REF), "2026-10-20");
+  assert.equal(parseDay("in 3 Tagen", TZ, REF), "2026-10-17");
+  assert.equal(parseDay("Wochenende", TZ, REF), "2026-10-18");
+  assert.equal(parseDay("1 Woche", TZ, REF, { base: "2026-10-15" }), "2026-10-21", "Dauer inklusive Starttag");
+  assert.equal(parseDay("3 Tage", TZ, REF, { base: "2026-10-15" }), "2026-10-17");
 });
 
 test("Abmeldungen: Überschneidung, Höchstdauer, Beenden ohne Löschen, entschuldigtes Fehlen", () => {

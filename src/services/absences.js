@@ -19,33 +19,84 @@ export const daysBetween = (from, to) => Math.round((Date.parse(`${to}T12:00:00Z
 /** 2026-10-14 -> 14.10.2026 */
 export const formatDay = day => day ? day.split("-").reverse().join(".") : "—";
 
+const WEEKDAYS = { so: 0, sonntag: 0, sun: 0, sunday: 0, mo: 1, montag: 1, mon: 1, monday: 1, di: 2, dienstag: 2, tue: 2, tuesday: 2, mi: 3, mittwoch: 3, wed: 3, wednesday: 3,
+  do: 4, donnerstag: 4, thu: 4, thursday: 4, fr: 5, freitag: 5, fri: 5, friday: 5, sa: 6, samstag: 6, sonnabend: 6, sat: 6, saturday: 6 };
+const MONTHS = { jan: 1, januar: 1, jänner: 1, january: 1, feb: 2, februar: 2, february: 2, mär: 3, mar: 3, märz: 3, maerz: 3, march: 3, apr: 4, april: 4, mai: 5, may: 5,
+  jun: 6, juni: 6, june: 6, jul: 7, juli: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9, okt: 10, oct: 10, oktober: 10, october: 10, nov: 11, november: 11, dez: 12, dec: 12, dezember: 12, december: 12 };
+const NUMBERS = { ein: 1, eine: 1, einen: 1, einer: 1, eins: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, fuenf: 5, sechs: 6, sieben: 7, acht: 8, neun: 9, zehn: 10, elf: 11, zwölf: 12, zwoelf: 12, vierzehn: 14, zwanzig: 20, dreißig: 30, dreissig: 30 };
+const weekdayOf = day => new Date(`${day}T12:00:00Z`).getUTCDay();
+const lastOfMonth = day => { const [y, m] = day.split("-").map(Number); return `${y}-${pad(m)}-${pad(new Date(Date.UTC(y, m, 0)).getUTCDate())}`; };
+const num = word => /^\d+$/.test(word) ? Number(word) : NUMBERS[word] ?? null;
+
+/** Datum mit Tag/Monat/(Jahr); ohne Jahr gilt das nächste passende Datum ab heute. */
+function fromParts(d, m, y, today) {
+  if (y != null && y < 100) y += 2000;
+  const year = y ?? Number(today.slice(0, 4));
+  if (!validDay(year, m, d)) return null;
+  let day = `${year}-${pad(m)}-${pad(d)}`;
+  if (y == null && day < addDays(today, -7) && validDay(year + 1, m, d)) day = `${year + 1}-${pad(m)}-${pad(d)}`;
+  return day;
+}
+
 /**
- * Liest ein Datum wie „heute“, „morgen“, „20.10.“, „20.10.2026“, „20.10.26“ oder „2026-10-20“.
- * Ohne Jahr gilt das nächste passende Datum ab heute.
+ * Liest Datumsangaben großzügig: „heute“, „morgen“, „übermorgen“, „gestern“, Wochentage („Freitag“, „Fr“, „nächsten Montag“),
+ * „Wochenende“, „Monatsende“, „in 3 Tagen“, „20.10“, „20.10.“, „20.10.26“, „20/10“, „20-10-2026“, „2026-10-20“, „20. Oktober“,
+ * „20 Okt 2026“, „ab morgen“ … Mit `base` (Startdatum) zusätzlich Dauern wie „3 Tage“, „1 Woche“, „zwei Wochen“, „+5“ (inklusive).
  */
-export function parseDay(input, timezone, reference = new Date()) {
-  const raw = String(input ?? "").trim().toLowerCase();
+export function parseDay(input, timezone, reference = new Date(), { base = null } = {}) {
+  const original = String(input ?? "").trim();
   const today = localDay(reference, timezone);
-  if (["heute", "jetzt"].includes(raw)) return today;
-  if (raw === "morgen") return addDays(today, 1);
-  if (raw === "übermorgen") return addDays(today, 2);
-  let match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  if (match) {
-    const [, y, m, d] = match.map(Number);
-    if (validDay(y, m, d)) return `${y}-${pad(m)}-${pad(d)}`;
+  let raw = original.toLowerCase().replace(/[,;]+/g, " ").replace(/\s+/g, " ").trim()
+    .replace(/^(ab|von|vom|bis|bis zum|bis zur|zum|zur|am|den|dem|ca\.?|etwa|ungefähr)\s+/, "").replace(/^(ab|bis|zum|am|den)\s+/, "").replace(/\s+uhr$/, "").trim();
+  if (!raw) throw new AbsenceError("Bitte ein Datum angeben (z. B. heute, morgen, Freitag oder 20.10.).");
+  if (["heute", "jetzt", "sofort", "gleich", "today", "now"].includes(raw)) return today;
+  if (["morgen", "tomorrow"].includes(raw)) return addDays(today, 1);
+  if (["übermorgen", "uebermorgen"].includes(raw)) return addDays(today, 2);
+  if (raw === "gestern") return addDays(today, -1);
+  if (raw === "vorgestern") return addDays(today, -2);
+  if (["wochenende", "ende der woche", "ende dieser woche", "wochenende."].includes(raw)) return addDays(today, (7 - weekdayOf(today)) % 7);
+  if (["monatsende", "ende des monats", "ende monat", "ende vom monat"].includes(raw)) return lastOfMonth(today);
+  // Dauer relativ zum Start (nur für „Bis“): „3 tage“, „1 woche“, „+5“, „eine woche“, „2 wochen“
+  let match = /^\+?\s*(\d{1,3}|[a-zäöüß]+)\s*(t|tag|tage|tagen|d|day|days|w|wo|woche|wochen|week|weeks|monat|monate|monaten|month|months)$/.exec(raw);
+  const plus = /^\+\s*(\d{1,3})$/.exec(raw);
+  if ((match && num(match[1]) != null) || plus) {
+    const n = plus ? Number(plus[1]) : num(match[1]);
+    const unit = plus ? "t" : match[2];
+    const days = /^(w|wo|woche|wochen|week|weeks)$/.test(unit) ? n * 7 : /^mon/.test(unit) ? n * 30 : n;
+    if (base) return addDays(base, Math.max(0, days - 1));
+    return addDays(today, days);
   }
-  match = /^(\d{1,2})\.(\d{1,2})\.?(\d{2}|\d{4})?$/.exec(raw);
-  if (match) {
-    const d = Number(match[1]), m = Number(match[2]);
-    let y = match[3] ? Number(match[3]) : Number(today.slice(0, 4));
-    if (match[3]?.length === 2) y += 2000;
-    if (validDay(y, m, d)) {
-      let day = `${y}-${pad(m)}-${pad(d)}`;
-      if (!match[3] && day < today && validDay(y + 1, m, d)) day = `${y + 1}-${pad(m)}-${pad(d)}`;
-      return day;
-    }
+  // „in 3 tagen“, „in einer woche“
+  match = /^in\s+(\d{1,3}|[a-zäöüß]+)\s*(tag|tage|tagen|woche|wochen|monat|monaten)$/.exec(raw);
+  if (match && num(match[1]) != null) {
+    const n = num(match[1]);
+    return addDays(today, /^woche/.test(match[2]) ? n * 7 : /^monat/.test(match[2]) ? n * 30 : n);
   }
-  throw new AbsenceError(`„${String(input ?? "").slice(0, 30)}“ ist kein gültiges Datum. Beispiele: heute, morgen, 20.10. oder 20.10.2026.`);
+  // Wochentage: „freitag“, „fr“, „nächsten montag“, „kommenden fr“
+  match = /^(nächste[nmrs]?|naechste[nmrs]?|kommende[nmrs]?|diese[nmrs]?)?\s*([a-zäöü]+)\.?$/.exec(raw);
+  if (match && WEEKDAYS[match[2]] != null) {
+    let diff = (WEEKDAYS[match[2]] - weekdayOf(today) + 7) % 7;
+    if (match[1] && /^(nächst|naechst|kommend)/.test(match[1]) && diff === 0) diff = 7;
+    return addDays(today, diff);
+  }
+  match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
+  if (match) { const [, y, m, d] = match.map(Number); if (validDay(y, m, d)) return `${y}-${pad(m)}-${pad(d)}`; }
+  // 20.10 | 20.10. | 20.10.26 | 20.10.2026 | 20/10 | 20-10-2026 | 20.10 2026
+  match = /^(\d{1,2})\s*[./-]\s*(\d{1,2})\s*[./-]?\s*(\d{2}|\d{4})?\.?$/.exec(raw);
+  if (match) { const day = fromParts(Number(match[1]), Number(match[2]), match[3] ? Number(match[3]) : null, today); if (day) return day; }
+  // 20. oktober | 20 okt 2026 | 20. okt. 26
+  match = /^(\d{1,2})\.?\s*([a-zäöü]+)\.?\s*(\d{2}|\d{4})?$/.exec(raw);
+  if (match && MONTHS[match[2]]) { const day = fromParts(Number(match[1]), MONTHS[match[2]], match[3] ? Number(match[3]) : null, today); if (day) return day; }
+  // oktober 20 | okt 20 2026
+  match = /^([a-zäöü]+)\.?\s*(\d{1,2})\.?\s*(\d{2}|\d{4})?$/.exec(raw);
+  if (match && MONTHS[match[1]]) { const day = fromParts(Number(match[2]), MONTHS[match[1]], match[3] ? Number(match[3]) : null, today); if (day) return day; }
+  // nur Tag: „20“ / „20.“ → nächster 20. (diesen oder nächsten Monat)
+  match = /^(\d{1,2})\.?$/.exec(raw);
+  if (match) {
+    const d = Number(match[1]); let [y, m] = today.split("-").map(Number);
+    for (let k = 0; k < 3; k++) { const day = validDay(y, m, d) ? `${y}-${pad(m)}-${pad(d)}` : null; if (day && day >= today) return day; m++; if (m > 12) { m = 1; y++; } }
+  }
+  throw new AbsenceError(`„${original.slice(0, 30)}“ ist kein gültiges Datum. Das geht z. B.: heute, morgen, Freitag, 20.10., 20. Oktober${base ? ", 3 Tage, 1 Woche" : ""}.`);
 }
 
 /**

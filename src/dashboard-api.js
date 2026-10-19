@@ -675,7 +675,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
     }],
     [/^\/api\/my\/absence$/, async (member, body) => {
       if (!member.family && member.team === false) throw new HttpError(403, "Abmeldungen gibt es nur für Familienmitglieder.");
-      const row = absences.create({ guildId, userId: member.id, actorId: member.id, startsOn: parseDay(body.from, config.TIMEZONE), endsOn: parseDay(body.until, config.TIMEZONE), reason: text(body.reason, { min: 2, max: 300, label: "Grund" }), timezone: config.TIMEZONE, maxDays: config.ABSENCE_MAX_DAYS });
+      const row = absences.create({ guildId, userId: member.id, actorId: member.id, startsOn: parseDay(body.from, config.TIMEZONE), endsOn: parseDay(body.until, config.TIMEZONE, new Date(), { base: parseDay(body.from, config.TIMEZONE) }), reason: text(body.reason, { min: 2, max: 300, label: "Grund" }), timezone: config.TIMEZONE, maxDays: config.ABSENCE_MAX_DAYS });
       await postAbsence({ client, config, row });
       return { message: "Abmeldung eingetragen. Das Team sieht sie sofort." };
     }],
@@ -690,7 +690,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       need(member, "staff", "Staff-Rolle");
       const userId = snowflake(body.userId);
       await requireGuildMember(userId);
-      const row = absences.create({ guildId, userId, actorId: member.id, startsOn: parseDay(body.from, config.TIMEZONE), endsOn: parseDay(body.until, config.TIMEZONE), reason: text(body.reason, { min: 2, max: 300, label: "Grund" }), timezone: config.TIMEZONE, maxDays: 365 });
+      const row = absences.create({ guildId, userId, actorId: member.id, startsOn: parseDay(body.from, config.TIMEZONE), endsOn: parseDay(body.until, config.TIMEZONE, new Date(), { base: parseDay(body.from, config.TIMEZONE) }), reason: text(body.reason, { min: 2, max: 300, label: "Grund" }), timezone: config.TIMEZONE, maxDays: 365 });
       await postAbsence({ client, config, row });
       return { message: "Abmeldung eingetragen." };
     }],
