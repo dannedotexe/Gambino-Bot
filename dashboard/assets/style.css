@@ -6,7 +6,7 @@
   --text:#ececee;--muted:#a1a1aa;--faint:#71717a;
   --red:#dc2626;--red-hover:#b91c1c;--red-soft:#dc26261a;--gold:#d4a843;
   --green:#22c55e;--green-soft:#22c55e1a;--warn:#eab308;--warn-soft:#eab3081a;--danger:#f87171;
-  --radius:8px;--radius-sm:6px;--sidebar:228px;
+  --radius:12px;--radius-sm:8px;--sidebar:228px;
   --font:Inter,"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
 }
 *{box-sizing:border-box}
@@ -249,3 +249,14 @@ a.action{text-decoration:none;display:inline-flex;align-items:center}
 #tab-mine>.panel{margin-top:16px}
 .access-row{grid-template-columns:150px minmax(140px,1.2fr) 1fr 110px 140px}.access-row code{font-size:12px}
 .payout-row{grid-template-columns:150px minmax(180px,1.6fr) 1fr 1fr 1fr 1fr}small.block{display:block;color:var(--muted,#8b8b93);font-size:11px;margin-top:2px}
+
+/* Auswahlfelder: einheitlich mit den Buttons, eigener Pfeil statt Browser-Standard */
+select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:32px!important;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 11px center!important;transition:border-color .15s,background-color .15s}
+select:hover{border-color:var(--line2)}
+select option{background:var(--surface2);color:var(--text)}
+/* Umschalter statt Ausklappmenü für kurze Filter */
+select[data-segmented].is-segmented{display:none}
+.segmented{display:inline-flex;align-items:center;gap:2px;padding:2px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);flex-wrap:wrap}
+.segmented button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;font-weight:600;padding:5px 12px;border-radius:calc(var(--radius-sm) - 2px);cursor:pointer;transition:background .15s,color .15s;white-space:nowrap}
+.segmented button:hover{color:var(--text)}
+.segmented button.active{background:var(--hover);color:var(--text);box-shadow:0 0 0 1px var(--line2) inset}

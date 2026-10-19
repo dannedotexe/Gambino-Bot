@@ -615,4 +615,19 @@ function startLive() {
   setInterval(() => { if (document.visibilityState === "visible") recheckAccess(); }, 20_000);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") recheckAccess(); });
 }
+// Kurze Filter als Umschalter darstellen; das (versteckte) Auswahlfeld bleibt die Quelle der Wahrheit.
+function segmentize(select) {
+  const group = document.createElement("div");
+  group.className = "segmented"; group.setAttribute("role", "tablist"); group.setAttribute("aria-label", select.getAttribute("aria-label") || "Filter");
+  const sync = () => group.querySelectorAll("button").forEach(b => { const on = b.dataset.value === select.value; b.classList.toggle("active", on); b.setAttribute("aria-selected", String(on)); });
+  for (const option of select.options) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = option.textContent; b.dataset.value = option.value; b.setAttribute("role", "tab");
+    b.addEventListener("click", () => { if (select.value === option.value) return; select.value = option.value; select.dispatchEvent(new Event("change", { bubbles: true })); sync(); });
+    group.appendChild(b);
+  }
+  select.addEventListener("change", sync);
+  select.classList.add("is-segmented"); select.after(group); sync();
+}
+document.querySelectorAll("select[data-segmented]").forEach(segmentize);
 document.addEventListener("DOMContentLoaded", start);
