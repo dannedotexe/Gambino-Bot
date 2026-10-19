@@ -2,7 +2,7 @@
 const myDay = value => value ? value.split("-").reverse().join(".") : "—";
 const myStat = (label, value, symbol = "") => `<div class="stat"><span class="symbol">${symbol}</span><div class="label">${escapeHtml(label)}</div><div class="value small">${value}</div></div>`;
 const myRow = (title, sub) => `<div class="row"><div><div class="row-title">${title}</div><div class="row-sub">${sub}</div></div></div>`;
-const myParticipation = { signed_up: "Angemeldet", present: "Anwesend", absent: "Abwesend" };
+const myParticipation = { signed_up: "Angemeldet", present: "Anwesend", absent: "Abwesend", left: "nicht angemeldet" };
 const myRankKinds = { promotion: "⬆️ Beförderung", demotion: "⬇️ Degradierung", change: "↔️ Rangwechsel" };
 const myWarnStates = { active: "Aktiv", expired: "Abgelaufen", revoked: "Zurückgenommen" };
 
@@ -14,7 +14,7 @@ async function loadMine() {
     myStat("Guthaben", a.hasAccount ? money(a.gross) : "kein Konto", "$"),
     myStat("Offene Sanktionen", money(a.openSanctions)),
     myStat("Bei Auszahlung netto", money(a.net), "→"),
-    ...(a.minimum ? [myStat("Auszahlung ab", a.gross >= a.minimum ? `${money(a.minimum)} <small class="ok">✓ erreicht</small>` : `${money(a.minimum)} <small>(noch ${money(a.minimum - a.gross)})</small>`, "⌁")] : []),
+    ...(a.minimum ? [myStat("Auszahlung ab", a.gross >= a.minimum ? `${money(a.minimum)} <small class="ok">✓ erreicht</small>` : `${money(a.minimum)} <small>noch ${money(a.minimum - a.gross)}</small>`, "⌁")] : []),
     myStat("Rang", escapeHtml(d.rank.current ?? "—"), "★"),
     myStat("Event-Teilnahmen", escapeHtml(e.stats.participations), "#"),
     myStat("Event-Bilanz", `${e.record.wins} Win · ${e.record.losses} Lose`, "🏆"),

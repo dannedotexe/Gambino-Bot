@@ -60,8 +60,8 @@ footer{color:var(--faint);font-size:11px;padding:28px 0 6px;border-top:1px solid
 .subhead{font-size:14px;font-weight:600;margin:24px 0 10px}
 
 /* ---------- Kennzahlen & Panels ---------- */
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
-.stat{position:relative;text-align:left;padding:14px 16px;background:var(--surface);border:0;min-width:0;color:var(--text)}
+.stats{display:flex;flex-wrap:wrap;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
+.stat{position:relative;flex:1 1 150px;text-align:left;padding:14px 16px;background:var(--surface);border:0;min-width:0;color:var(--text)}
 .stat.clickable{cursor:pointer}.stat.clickable:hover{background:var(--hover)}
 .stat .label{font-size:12px;color:var(--muted)}.stat .value{font-size:22px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}.stat .value.small{font-size:17px}
 .stat .symbol{display:none}
@@ -221,7 +221,7 @@ button.danger#dialog-submit{background:var(--red);border-color:var(--red);color:
   .icon-btn{display:flex}.content{padding:0 16px 20px}.topbar{margin:0 -16px 4px;padding:0 16px}
 }
 @media (max-width:700px){
-  .hero h1{font-size:20px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat .value{font-size:19px}
+  .hero h1{font-size:20px}.stats .stat{flex-basis:40%}.stat .value{font-size:19px}
   .queue.grid2{grid-template-columns:1fr}.answers{grid-template-columns:1fr}.form-grid,.form-grid.four{grid-template-columns:1fr}
   .section-tools{width:100%}.section-tools input{width:100%;flex:1}
   .table-head{display:none}.table-row,.table-row.members-row,.table-row.inactive-row{grid-template-columns:1fr 1fr}.table-row>span:first-child{grid-column:1/-1}
@@ -274,3 +274,6 @@ select.cselect-native{display:none!important}
 .cselect-option.selected{color:#fff;font-weight:600;background:rgba(220,38,38,.18)}
 .cselect-option.disabled{opacity:.45;cursor:not-allowed}
 dialog .cselect-list{z-index:1000}
+
+/* Zusatz unter dem Wert (z. B. „noch $…“) klein und ruhig statt umbrechend */
+.stat .value small{display:block;margin-top:3px;font-size:12px;font-weight:500;color:var(--muted)}
