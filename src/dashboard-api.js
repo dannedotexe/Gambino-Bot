@@ -143,7 +143,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const sanctions = finance.sanctionDetails(guildId, userId, { limit: 20 }).map(s => ({ amount_cents: s.amount_cents, remaining_cents: s.remaining_cents, collected_cents: s.collected_cents, status: s.status, reason: s.reason, created_at: s.created_at }));
       const warnings = warningService.list(guildId, userId, { limit: 20, expireDays: config.WARN_EXPIRE_DAYS }).map(w => ({ reason: w.reason, created_at: w.created_at, state: w.state, revoke_reason: w.revoke_reason }));
       const upcoming = db.prepare("SELECT e.id,e.name,e.starts_at,e.location,p.status FROM events e LEFT JOIN event_participants p ON p.event_id=e.id AND p.user_id=? WHERE e.guild_id=? AND e.status='scheduled' ORDER BY e.starts_at LIMIT 10").all(userId, guildId);
-      const past = db.prepare("SELECT e.name,e.starts_at,e.status AS event_status,p.status FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND e.status IN ('ended','cancelled') AND p.status<>'left' ORDER BY e.starts_at DESC LIMIT 10").all(guildId, userId);
+      const past = db.prepare("SELECT e.name,e.starts_at,e.status AS event_status,e.outcome,p.status,(SELECT amount_cents FROM transactions t WHERE t.idempotency_key='event-win:'||e.id||':'||p.user_id) AS won_cents FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND e.status IN ('ended','cancelled') AND p.status<>'left' ORDER BY e.starts_at DESC LIMIT 10").all(guildId, userId);
       const g = await guild().catch(() => null);
       const discordMember = g ? await g.members.fetch(userId).catch(() => null) : null;
       const roleIds = [...(discordMember?.roles?.cache?.keys?.() ?? [])];
@@ -153,7 +153,9 @@ export function createDashboardApi({ db, client, config, settings = null, series
       return withNames({
         userId, account: { hasAccount, gross: plan.gross, openSanctions: plan.openCents, net: plan.net, minimum: config.PAYOUT_MINIMUM_CENTS ?? null, transactions },
         sanctions, warnings,
-        events: { upcoming, past, stats: activity.eventStats(guildId, userId), noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
+        events: { upcoming, past, stats: activity.eventStats(guildId, userId),
+          record: db.prepare("SELECT COALESCE(SUM(e.outcome='win'),0) wins, COALESCE(SUM(e.outcome='lose'),0) losses FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status='present'").get(guildId, userId),
+          earned: db.prepare("SELECT COALESCE(SUM(amount_cents),0) n FROM transactions WHERE guild_id=? AND user_id=? AND idempotency_key LIKE 'event-win:%'").get(guildId, userId).n, noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
         rank: { current: rank?.label ?? null, history: rankHistory.forUser(guildId, userId, 15).map(r => ({ from: r.from_label, to: r.to_label, kind: r.kind, created_at: r.created_at })) },
         absences: { open: absences.openFor(guildId, userId, day), list: absences.forUser(guildId, userId, 10).map(a => ({ id: a.id, starts_on: a.starts_on, ends_on: a.ends_on, reason: a.reason, ended_at: a.ended_at })), maxDays: config.ABSENCE_MAX_DAYS },
         leaderboard,

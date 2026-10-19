@@ -203,3 +203,20 @@ test("Win mit Kills: Anfahrt für alle, Prämie × eigene Kills, Auszahlung gena
   await handleAttendanceInteraction({ i: again, ...x });
   assert.equal(balance(A), 5_500_000, "nicht doppelt");
 });
+
+test("Mein Bereich zeigt Event-Bilanz und durch Events verdientes Geld", async () => {
+  const { createDashboardApi } = await import("../src/dashboard-api.js");
+  const x = setup();
+  x.config.ROLE_FINANCE = ["20000000000000003"];
+  await handleAttendanceInteraction({ i: interaction("att:pick:e1:0", { values: [A] }), ...x });
+  await handleAttendanceInteraction({ i: interaction("att:close:e1"), ...x });
+  const win = { ...interaction("att:winmodal:e1", { roles: ["20000000000000003"] }), fields: { getTextInputValue: id => id === "amount" ? "25k" : "" }, message: {} };
+  win.update = async () => {};
+  await handleAttendanceInteraction({ i: win, ...x });
+  const guild = { id: G, members: { cache: new Map(), fetch: async () => null }, roles: { cache: new Map() }, channels: { fetch: async () => null } };
+  const api = createDashboardApi({ db: x.db, client: { guilds: { cache: new Map([[G, guild]]), fetch: async () => guild }, users: { cache: new Map() } }, config: x.config });
+  const mine = (await api.get({ id: A, owner: false, roles: [], family: true, team: false }, new URL("/api/my", "https://x"))).body;
+  assert.deepEqual(mine.events.record, { wins: 1, losses: 0 });
+  assert.equal(mine.events.earned, 2_500_000);
+  assert.equal(mine.events.past[0].won_cents, 2_500_000);
+});

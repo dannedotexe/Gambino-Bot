@@ -17,6 +17,8 @@ async function loadMine() {
     ...(a.minimum ? [myStat("Auszahlung ab", a.gross >= a.minimum ? `${money(a.minimum)} <small class="ok">✓ erreicht</small>` : `${money(a.minimum)} <small>(noch ${money(a.minimum - a.gross)})</small>`, "⌁")] : []),
     myStat("Rang", escapeHtml(d.rank.current ?? "—"), "★"),
     myStat("Event-Teilnahmen", escapeHtml(e.stats.participations), "#"),
+    myStat("Event-Bilanz", `${e.record.wins} Win · ${e.record.losses} Lose`, "🏆"),
+    myStat("Durch Events verdient", money(e.earned), "$"),
     myStat("No-Shows", e.noShowLimit ? `${e.noShows} von ${e.noShowLimit} <small>(${e.noShowWindow} Tage)</small>` : escapeHtml(e.noShows)),
   ].join("");
   $("my-absence-label").textContent = d.absences.open ? "Abmeldung beenden" : "Abmelden";
@@ -27,7 +29,7 @@ async function loadMine() {
   ].join("") || empty("Keine Sanktionen oder Verwarnungen. 👍");
   $("my-events").innerHTML = [
     ...e.upcoming.map(ev => myRow(`${escapeHtml(ev.name)} · ${ev.status ? myParticipation[ev.status] ?? ev.status : "nicht angemeldet"}`, `${date(ev.starts_at)}${ev.location ? ` · ${escapeHtml(ev.location)}` : ""} · Anmeldung über Discord`)),
-    ...e.past.map(ev => myRow(`${escapeHtml(ev.name)} · ${ev.event_status === "cancelled" ? "abgesagt" : myParticipation[ev.status] ?? ev.status}`, `${date(ev.starts_at)} · vergangen`)),
+    ...e.past.map(ev => myRow(`${escapeHtml(ev.name)} · ${ev.event_status === "cancelled" ? "abgesagt" : myParticipation[ev.status] ?? ev.status}${ev.outcome === "win" ? " · 🏆 Win" : ev.outcome === "lose" ? " · ❌ Lose" : ""}`, `${date(ev.starts_at)}${ev.won_cents ? ` · +${money(ev.won_cents)} verdient` : " · vergangen"}`)),
   ].join("") || empty("Keine Events.");
   $("my-ranks").innerHTML = d.rank.history.map(r => myRow(`${myRankKinds[r.kind] ?? r.kind}: ${escapeHtml(r.from ?? "—")} → ${escapeHtml(r.to ?? "—")}`, date(r.created_at))).join("") || empty("Noch keine Rangänderung erfasst.");
   $("my-absences").innerHTML = d.absences.list.map(x => myRow(`${myDay(x.starts_on)} – ${myDay(x.ends_on)}${x.ended_at ? " · beendet" : d.absences.open?.id === x.id ? " · läuft" : ""}`, escapeHtml(x.reason))).join("") || empty("Keine Abmeldungen.");
