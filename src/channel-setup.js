@@ -37,6 +37,7 @@ export const CHANNEL_BINDINGS = {
   CHANNEL_ACTIVITY_BOARD: ["EVENTS", "event-infos"],
   CHANNEL_EVENT_RESULTS: ["EVENTS", "event-ergebnisse"],
   CHANNEL_EVENT_CHECK: ["STAFF", "event-check"],
+  CHANNEL_BOT_COMMANDS: ["FAMILIE", "bot-befehle"],
   CHANNEL_EVENT_LOG: ["EVENTS", "event-logs"],
   CHANNEL_GIVEAWAYS: ["COMMUNITY", "giveaway"],
   CHANNEL_STAFF_DASHBOARD: ["STAFF", "staff-dashboard"],

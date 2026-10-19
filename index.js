@@ -1,5 +1,5 @@
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from "discord.js";
-import { configWarnings, loadConfig } from "./src/config.js";
+import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
@@ -45,7 +45,7 @@ client.once(Events.ClientReady,ready=>{
 // Von der Leitung genannte IDs einmalig übernehmen, falls noch nichts eingestellt ist. Gesetzt wird nur, was
 // auf dem konfigurierten Server wirklich existiert und den richtigen Typ hat; jede Übernahme wird protokolliert.
 const ADOPT_NAMES={CHANNEL_WELCOME:/^\W*willkommen$/i,CHANNEL_ABSENCES:/^\W*abmeldungen$/i};
-const ADOPT_HINTS={CHANNEL_TICKET_CLOSED_CATEGORY:"1559680452980113479",ROLE_VERIFIED:"1559685681465397289",ROLE_MEMBERS:"1559954288652853248",CHANNEL_EVENT_CHECK:"1561413596150497300"};
+const ADOPT_HINTS={CHANNEL_TICKET_CLOSED_CATEGORY:"1559680452980113479",ROLE_VERIFIED:"1559685681465397289",ROLE_MEMBERS:"1559954288652853248",CHANNEL_EVENT_CHECK:"1561413596150497300",CHANNEL_BOT_COMMANDS:"1561749617119461517"};
 async function adoptLeadershipDefaults(){
   if(!settings)return;
   const guild=await client.guilds.fetch(config.DISCORD_GUILD_ID).catch(()=>null);
@@ -54,6 +54,7 @@ async function adoptLeadershipDefaults(){
   if(!config.CHANNEL_TICKET_CLOSED_CATEGORY){const category=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_TICKET_CLOSED_CATEGORY).catch(()=>null);if(category?.type===4)adopt("CHANNEL_TICKET_CLOSED_CATEGORY",category.id,`Kategorie für geschlossene Tickets (${category.name})`);}
   // Allgemeine Familienrolle (von der Leitung genannt): einmalig ergänzen, vorhandene Einträge bleiben erhalten.
   if(!getSetting(db,guild.id,"ADOPTED_ROLE_MEMBERS")&&!(config.ROLE_MEMBERS??[]).includes(ADOPT_HINTS.ROLE_MEMBERS)){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_MEMBERS).catch(()=>null);if(role&&adopt("ROLE_MEMBERS",[...(config.ROLE_MEMBERS??[]),role.id],`Familienmitglieder-Rolle (${role.name})`))setSetting(db,guild.id,"ADOPTED_ROLE_MEMBERS",new Date().toISOString());}
+  if(!config.CHANNEL_BOT_COMMANDS&&!getSetting(db,guild.id,"ADOPTED_CHANNEL_BOT_COMMANDS")){const channel=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_BOT_COMMANDS).catch(()=>null);if(channel?.isTextBased?.()&&adopt("CHANNEL_BOT_COMMANDS",channel.id,`Befehls-Channel (#${channel.name})`))setSetting(db,guild.id,"ADOPTED_CHANNEL_BOT_COMMANDS",new Date().toISOString());}
   if(!config.CHANNEL_EVENT_CHECK){const channel=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_EVENT_CHECK).catch(()=>null);if(channel?.isTextBased?.())adopt("CHANNEL_EVENT_CHECK",channel.id,`Event-Check-Channel (#${channel.name})`);}
   // Turf Leader dürfen Events (z. B. Staatliche Kontrolle) ankündigen: einmalig ins Event-Team übernehmen, bestehende Einträge bleiben.
   if(!getSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS")){const roles=[...(await guild.roles.fetch().catch(()=>new Map())).values()].filter(r=>/turf\s*leader/i.test(r.name)&&!r.managed);if(roles.length===1){const ids=[...new Set([...(config.ROLE_EVENT_TEAM??[]),roles[0].id])];if(ids.length===(config.ROLE_EVENT_TEAM??[]).length||adopt("ROLE_EVENT_TEAM",ids,`Event-Team ergänzt um ${roles[0].name}`))setSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS",new Date().toISOString());}}
@@ -120,6 +121,11 @@ client.on(Events.MessageCreate,message=>{
     if(!message.guildId||message.author?.bot||message.webhookId)return;
     if(config.DISCORD_GUILD_ID&&message.guildId!==config.DISCORD_GUILD_ID)return;
     activity.recordMessage(message.guildId,message.author.id,message.createdAt??new Date());
+    // Befehls-Channel sauber halten: normale Nachrichten von Mitgliedern verschwinden (Staff darf schreiben).
+    if(config.BOT_COMMANDS_CLEANUP&&config.CHANNEL_BOT_COMMANDS&&message.channelId===config.CHANNEL_BOT_COMMANDS){
+      const staff=(config.BOT_OWNER_IDS??[]).includes(message.author.id)||accessGroups(config).anyStaff.some(id=>message.member?.roles?.cache?.has(id));
+      if(!staff)void message.delete().then(()=>message.channel.send({content:`<@${message.author.id}> Hier bitte nur Bot-Befehle nutzen (z. B. \`/abwesend\`, \`/rangliste\`).`,allowedMentions:{users:[message.author.id]}})).then(hint=>setTimeout(()=>hint?.delete?.().catch(()=>{}),8000)).catch(()=>{});
+    }
   }catch(error){console.warn("Aktivität konnte nicht gespeichert werden:",error.message);}
 });
 // Gelöschte Ticket-Channels: Ticket wird geschlossen und protokolliert, Daten und Transkript bleiben erhalten.

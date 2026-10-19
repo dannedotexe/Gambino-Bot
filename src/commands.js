@@ -356,6 +356,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     if (!i.inGuild()) return respond(i,"Dieser Bot-Befehl funktioniert nur in einem Server.");
     if(config.DISCORD_GUILD_ID&&i.guildId!==config.DISCORD_GUILD_ID)return respond(i,"Der Bot ist für diesen Server nicht freigeschaltet.");
     const g=i.guildId,u=i.user.id,sub=i.options.getSubcommand(false);
+    // Mitglieder nutzen Bot-Befehle nur im Befehls-Channel; Staff und Leitung überall.
+    if(config.CHANNEL_BOT_COMMANDS&&i.channelId!==config.CHANNEL_BOT_COMMANDS&&!hasRoleOrOwner(i,groups.anyStaff))return respond(i,`Bot-Befehle bitte im <#${config.CHANNEL_BOT_COMMANDS}> nutzen.`);
     try {
       if (i.commandName==="ping") return respond(i,`Pong! ${client.ws.ping} ms`);
       if (i.commandName==="help") return answer(i,{...fieldsEmbed("📚 Gambinos Bot – Befehle",[
