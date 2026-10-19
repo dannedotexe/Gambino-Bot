@@ -50,6 +50,7 @@ export const SETTINGS = [
   { key: "CHANNEL_GIVEAWAYS", group: "Channels", label: "Giveaways (öffentlich)", type: "channel", help: "Standard-Channel für neue Giveaways. Empfohlen: COMMUNITY・giveaway." },
   { key: "CHANNEL_STAFF_DASHBOARD", group: "Channels", label: "Staff-Dashboard-Panel (Staff)", type: "channel", help: "Panel wird automatisch gepostet. Empfohlen: STAFF・staff-dashboard." },
   { key: "CHANNEL_SANCTION_LOG", group: "Channels", label: "Sanktions-Log (Staff)", type: "channel", help: "Alle Sanktionen und Verwarnungen. Empfohlen: STAFF・sanktions-logs. Leer = Audit-Log." },
+  { key: "CHANNEL_PAYOUT_LIST", group: "Channels", label: "Auszahlungsliste (immer aktuell)", type: "channel", help: "Der Bot hält hier eine Nachricht aktuell: wer wie viel bekommt (netto, Sanktionsabzug, Mindestbetrag). Achtung: Wer den Channel sieht, sieht alle Guthaben." },
   { key: "CHANNEL_FINANCE_LOG", group: "Channels", label: "Auszahlungs-/Finanz-Log (Staff)", type: "channel", help: "Gutschriften, Auszahlungen, Korrekturen. Empfohlen: STAFF・auszahlungen. Leer = Audit-Log." },
   { key: "CHANNEL_STATS", group: "Channels", label: "Statistik", type: "channel", help: "Automatische Statistik ohne Finanzdaten. Empfohlen: STAFF・server-statistik." },
   { key: "CHANNEL_AUDIT_LOG", group: "Channels", label: "Allgemeines Audit-Log (Staff)", type: "channel", help: "Alle übrigen Aktionen (Tickets, Anträge, Einstellungen …). Empfohlen: eigener Channel STAFF・bot-logs." },
