@@ -216,6 +216,13 @@ export async function handleAttendanceInteraction({ i, db, client, config }) {
   const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
   if (!event) return i.reply({ content: "Dieses Event gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
   if (["win", "lose", "winmodal"].includes(action)) return handleOutcome({ i, db, client, config, action, event });
+  // Ohne Anmeldungen still abgeschlossen: über „Event beenden“ kann das Team trotzdem Anwesende nachtragen.
+  if (action === "open" && event.attendance_closed_at && !event.outcome && event.status !== "cancelled" && !participantsOf(db, event.id).length) {
+    // Markierung „manuell geöffnet“: die automatische Abfrage schließt es nicht wieder still ab.
+    db.prepare("UPDATE events SET attendance_closed_at=NULL,attendance_closed_by=NULL,attendance_message_id=COALESCE(attendance_message_id,'manual') WHERE id=?").run(event.id);
+    event.attendance_closed_at = null;
+  }
+  if (action === "open" && !event.attendance_closed_at && new Date(event.starts_at) > new Date()) return i.reply({ content: `**${event.name}** hat noch nicht begonnen (Start <t:${Math.floor(new Date(event.starts_at).getTime() / 1000)}:R>).`, flags: MessageFlags.Ephemeral });
   if (event.attendance_closed_at) return i.reply({ content: "Die Anwesenheit ist bereits abgeschlossen. Korrekturen gehen auf der Website (Events → Anwesenheit).", flags: MessageFlags.Ephemeral });
   if (action === "open") return i.reply({ ...(await pickerPayload({ db, i, event })), flags: MessageFlags.Ephemeral });
   if (action === "pick") {

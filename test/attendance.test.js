@@ -138,3 +138,32 @@ test("No-Show entfernen: zählt nicht mehr, nur einmal möglich", async () => {
   assert.match(removeNoShow(x.db, { guildId: G, eventId: "e1", userId: B, actorId: STAFF }).error, /bereits/);
   assert.equal(noShowsOf(x.db, x.config, G, C).length, 1, "andere bleiben");
 });
+
+test("Event-Post hat „Event beenden“; vor Start Hinweis; ohne Anmeldungen trotzdem nachtragbar", async () => {
+  const { eventCardPayload } = await import("../src/event-posts.js");
+  const card = eventCardPayload({ event: { id: "e9", name: "x", starts_at: new Date().toISOString(), status: "scheduled" }, participants: [] });
+  assert.ok(card.components[0].components.some(b => b.data.custom_id === "att:open:e9"));
+  const x = setup();
+  x.db.prepare("UPDATE events SET starts_at=? WHERE id='e1'").run(new Date(Date.now() + 3_600_000).toISOString());
+  const early = interaction("att:open:e1");
+  await handleAttendanceInteraction({ i: early, ...x });
+  assert.match(early.out.reply.content, /noch nicht begonnen/);
+  const member = interaction("att:open:e1", { roles: [] });
+  await handleAttendanceInteraction({ i: member, ...x });
+  assert.match(member.out.reply.content, /nur das Event-Team/);
+  // Leeres Event, still abgeschlossen → „Event beenden“ öffnet trotzdem zum Nachtragen.
+  x.db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at,attendance_closed_at) VALUES('e2',?,'Leer','',?,'HQ',?,'scheduled',?,?)").run(G, new Date(Date.now() - 60_000).toISOString(), STAFF, new Date().toISOString(), new Date().toISOString());
+  const open = interaction("att:open:e2");
+  await handleAttendanceInteraction({ i: open, ...x });
+  assert.ok(open.out.reply.components.some(r => r.components[0].data.custom_id === "att:add:e2"));
+  assert.equal(x.db.prepare("SELECT attendance_closed_at FROM events WHERE id='e2'").get().attendance_closed_at, null);
+});
+
+test("manuell geöffnetes leeres Event wird nicht vom Hintergrund wieder geschlossen", async () => {
+  const x = setup();
+  x.db.prepare("INSERT INTO guild_settings(guild_id,key,value,updated_at) VALUES(?,?,?,?)").run(G, "ATTENDANCE_SINCE", new Date(Date.now() - 86_400_000).toISOString(), new Date().toISOString());
+  x.db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at,attendance_closed_at) VALUES('e3',?,'Leer','',?,'HQ',?,'scheduled',?,?)").run(G, new Date(Date.now() - 60_000).toISOString(), STAFF, new Date().toISOString(), new Date().toISOString());
+  await handleAttendanceInteraction({ i: interaction("att:open:e3"), ...x });
+  await requestDueAttendance({ ...x });
+  assert.equal(x.db.prepare("SELECT attendance_closed_at FROM events WHERE id='e3'").get().attendance_closed_at, null);
+});

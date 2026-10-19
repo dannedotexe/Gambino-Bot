@@ -45,6 +45,8 @@ export function eventCardPayload({ event, participants = [], texts = defaultsFor
   const components = !look ? [new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`event:join:${event.id}`).setLabel(texts.joinButton || "Teilnehmen").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`event:leave:${event.id}`).setLabel(texts.leaveButton || "Abmelden").setStyle(ButtonStyle.Secondary),
+    // Nur Event-Team/Leitung kann ihn benutzen (Discord zeigt Buttons immer allen); öffnet die Anwesenheit.
+    new ButtonBuilder().setCustomId(`att:open:${event.id}`).setLabel("🏁 Event beenden").setStyle(ButtonStyle.Danger),
   )] : [];
   return { embeds: [embed], components };
 }
