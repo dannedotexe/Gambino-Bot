@@ -167,3 +167,12 @@ test("manuell geöffnetes leeres Event wird nicht vom Hintergrund wieder geschlo
   await requestDueAttendance({ ...x });
   assert.equal(x.db.prepare("SELECT attendance_closed_at FROM events WHERE id='e3'").get().attendance_closed_at, null);
 });
+
+test("Event ohne Anmeldungen wird beim Start direkt beendet", async () => {
+  const x = setup();
+  x.db.prepare("INSERT INTO guild_settings(guild_id,key,value,updated_at) VALUES(?,?,?,?)").run(G, "ATTENDANCE_SINCE", new Date(Date.now() - 86_400_000).toISOString(), new Date().toISOString());
+  x.db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at) VALUES('e4','" + G + "','RP Fabrik','',?,'HQ',?,'scheduled',?)").run(new Date(Date.now() - 60_000).toISOString(), STAFF, new Date().toISOString());
+  await requestDueAttendance({ ...x });
+  const row = x.db.prepare("SELECT status,attendance_closed_at FROM events WHERE id='e4'").get();
+  assert.equal(row.status, "ended"); assert.ok(row.attendance_closed_at);
+});

@@ -32,8 +32,15 @@ export async function requestAttendance({ db, client, config, event }) {
   if (!row || row.attendance_closed_at || row.attendance_message_id) return false;
   const rows = participantsOf(db, row.id);
   if (!rows.length) {
-    // Ohne Anmeldungen gibt es nichts zu prüfen.
-    db.prepare("UPDATE events SET attendance_closed_at=?,attendance_closed_by=? WHERE id=? AND attendance_closed_at IS NULL").run(new Date().toISOString(), client.user?.id ?? "system", row.id);
+    // Ohne Anmeldungen gibt es nichts zu prüfen: Event direkt beenden, damit der Post nicht stehen bleibt
+    // (Aktivitäts-Posts werden dabei gelöscht, wenn EVENT_SERIES_DELETE_ENDED an ist).
+    const ended = db.transaction(() => {
+      db.prepare("UPDATE events SET attendance_closed_at=?,attendance_closed_by=? WHERE id=? AND attendance_closed_at IS NULL").run(new Date().toISOString(), client.user?.id ?? "system", row.id);
+      const changed = db.prepare("UPDATE events SET status='ended' WHERE id=? AND status='scheduled'").run(row.id).changes;
+      if (changed) audit(db, row.guild_id, client.user?.id ?? "system", "event.ended", row.id, { name: row.name, reason: "keine Anmeldungen" });
+      return changed;
+    })();
+    if (ended) await refreshEventPosts({ db, client, config, event: { ...row, status: "ended" }, state: "ended" }).catch(() => {});
     return false;
   }
   const channelId = config.CHANNEL_EVENT_CHECK || config.CHANNEL_EVENT_LOG || config.CHANNEL_AUDIT_LOG;
