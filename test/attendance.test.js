@@ -99,13 +99,13 @@ test("Win/Lose: Win verteilt den Betrag an jeden Anwesenden, nur einmal; Win nur
   const noFinance = interaction("att:win:e1");
   await handleAttendanceInteraction({ i: noFinance, ...x });
   assert.match(noFinance.out.reply.content, /nur Finanzen/);
-  const win = { ...interaction("att:winmodal:e1", { roles: ["20000000000000003"] }), fields: { getTextInputValue: () => "25k" }, message: {} };
+  const win = { ...interaction("att:winmodal:e1", { roles: ["20000000000000003"] }), fields: { getTextInputValue: id => id === "amount" ? "25k" : "" }, message: {} };
   win.update = async p => { win.out.update = p; };
   await handleAttendanceInteraction({ i: win, ...x });
   assert.match(win.out.update.content, /je \*\*\$25\.000,00\*\* an 2 Anwesende/);
   const balance = id => x.db.prepare("SELECT COALESCE(balance_cents,0) b FROM accounts WHERE user_id=?").get(id)?.b ?? 0;
   assert.deepEqual([balance(A), balance(B), balance(C)], [2_500_000, 0, 2_500_000]);
-  const again = { ...interaction("att:winmodal:e1", { roles: ["20000000000000003"] }), fields: { getTextInputValue: () => "25k" }, message: {} };
+  const again = { ...interaction("att:winmodal:e1", { roles: ["20000000000000003"] }), fields: { getTextInputValue: id => id === "amount" ? "25k" : "" }, message: {} };
   await handleAttendanceInteraction({ i: again, ...x });
   assert.match(again.out.reply.content, /bereits/);
   assert.equal(balance(A), 2_500_000, "nicht doppelt");
@@ -175,4 +175,31 @@ test("Event ohne Anmeldungen wird beim Start direkt beendet", async () => {
   await requestDueAttendance({ ...x });
   const row = x.db.prepare("SELECT status,attendance_closed_at FROM events WHERE id='e4'").get();
   assert.equal(row.status, "ended"); assert.ok(row.attendance_closed_at);
+});
+
+test("Win mit Kills: Anfahrt für alle, Prämie × eigene Kills, Auszahlung genau einmal", async () => {
+  const x = setup();
+  x.config.ROLE_FINANCE = ["20000000000000003"];
+  await handleAttendanceInteraction({ i: interaction("att:pick:e1:0", { values: [A, C] }), ...x });
+  await handleAttendanceInteraction({ i: interaction("att:close:e1"), ...x });
+  const fin = ["20000000000000003"];
+  const modal = { ...interaction("att:winmodal:e1", { roles: fin }), fields: { getTextInputValue: id => id === "amount" ? "25k" : "10.000" } };
+  await handleAttendanceInteraction({ i: modal, ...x });
+  assert.equal(modal.out.reply.components[0].components[0].data.custom_id, "att:killsel:e1:2500000:1000000");
+  const shown = [];
+  const sel = { ...interaction("att:killsel:e1:2500000:1000000", { roles: fin, values: [A] }), showModal: async m => shown.push(m) };
+  await handleAttendanceInteraction({ i: sel, ...x });
+  assert.equal(shown[0].data.custom_id, `att:killset:e1:2500000:1000000:${A}`);
+  const set = { ...interaction(`att:killset:e1:2500000:1000000:${A}`, { roles: fin }), fields: { getTextInputValue: () => "3" } };
+  set.update = async p => { set.out.update = p; };
+  await handleAttendanceInteraction({ i: set, ...x });
+  assert.match(set.out.update.content, /3 Kills → \*\*\$55\.000,00/);
+  const pay = interaction("att:payout:e1:2500000:1000000", { roles: fin });
+  await handleAttendanceInteraction({ i: pay, ...x });
+  const balance = id => x.db.prepare("SELECT balance_cents b FROM accounts WHERE user_id=?").get(id)?.b ?? 0;
+  assert.deepEqual([balance(A), balance(B), balance(C)], [5_500_000, 0, 2_500_000]);
+  assert.match(pay.out.update.content, /3 Kills · gesamt \*\*\$80\.000,00/);
+  const again = interaction("att:payout:e1:2500000:1000000", { roles: fin });
+  await handleAttendanceInteraction({ i: again, ...x });
+  assert.equal(balance(A), 5_500_000, "nicht doppelt");
 });

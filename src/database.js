@@ -195,6 +195,13 @@ export const MIGRATIONS = [
       CREATE TABLE IF NOT EXISTS noshow_excuses (event_id TEXT NOT NULL, user_id TEXT NOT NULL, guild_id TEXT NOT NULL, actor_id TEXT NOT NULL, reason TEXT, created_at TEXT NOT NULL, PRIMARY KEY(event_id,user_id));
     `),
   },
+  {
+    version: 16,
+    name: "event-kills",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS event_kills (event_id TEXT NOT NULL, user_id TEXT NOT NULL, kills INTEGER NOT NULL CHECK(kills >= 0 AND kills <= 999), updated_at TEXT NOT NULL, PRIMARY KEY(event_id,user_id));
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

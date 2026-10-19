@@ -136,7 +136,7 @@ export function parseAmount(input) {
 }
 
 /** Ergebnis festhalten; bei Win bekommt jeder Anwesende den Betrag gutgeschrieben (je Person und Event genau einmal). */
-export function recordOutcome(db, { eventId, outcome, cents = null, actorId }) {
+export function recordOutcome(db, { eventId, outcome, cents = null, killCents = 0, actorId }) {
   const finance = createFinance(db);
   return db.transaction(() => {
     const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
@@ -144,13 +144,21 @@ export function recordOutcome(db, { eventId, outcome, cents = null, actorId }) {
     if (!event.attendance_closed_at) return { error: "Bitte zuerst die Anwesenheit abschließen." };
     if (event.outcome) return { error: `Für dieses Event wurde bereits „${event.outcome === "win" ? "Win" : "Lose"}“ eingetragen.` };
     const present = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status='present' ORDER BY user_id").all(eventId).map(r => r.user_id);
+    // Bei Win: Anfahrt/Pauschale für jeden Anwesenden, plus optional Prämie × eigene Kills.
+    const kills = new Map(db.prepare("SELECT user_id,kills FROM event_kills WHERE event_id=?").all(eventId).map(r => [r.user_id, r.kills]));
+    let total = 0, killTotal = 0;
     if (outcome === "win") {
       const day = new Date(event.starts_at).toISOString().slice(0, 10).split("-").reverse().join(".");
-      for (const userId of present) finance.credit({ guildId: event.guild_id, userId, actorId, cents, reason: `Event gewonnen: ${event.name} (${day})`.slice(0, 300), key: `event-win:${eventId}:${userId}` });
+      for (const userId of present) {
+        const k = killCents ? kills.get(userId) ?? 0 : 0, amount = cents + k * killCents;
+        if (amount <= 0) continue;
+        total += amount; killTotal += k;
+        finance.credit({ guildId: event.guild_id, userId, actorId, cents: amount, reason: `Event gewonnen: ${event.name} (${day})${k ? ` – ${k} Kill${k === 1 ? "" : "s"}` : ""}`.slice(0, 300), key: `event-win:${eventId}:${userId}` });
+      }
     }
     db.prepare("UPDATE events SET outcome=?,outcome_cents=?,outcome_by=?,outcome_at=? WHERE id=?").run(outcome, outcome === "win" ? cents : null, actorId, new Date().toISOString(), eventId);
-    audit(db, event.guild_id, actorId, "event.outcome", eventId, { name: event.name, value: outcome === "win" ? "Win" : "Lose", cents: outcome === "win" ? cents : 0, entries: present.length });
-    return { event, present, total: outcome === "win" ? cents * present.length : 0 };
+    audit(db, event.guild_id, actorId, "event.outcome", eventId, { name: event.name, value: outcome === "win" ? "Win" : "Lose", cents: total, entries: present.length, ...(killCents ? { kills: killTotal } : {}) });
+    return { event, present, total, killTotal };
   })();
 }
 
@@ -170,18 +178,49 @@ async function handleOutcome({ i, db, client, config, action, event }) {
   if (action === "win") {
     const present = db.prepare("SELECT COUNT(*) n FROM event_participants WHERE event_id=? AND status='present'").get(event.id).n;
     return i.showModal(new ModalBuilder().setCustomId(`att:winmodal:${event.id}`).setTitle(`🏆 Win – ${event.name}`.slice(0, 45)).addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("amount").setLabel(`Betrag pro Person (${present} anwesend)`.slice(0, 45)).setPlaceholder("z. B. 25000 oder 25k").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20))));
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("amount").setLabel(`Anfahrt / Betrag pro Person (${present} da)`.slice(0, 45)).setPlaceholder("z. B. 25000 oder 25k").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("perkill").setLabel("Prämie pro Kill (optional)").setPlaceholder("leer = keine Kill-Prämie, z. B. 25k").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(20))));
   }
   let result;
   if (action === "winmodal") {
     if (!isFinance(i, config)) return i.reply({ content: "Geld verteilen darf nur Finanzen, Leitung oder Voller Zugriff.", flags: MessageFlags.Ephemeral });
     const cents = parseAmount(i.fields.getTextInputValue("amount"));
     if (!cents) return i.reply({ content: "Ungültiger Betrag. Beispiele: 25000, 25.000, 25k.", flags: MessageFlags.Ephemeral });
+    const perKillRaw = (() => { try { return i.fields.getTextInputValue("perkill"); } catch { return ""; } })();
+    if (String(perKillRaw ?? "").trim()) {
+      const kill = parseAmount(perKillRaw);
+      if (!kill) return i.reply({ content: "Ungültige Kill-Prämie. Beispiele: 25000, 25k – oder leer lassen.", flags: MessageFlags.Ephemeral });
+      return i.reply({ ...(await killPanel({ db, i, event, drive: cents, kill })), flags: MessageFlags.Ephemeral });
+    }
     result = recordOutcome(db, { eventId: event.id, outcome: "win", cents, actorId: i.user.id });
     if (result.error) return i.reply({ content: result.error, flags: MessageFlags.Ephemeral });
     const text = `🏆 **Win** · je **${formatMoney(cents)}** an ${result.present.length} Anwesende (gesamt ${formatMoney(result.total)}) · eingetragen von <@${i.user.id}>`;
     await markLogMessage(client, event, text);
     return i.message ? i.update({ content: text, components: [] }) : i.reply({ content: text, flags: MessageFlags.Ephemeral });
+  }
+  if (action === "killsel" || action === "killset" || action === "payout") {
+    if (!isFinance(i, config)) return i.reply({ content: "Geld verteilen darf nur Finanzen, Leitung oder Voller Zugriff.", flags: MessageFlags.Ephemeral });
+    const [, , , driveRaw, killRaw, userId] = i.customId.split(":");
+    const drive = Number(driveRaw), kill = Number(killRaw);
+    if (!Number.isSafeInteger(drive) || !Number.isSafeInteger(kill)) return i.reply({ content: "Ungültige Anfrage.", flags: MessageFlags.Ephemeral });
+    if (action === "killsel") {
+      const target = i.values[0], current = db.prepare("SELECT kills FROM event_kills WHERE event_id=? AND user_id=?").get(event.id, target)?.kills ?? 0;
+      const nameOf = await namesFor({ db, i, event, ids: [target] });
+      return i.showModal(new ModalBuilder().setCustomId(`att:killset:${event.id}:${drive}:${kill}:${target}`).setTitle(`Kills – ${nameOf(target)}`.slice(0, 45)).addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("kills").setLabel("Anzahl Kills").setValue(String(current)).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3))));
+    }
+    if (action === "killset") {
+      const k = Number(String(i.fields.getTextInputValue("kills")).trim());
+      if (!Number.isInteger(k) || k < 0 || k > 999) return i.reply({ content: "Bitte eine Zahl von 0 bis 999 eingeben.", flags: MessageFlags.Ephemeral });
+      if (!db.prepare("SELECT 1 FROM event_participants WHERE event_id=? AND user_id=? AND status='present'").get(event.id, userId)) return i.reply({ content: "Diese Person ist nicht als anwesend eingetragen.", flags: MessageFlags.Ephemeral });
+      db.prepare("INSERT INTO event_kills(event_id,user_id,kills,updated_at) VALUES(?,?,?,?) ON CONFLICT(event_id,user_id) DO UPDATE SET kills=excluded.kills,updated_at=excluded.updated_at").run(event.id, userId, k, new Date().toISOString());
+      return i.update(await killPanel({ db, i, event, drive, kill }));
+    }
+    result = recordOutcome(db, { eventId: event.id, outcome: "win", cents: drive, killCents: kill, actorId: i.user.id });
+    if (result.error) return i.update({ content: result.error, components: [] });
+    const text = `🏆 **Win** · ${formatMoney(drive)} Anfahrt + ${formatMoney(kill)} pro Kill · ${result.killTotal} Kills · gesamt **${formatMoney(result.total)}** an ${result.present.length} Anwesende · eingetragen von <@${i.user.id}>`;
+    await markLogMessage(client, event, text);
+    return i.update({ content: text, components: [] });
   }
   result = recordOutcome(db, { eventId: event.id, outcome: "lose", actorId: i.user.id });
   if (result.error) return i.reply({ content: result.error, flags: MessageFlags.Ephemeral });
@@ -190,6 +229,26 @@ async function handleOutcome({ i, db, client, config, action, event }) {
 }
 
 const isEventTeam = (i, config) => (config.BOT_OWNER_IDS ?? []).includes(i.user.id) || accessGroups(config).events.some(id => i.member?.roles?.cache?.has?.(id));
+
+/** Anzeigenamen (verifiziert „Vorname Nachname | ID“, sonst Discord-Name). */
+async function namesFor({ db, i, event, ids }) {
+  const fetched = i.guild && ids.length ? await i.guild.members.fetch({ user: ids.slice(0, 100) }).catch(() => null) : null;
+  return id => db.prepare("SELECT nickname FROM member_verifications WHERE guild_id=? AND user_id=?").get(event.guild_id, id)?.nickname ?? fetched?.get?.(id)?.displayName ?? `Mitglied …${id.slice(-4)}`;
+}
+
+/** Kills eintragen: Auswahl einer Person öffnet ein Feld für ihre Kills; „Auszahlen“ bucht alles. */
+async function killPanel({ db, i, event, drive, kill }) {
+  const present = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status='present' ORDER BY updated_at,user_id").all(event.id).map(r => r.user_id);
+  const kills = new Map(db.prepare("SELECT user_id,kills FROM event_kills WHERE event_id=?").all(event.id).map(r => [r.user_id, r.kills]));
+  const nameOf = await namesFor({ db, i, event, ids: present });
+  const total = present.reduce((sum, id) => sum + drive + (kills.get(id) ?? 0) * kill, 0);
+  const lines = present.map(id => { const k = kills.get(id) ?? 0; return `• ${nameOf(id)} – ${k} Kill${k === 1 ? "" : "s"} → **${formatMoney(drive + k * kill)}**`; }).join("\n").slice(0, 1700);
+  const select = new StringSelectMenuBuilder().setCustomId(`att:killsel:${event.id}:${drive}:${kill}`).setPlaceholder("Kills eintragen – Person wählen").setMinValues(1).setMaxValues(1)
+    .addOptions(present.slice(0, 25).map(id => ({ label: nameOf(id).slice(0, 100), value: id, description: `${kills.get(id) ?? 0} Kills` })));
+  const buttons = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`att:payout:${event.id}:${drive}:${kill}`).setLabel(`✅ Auszahlen (${formatMoney(total)})`).setStyle(ButtonStyle.Success));
+  return { content: `🏆 **Win – ${event.name}**\nAnfahrt **${formatMoney(drive)}** pro Person + **${formatMoney(kill)}** pro Kill. Wähle unten eine Person und trag ihre Kills ein, dann „Auszahlen“.${present.length > 25 ? "\n⚠️ Mehr als 25 Anwesende – nur die ersten 25 sind wählbar." : ""}\n\n${lines}`,
+    components: present.length ? [new ActionRowBuilder().addComponents(select), buttons] : [buttons] };
+}
 
 async function pickerPayload({ db, i, event }) {
   const rows = participantsOf(db, event.id);
@@ -219,10 +278,10 @@ async function pickerPayload({ db, i, event }) {
 /** Alle Interaktionen mit customId „att:…“ (Button und Auswahlmenü). */
 export async function handleAttendanceInteraction({ i, db, client, config }) {
   const [, action, eventId, offset] = i.customId.split(":");
-  if (!isEventTeam(i, config) && !(["win", "winmodal"].includes(action) && isFinance(i, config))) return i.reply({ content: "Die Anwesenheit trägt nur das Event-Team oder die Leitung ein.", flags: MessageFlags.Ephemeral });
+  if (!isEventTeam(i, config) && !(["win", "winmodal", "killsel", "killset", "payout"].includes(action) && isFinance(i, config))) return i.reply({ content: "Die Anwesenheit trägt nur das Event-Team oder die Leitung ein.", flags: MessageFlags.Ephemeral });
   const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
   if (!event) return i.reply({ content: "Dieses Event gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
-  if (["win", "lose", "winmodal"].includes(action)) return handleOutcome({ i, db, client, config, action, event });
+  if (["win", "lose", "winmodal", "killsel", "killset", "payout"].includes(action)) return handleOutcome({ i, db, client, config, action, event });
   // Ohne Anmeldungen still abgeschlossen: über „Event beenden“ kann das Team trotzdem Anwesende nachtragen.
   if (action === "open" && event.attendance_closed_at && !event.outcome && event.status !== "cancelled" && !participantsOf(db, event.id).length) {
     // Markierung „manuell geöffnet“: die automatische Abfrage schließt es nicht wieder still ab.
