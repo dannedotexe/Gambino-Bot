@@ -22,7 +22,7 @@ import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { handleAttendanceInteraction, requestAttendance } from "./attendance.js";
 import { handleTaskInteraction, myTasksView, rewardLabel, submitTaskLog } from "./task-logs.js";
 import { createTaskService } from "./services/tasks.js";
-import { ensureLogbook, renameLogbook } from "./logbooks.js";
+import { LOGBOOK_FORUMS, activeLogbookKinds, ensureLogbook, renameLogbook } from "./logbooks.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
@@ -282,7 +282,8 @@ export function buildCommands() {
     .addIntegerOption(o=>o.setName("menge").setDescription("Wie viele? (nur bei Aufgaben mit Stückzahl, Standard 1)").setMinValue(1).setMaxValue(999))
     .addStringOption(o=>o.setName("notiz").setDescription("Optional, z. B. wen du eingeladen hast").setMaxLength(300));
   const logbook = new SlashCommandBuilder().setName("logbuch").setDescription("Logbuch im Forum für ein Mitglied anlegen (Staff)")
-    .addUserOption(o=>o.setName("mitglied").setDescription("Für wen?").setRequired(true));
+    .addUserOption(o=>o.setName("mitglied").setDescription("Für wen?").setRequired(true))
+    .addStringOption(o=>o.setName("art").setDescription("Welches Logbuch? (Standard: alle eingestellten)").addChoices({name:"Aufgaben-Logbuch",value:"tasks"},{name:"Event-Logbuch",value:"events"}));
   const myTasks = new SlashCommandBuilder().setName("aufgaben").setDescription("Deine Aufgaben-Logs: Stufe, Serie, Woche und Verdienst");
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
@@ -397,12 +398,18 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="log"){const denied=memberGate(i);if(denied)return respond(i,denied);return await submitTaskLog({i,db,client:i.client??client,config});}
       if (i.commandName==="logbuch"){
         const denied=guard(i,"staff","Staff- oder Leitungsrolle");if(denied)return respond(i,denied);
-        if(!config.CHANNEL_TASK_FORUM)return respond(i,"Es ist noch kein Logbücher-Forum eingestellt (Einstellungen → Channels → Logbücher).");
+        const wanted=i.options.getString("art"),kinds=activeLogbookKinds(config).filter(k=>!wanted||k===wanted);
+        if(!kinds.length)return respond(i,"Dafür ist noch kein Forum eingestellt (Einstellungen → Channels → Aufgaben- bzw. Event-Logbücher).");
         const member=await i.guild.members.fetch(i.options.getUser("mitglied").id).catch(()=>null);
         if(!member)return respond(i,"Dieses Mitglied ist nicht auf dem Server.");
         await i.deferReply({flags:MessageFlags.Ephemeral});
-        const r=await ensureLogbook({db,client:i.client??client,config,member,actorId:u}).catch(error=>({status:"skipped",reason:`Discord-Fehler: ${error.message}`}));
-        return i.editReply(presentInteractionPayload({content:r.status==="created"?`📒 Logbuch angelegt: <#${r.threadId}>`:r.status==="existing"?`Für <@${member.id}> gibt es schon ein Logbuch${r.threadId?`: <#${r.threadId}>`:""}.`:r.reason}));
+        const lines=[];
+        for(const kind of kinds){
+          const r=await ensureLogbook({db,client:i.client??client,config,member,actorId:u,kind}).catch(error=>({status:"skipped",reason:`Discord-Fehler: ${error.message}`}));
+          const label=LOGBOOK_FORUMS[kind].label;
+          lines.push(r.status==="created"?`📒 ${label} angelegt: <#${r.threadId}>`:r.status==="existing"?`${label}: gibt es schon${r.threadId?` – <#${r.threadId}>`:""}.`:`${label}: ${r.reason}`);
+        }
+        return i.editReply(presentInteractionPayload({content:lines.join("\n")}));
       }
       if (i.commandName==="aufgaben"){const denied=memberGate(i);if(denied)return respond(i,denied);return answer(i,{embeds:[myTasksView(db,config,g,u)],ephemeral:true});}
       if (i.commandName==="abwesend") return await absenceCommand(i,sub,g,u);
@@ -1209,7 +1216,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     for(const roleId of roleIds){if(member.roles.cache.has(roleId))continue;await member.roles.add(roleId,"Gambinos Verifizierung").catch(error=>{failedRoles.push(roleId);console.warn("Verifizierungsrolle nicht vergeben:",error.message);});}
     try{verifications.save({guildId:i.guildId,userId:i.user.id,data,roleResult:roleIds.length?(failedRoles.length?"teilweise fehlgeschlagen":"vergeben"):null});}
     catch(error){return i.editReply(presentInteractionPayload({content:error.message}));}
-    void renameLogbook({db,client:i.client??client,guildId:i.guildId,userId:i.user.id,title:data.nickname}).catch(()=>{});
+    for(const kind of Object.keys(LOGBOOK_FORUMS))void renameLogbook({db,client:i.client??client,guildId:i.guildId,userId:i.user.id,title:data.nickname,kind}).catch(()=>{});
     const previousName=verifiedBefore?.nickname;
     if(previousName)return i.editReply(presentInteractionPayload({embeds:[embed("✏️ Name geändert",`${previousName===data.nickname?"Dein Name war bereits":"Dein Name lautet jetzt"} **${data.nickname}**.${previousName!==data.nickname?`\nVorher: ${previousName}`:""}${nicknameNote}`)]}));
     return i.editReply(presentInteractionPayload({embeds:[embed("✅ Verifizierung abgeschlossen",`Willkommen, **${data.firstName} ${data.lastName}**!\nDein Name lautet jetzt **${data.nickname}**.${roleIds.length&&!failedRoles.length?"\nDu kannst jetzt im öffentlichen Chat schreiben.":""}${failedRoles.length?"\n\n⚠️ Eine Rolle konnte nicht vergeben werden – das Team wurde im Protokoll informiert.":""}${nicknameNote}`)]}));

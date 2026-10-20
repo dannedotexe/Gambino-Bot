@@ -219,6 +219,13 @@ export const MIGRATIONS = [
       CREATE TABLE IF NOT EXISTS logbooks (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, thread_id TEXT, title TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'created', created_at TEXT NOT NULL, PRIMARY KEY(guild_id,user_id));
     `),
   },
+  {
+    version: 19,
+    name: "event-logbooks",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS event_logbooks (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, thread_id TEXT, title TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'created', created_at TEXT NOT NULL, archived_at TEXT, reminded_at TEXT, PRIMARY KEY(guild_id,user_id));
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

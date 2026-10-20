@@ -462,3 +462,5 @@ dialog .cselect-list{z-index:1000}
   :root{--glass:rgba(22,22,24,.97);--glass-strong:#1c1c1e}
   :root[data-theme=light]{--glass:rgba(249,249,251,.98);--glass-strong:#fff}
 }
+.logbook-forums{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-top:10px}
+.logbook-forum{padding:14px 16px;border-radius:var(--radius-md);background:var(--fill2)}.logbook-forum h3{font-size:16px;letter-spacing:-.015em}.logbook-forum .row-title{font-size:14px}

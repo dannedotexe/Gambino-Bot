@@ -109,3 +109,21 @@ test("Erinnerung: einmal nach X Tagen ohne Log, nicht bei Abgemeldeten, neu nach
   assert.match(dms[0][1].embeds[0].data.description, new RegExp(`channels/${G}/t${U}`));
   assert.equal(await remindInactiveLogbooks({ db, client, config, reference: new Date("2026-10-21T18:00:00Z") }), 0, "nicht jeden Tag erneut");
 });
+
+test("Event-Forum: eigenes Logbuch mit Event-Vorlage, getrennt vom Aufgaben-Logbuch; Leitung zählt zur Familie", async () => {
+  const { ensureLogbook, familyOf, DEFAULT_EVENT_LOGBOOK_TEMPLATE } = await import("../src/logbooks.js");
+  const EVENT_FORUM = "60000000000000061", db = testDb(), created = [];
+  const forum = { id: EVENT_FORUM, type: ChannelType.GuildForum, flags: { has: () => false }, availableTags: [],
+    threads: { fetchActive: async () => ({ threads: new Map() }), fetchArchived: async () => ({ threads: new Map() }), create: async o => { created.push(o); return { id: "e1", name: o.name }; } } };
+  const tasks = forumMock();
+  const client = { user: { id: "bot" }, channels: { fetch: async id => (id === EVENT_FORUM ? forum : id === FORUM ? tasks.forum : null) } };
+  const config = { DISCORD_GUILD_ID: G, CHANNEL_TASK_FORUM: FORUM, CHANNEL_EVENT_FORUM: EVENT_FORUM };
+  assert.equal((await ensureLogbook({ db, client, config, member: member(), kind: "events" })).status, "created");
+  assert.equal((await ensureLogbook({ db, client, config, member: member() })).status, "created", "Aufgaben-Logbuch zusätzlich");
+  assert.match(created[0].message.content, /Event Logs/);
+  assert.match(created[0].message.content, /`Tony Soprano \| 123456`/);
+  assert.ok(DEFAULT_EVENT_LOGBOOK_TEMPLATE.includes("Nur EVENT-LOGS"));
+  assert.equal(db.prepare("SELECT thread_id FROM event_logbooks").get().thread_id, "e1");
+  const LEAD = "20000000000000001";
+  assert.equal(familyOf({ ROLE_MEMBERS: ["x"], ROLE_LEADERS: [LEAD] }, new Map([[LEAD, true]])), true, "Leitung ohne Familienrolle bekommt trotzdem Logbücher");
+});

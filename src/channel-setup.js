@@ -41,6 +41,7 @@ export const CHANNEL_BINDINGS = {
   CHANNEL_TASK_REVIEW: ["STAFF", "aufgaben-prüfung"],
   CHANNEL_TASK_BOARD: ["FAMILIE", "aufgaben"],
   CHANNEL_TASK_FORUM: ["Familie", "aufgaben-logs"],
+  CHANNEL_EVENT_FORUM: ["EVENTS", "event-logs"],
   CHANNEL_BOT_COMMANDS: ["FAMILIE", "bot-befehle"],
   CHANNEL_EVENT_LOG: ["EVENTS", "event-logs"],
   CHANNEL_GIVEAWAYS: ["COMMUNITY", "giveaway"],

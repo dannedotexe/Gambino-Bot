@@ -38,7 +38,7 @@ import { PollError, createPollService, publishPoll, refreshPollMessage, announce
 import { EXPORTS, buildExportFile } from "./export.js";
 import { TaskError, createTaskService, weekStart } from "./services/tasks.js";
 import { decideTask, refreshTaskBoard } from "./task-logs.js";
-import { createMissingLogbooks, logbookStatus } from "./logbooks.js";
+import { LOGBOOK_FORUMS, createMissingLogbooks, logbookStatus } from "./logbooks.js";
 import { noShowsOf, removeNoShow } from "./event-checks.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
@@ -280,7 +280,11 @@ export function createDashboardApi({ db, client, config, settings = null, series
     }],
     [/^\/api\/logbooks$/, async member => {
       if (!can(member, "staff") && !can(member, "tasks")) throw new HttpError(403, "Dafür brauchst du eine Staff- oder Aufgaben-Prüfer-Rolle.");
-      return { ...(await logbookStatus({ db, client, config, guild: await guild() })), running: logbookRun };
+      const g = await guild();
+      // Beide Foren (Aufgaben, Events) mit eigener Diagnose.
+      const forums = [];
+      for (const kind of Object.keys(LOGBOOK_FORUMS)) forums.push({ ...(await logbookStatus({ db, client, config, guild: g, kind })), running: logbookRun?.kind === kind ? logbookRun : null });
+      return { forums };
     }],
     [/^\/api\/tasks\/([\w-]+)\/proof$/, async (member, url, [, id]) => {
       need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
@@ -483,19 +487,20 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const log = await decideTask({ db, client, config, guildId, id, actorId: member.id, approve: action === "approve", quantity, reason: body.reason, owner: member.owner });
       return { message: log.status === "approved" ? `Bestätigt${log.reward_cents ? ` – ${formatMoney(log.reward_cents)} gutgeschrieben` : ""}.` : "Abgelehnt. Das Mitglied wird informiert." };
     }],
-    [/^\/api\/logbooks\/create-missing$/, async member => {
+    [/^\/api\/logbooks\/create-missing$/, async (member, body) => {
       need(member, "staff", "Staff- oder Leitungsrolle");
-      if (logbookRun) throw new HttpError(409, "Die Logbücher werden gerade schon angelegt.");
-      const g = await guild(), status = await logbookStatus({ db, client, config, guild: g });
+      const kind = Object.hasOwn(LOGBOOK_FORUMS, body.kind) ? body.kind : "tasks";
+      if (logbookRun) throw new HttpError(409, "Es werden gerade schon Logbücher angelegt – bitte kurz warten.");
+      const g = await guild(), status = await logbookStatus({ db, client, config, guild: g, kind });
       if (!status.forum) throw new HttpError(400, status.problems[0] ?? "Kein Logbücher-Forum.");
       if (!status.missing.length) return { message: "Alle Familienmitglieder haben schon ein Logbuch." };
-      logbookRun = { startedAt: nowIso(), total: status.missing.length };
+      logbookRun = { kind, startedAt: nowIso(), total: status.missing.length };
       // Läuft im Hintergrund (mit Pausen gegen Discord-Drosselung); das Ergebnis steht danach im Protokoll.
-      void createMissingLogbooks({ db, client, config, guild: g, actorId: member.id })
-        .then(r => audit(db, guildId, member.id, "logbook.bulk", null, { created: r.created, linked: r.linked, failed: r.failed, errors: r.errors.slice(0, 5) }))
+      void createMissingLogbooks({ db, client, config, guild: g, actorId: member.id, kind })
+        .then(r => audit(db, guildId, member.id, "logbook.bulk", null, { kind, created: r.created, linked: r.linked, failed: r.failed, errors: r.errors.slice(0, 5) }))
         .catch(error => console.warn("Logbücher konnten nicht angelegt werden:", error.message))
         .finally(() => { logbookRun = null; });
-      return { message: `${status.missing.length} Logbücher werden angelegt – dauert ca. ${Math.ceil(status.missing.length * 1.7 / 60)} Min. Bestehende Posts mit gleichem Namen/ID werden nur verknüpft.` };
+      return { message: `${status.missing.length} × ${LOGBOOK_FORUMS[kind].label} werden angelegt – dauert ca. ${Math.ceil(status.missing.length * 1.7 / 60)} Min. Bestehende Posts mit gleichem Namen/ID werden nur verknüpft.` };
     }],
     [/^\/api\/task-types$/, async (member, body) => {
       need(member, "finance", "Finanz- oder Leitungsrolle");

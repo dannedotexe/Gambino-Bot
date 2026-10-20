@@ -134,8 +134,13 @@ export function logbookPrompt(db, config, guildId, messageId, imageCount = 1) {
 
 /** Nachricht in einem Logbuch-Post: Bild → Auswahlmenü darunter. Gibt true zurück, wenn gefragt wurde. */
 export async function handleLogbookMessage({ db, config, message }) {
-  if (!config.CHANNEL_TASK_FORUM || !message.channel?.isThread?.() || message.channel.parentId !== config.CHANNEL_TASK_FORUM) return false;
+  if (!message.channel?.isThread?.()) return false;
+  const inTasks = Boolean(config.CHANNEL_TASK_FORUM) && message.channel.parentId === config.CHANNEL_TASK_FORUM;
+  const inEvents = Boolean(config.CHANNEL_EVENT_FORUM) && message.channel.parentId === config.CHANNEL_EVENT_FORUM;
+  if (!inTasks && !inEvents) return false;
   if (/^\W*vorlage/i.test(message.channel.name ?? "")) return false;
+  // Event-Logbücher: nur Nachweis-Bilder, keine Aufgaben-Auswahl.
+  if (inEvents && imageOf(message)) return false;
   if (!imageOf(message)) {
     // Nur Bilder: Text von Mitgliedern wird gelöscht (Team darf schreiben), kurzer Hinweis verschwindet wieder.
     const groups = accessGroups(config), roles = message.member?.roles?.cache;

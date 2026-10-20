@@ -229,3 +229,17 @@ test("Excel: Monatsabrechnung pro Mitglied und Monat", async () => {
   assert.deepEqual(row.slice(1, 7), ["Tony", 2, 2, 50000, 1, 0]);
   assert.equal(buildTable("tasks", { db, guildId: G, name: id => id }).rows.length, 3);
 });
+
+test("Event-Forum: Bilder bleiben ohne Aufgaben-Menü, Text wird gelöscht", async () => {
+  const { handleLogbookMessage } = await import("../src/task-logs.js");
+  const db = testDb(), EV = "60000000000000061", config = baseConfig({ CHANNEL_EVENT_FORUM: EV });
+  const replies = [];
+  const msg = (attachments) => { const m = { deleted: false, guildId: G, author: { id: U }, member: { roles: { cache: new Map() } }, attachments, reply: async p => replies.push(p),
+    channel: { parentId: EV, name: "Tony | 1", isThread: () => true, send: async () => ({ delete: async () => {} }) }, delete: async () => { m.deleted = true; } }; return m; };
+  const image = msg(new Map([["a", { contentType: "image/png", name: "a.png" }]])), text = msg(new Map());
+  assert.equal(await handleLogbookMessage({ db, config, message: image }), false);
+  assert.equal(replies.length, 0, "kein Aufgaben-Menü im Event-Forum");
+  assert.equal(image.deleted, false);
+  await handleLogbookMessage({ db, config, message: text });
+  assert.equal(text.deleted, true);
+});

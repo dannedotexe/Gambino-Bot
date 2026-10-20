@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { archiveLogbook, ensureLogbook, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
+import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, ensureLogbook, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
@@ -64,6 +64,7 @@ async function adoptLeadershipDefaults(){
   // Logbücher-Forum („aufgaben-logs“) übernehmen, wenn es genau ein passendes Forum gibt.
   if(!config.CHANNEL_TASK_FORUM&&!getSetting(db,guild.id,"ADOPTED_CHANNEL_TASK_FORUM")){const hinted=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_TASK_FORUM).catch(()=>null);if(hinted?.type===15&&adopt("CHANNEL_TASK_FORUM",hinted.id,`Logbücher-Forum (#${hinted.name})`))setSetting(db,guild.id,"ADOPTED_CHANNEL_TASK_FORUM",new Date().toISOString());}
   if(!config.CHANNEL_TASK_FORUM&&!getSetting(db,guild.id,"ADOPTED_CHANNEL_TASK_FORUM")){const forums=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.type===15&&/aufgaben-?logs?/i.test(ch.name));if(forums.length===1&&adopt("CHANNEL_TASK_FORUM",forums[0].id,`Logbücher-Forum (#${forums[0].name})`))setSetting(db,guild.id,"ADOPTED_CHANNEL_TASK_FORUM",new Date().toISOString());}
+  if(!config.CHANNEL_EVENT_FORUM&&!getSetting(db,guild.id,"ADOPTED_CHANNEL_EVENT_FORUM")){const forums=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.type===15&&/event-?logs?/i.test(ch.name));if(forums.length===1&&adopt("CHANNEL_EVENT_FORUM",forums[0].id,`Event-Logbücher-Forum (#${forums[0].name})`))setSetting(db,guild.id,"ADOPTED_CHANNEL_EVENT_FORUM",new Date().toISOString());}
   // Turf Leader dürfen Events (z. B. Staatliche Kontrolle) ankündigen: einmalig ins Event-Team übernehmen, bestehende Einträge bleiben.
   if(!getSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS")){const roles=[...(await guild.roles.fetch().catch(()=>new Map())).values()].filter(r=>/turf\s*leader/i.test(r.name)&&!r.managed);if(roles.length===1){const ids=[...new Set([...(config.ROLE_EVENT_TEAM??[]),roles[0].id])];if(ids.length===(config.ROLE_EVENT_TEAM??[]).length||adopt("ROLE_EVENT_TEAM",ids,`Event-Team ergänzt um ${roles[0].name}`))setSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS",new Date().toISOString());}}
   if(!config.ROLE_VERIFIED?.length){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_VERIFIED).catch(()=>null);if(role)adopt("ROLE_VERIFIED",[role.id],`Verifiziert-Rolle (${role.name})`);}
@@ -100,27 +101,35 @@ client.on(Events.GuildMemberUpdate,(_old,member)=>{
     finance.openAccount({guildId:member.guild.id,userId:member.id,actorId:client.user?.id??"system",note:"Familienmitglieder-Rolle erhalten"});
   }catch(error){console.error("Familienkonto konnte nicht automatisch angelegt werden:",error.message);}
 });
-// Familienrolle neu erhalten: Logbuch im Forum anlegen (nur beim Wechsel von „ohne“ zu „mit“ Rolle).
+// Familienrolle neu erhalten: Logbücher (Aufgaben, Events) anlegen – nur beim Wechsel von „ohne“ zu „mit“ Familie.
+const logbookError=(guildId,message)=>setSetting(db,guildId,"LOGBOOK_LAST_ERROR",JSON.stringify({at:new Date().toISOString(),message}));
 client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
-  if(!config.LOGBOOK_AUTO_CREATE||!config.CHANNEL_TASK_FORUM||member.user?.bot)return;
+  if(!config.LOGBOOK_AUTO_CREATE||member.user?.bot||!activeLogbookKinds(config).length)return;
   if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
-  // Familie = Familienrolle oder eine Rang-Rolle. Unbekannter Vorher-Zustand zählt als „neu“; doppelte Posts verhindert ensureLogbook.
+  // Unbekannter Vorher-Zustand zählt als „neu“; doppelte Posts verhindert ensureLogbook.
   const had=oldMember?.partial||!oldMember?.roles?.cache?null:familyOf(config,oldMember.roles.cache);
   if(had===true||!familyOf(config,member.roles.cache))return;
-  if(config.LOGBOOK_ARCHIVE)void reopenLogbook({db,client,guildId:member.guild.id,userId:member.id}).catch(()=>{});
-  if(had===null&&db.prepare("SELECT 1 FROM logbooks WHERE guild_id=? AND user_id=?").get(member.guild.id,member.id))return;
-  void ensureLogbook({db,client,config,member}).then(r=>{if(r.status==="created")console.log(`Logbuch angelegt: ${r.thread.name}`);else if(r.status==="skipped")setSetting(db,member.guild.id,"LOGBOOK_LAST_ERROR",JSON.stringify({at:new Date().toISOString(),message:r.reason}));}).catch(error=>{console.warn("Logbuch konnte nicht angelegt werden:",error.message);setSetting(db,member.guild.id,"LOGBOOK_LAST_ERROR",JSON.stringify({at:new Date().toISOString(),message:error.message}));});
+  void (async()=>{
+    for(const kind of activeLogbookKinds(config)){
+      if(config.LOGBOOK_ARCHIVE)await reopenLogbook({db,client,guildId:member.guild.id,userId:member.id,kind}).catch(()=>{});
+      if(had===null&&db.prepare(`SELECT 1 FROM ${LOGBOOK_FORUMS[kind].table} WHERE guild_id=? AND user_id=?`).get(member.guild.id,member.id))continue;
+      const r=await ensureLogbook({db,client,config,member,kind}).catch(error=>({status:"error",reason:error.message}));
+      if(r.status==="created")console.log(`${LOGBOOK_FORUMS[kind].label} angelegt: ${r.thread.name}`);
+      else if(r.status==="skipped"||r.status==="error"){console.warn(`${LOGBOOK_FORUMS[kind].label} nicht angelegt:`,r.reason);logbookError(member.guild.id,`${LOGBOOK_FORUMS[kind].label}: ${r.reason}`);}
+    }
+  })();
 });
-// Familie verlassen: Logbuch archivieren und sperren (Rolle weg oder Server verlassen).
+// Familie verlassen: Logbücher archivieren und sperren (Rolle weg oder Server verlassen).
+const archiveAll=(member,reason)=>{for(const kind of activeLogbookKinds(config))void archiveLogbook({db,client,guildId:member.guild.id,userId:member.id,reason,kind}).catch(()=>{});};
 client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
   if(!config.LOGBOOK_ARCHIVE||member.user?.bot||oldMember?.partial||!oldMember?.roles?.cache)return;
   if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
-  if(familyOf(config,oldMember.roles.cache)&&!familyOf(config,member.roles.cache))void archiveLogbook({db,client,guildId:member.guild.id,userId:member.id,reason:"Familienrolle entfernt"}).catch(()=>{});
+  if(familyOf(config,oldMember.roles.cache)&&!familyOf(config,member.roles.cache))archiveAll(member,"Familienrolle entfernt");
 });
 client.on(Events.GuildMemberRemove,member=>{
   if(!config.LOGBOOK_ARCHIVE||member.user?.bot)return;
   if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
-  void archiveLogbook({db,client,guildId:member.guild.id,userId:member.id,reason:"Server verlassen"}).catch(()=>{});
+  archiveAll(member,"Server verlassen");
 });
 // Familienrolle verloren oder Server verlassen: Löschanfrage für das Familienkonto (Bestätigung über die Website).
 const closures=createAccountClosureService(db,finance);
