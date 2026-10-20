@@ -1,9 +1,9 @@
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from "discord.js";
 import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
-import { getSetting, openDatabase, setSetting } from "./src/database.js";
+import { audit, getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, ensureLogbook, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
+import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
@@ -79,6 +79,17 @@ async function adoptLeadershipDefaults(){
   if(!config.CHANNEL_VERIFICATION_PANEL){
     const matches=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.isTextBased?.()&&/neue-spieler/i.test(ch.name));
     if(matches.length===1&&adopt("CHANNEL_VERIFICATION_PANEL",matches[0].id,`Verifizierungs-Panel-Channel (#${matches[0].name})`))await ensurePanels({db,client,config,series,only:["CHANNEL_VERIFICATION_PANEL"]}).catch(()=>{});
+  }
+  // Event-Logbücher einmalig für alle bestehenden Familienmitglieder anlegen (Neue bekommen ihres automatisch).
+  // Erst wenn Forum und Bot-Rechte passen – sonst beim nächsten Start erneut versuchen.
+  if(config.CHANNEL_EVENT_FORUM&&config.LOGBOOK_AUTO_CREATE&&!getSetting(db,guild.id,"EVENT_LOGBOOKS_BACKFILLED")){
+    const status=await logbookStatus({db,client,config,guild,kind:"events"}).catch(()=>null);
+    if(status?.forum&&!status.problems.length){
+      setSetting(db,guild.id,"EVENT_LOGBOOKS_BACKFILLED",new Date().toISOString());
+      const r=await createMissingLogbooks({db,client,config,guild,actorId:client.user.id,kind:"events"}).catch(error=>({created:0,linked:0,failed:1,errors:[error.message]}));
+      console.log(`Event-Logbücher: ${r.created} angelegt, ${r.linked} verknüpft, ${r.failed} fehlgeschlagen.`);
+      audit(db,guild.id,client.user.id,"logbook.bulk",null,{kind:"events",created:r.created,linked:r.linked,failed:r.failed,errors:r.errors.slice(0,5)});
+    }else if(status)console.warn("Event-Logbücher noch nicht angelegt:",status.problems.join(" "));
   }
 }
 client.on(Events.InteractionCreate,async interaction=>{
