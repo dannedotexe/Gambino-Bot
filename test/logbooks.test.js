@@ -127,3 +127,15 @@ test("Event-Forum: eigenes Logbuch mit Event-Vorlage, getrennt vom Aufgaben-Logb
   const LEAD = "20000000000000001";
   assert.equal(familyOf({ ROLE_MEMBERS: ["x"], ROLE_LEADERS: [LEAD] }, new Map([[LEAD, true]])), true, "Leitung ohne Familienrolle bekommt trotzdem Logbücher");
 });
+
+test("Gelöschter Post: Verweis wird verworfen und das Logbuch neu angelegt", async () => {
+  const db = testDb(), m = forumMock(), config = { DISCORD_GUILD_ID: G, CHANNEL_TASK_FORUM: FORUM };
+  db.prepare("INSERT INTO logbooks(guild_id,user_id,thread_id,title,source,created_at) VALUES(?,?,?,?,'existing','x')").run(G, U, "weg", "Tony");
+  const fetch = m.client.channels.fetch;
+  m.client.channels.fetch = async id => { if (id === "weg") throw Object.assign(new Error("Unknown Channel"), { code: 10003 }); return fetch(id); };
+  const r = await ensureLogbook({ db, client: m.client, config, member: member() });
+  assert.equal(r.status, "created");
+  assert.equal(db.prepare("SELECT thread_id FROM logbooks").get().thread_id, "n0");
+  m.client.channels.fetch = async id => { if (id === "n0") throw Object.assign(new Error("Discord down"), { code: 500 }); return fetch(id); };
+  assert.equal((await ensureLogbook({ db, client: m.client, config, member: member() })).status, "existing", "bei anderen Fehlern nichts verwerfen");
+});

@@ -61,6 +61,12 @@ export function buildLogbookContent(template, title, userId) {
   return lines.join("\n").slice(0, 2000);
 }
 
+/** true nur, wenn Discord den Post sicher nicht mehr kennt (Unknown Channel) – bei anderen Fehlern nichts verwerfen. */
+async function threadGone(client, threadId) {
+  try { return !(await client.channels.fetch(threadId)); }
+  catch (error) { return error?.code === 10003 || error?.status === 404; }
+}
+
 async function forumThreads(forum) {
   const active = await forum.threads.fetchActive().catch(() => null);
   const archived = await forum.threads.fetchArchived({ limit: 100 }).catch(() => null);
@@ -77,7 +83,7 @@ async function templateFrom(threads, fallback = DEFAULT_LOGBOOK_TEMPLATE) {
 /**
  * Legt das Logbuch an (einmal pro Person). Ergebnis: { status: "created" | "existing" | "skipped", thread?, reason? }.
  */
-export async function ensureLogbook({ db, client, config, member, actorId = null, kind = "tasks" }) {
+export async function ensureLogbook({ db, client, config, member, actorId = null, kind = "tasks", retried = false }) {
   const guildId = member.guild?.id ?? config.DISCORD_GUILD_ID, f = forumOf(kind), T = f.table;
   if (!config[f.key]) return { status: "skipped", reason: `Kein Forum für das ${f.label} eingestellt.` };
   if (member.user?.bot) return { status: "skipped", reason: "Bot" };
@@ -85,6 +91,14 @@ export async function ensureLogbook({ db, client, config, member, actorId = null
   const reserved = db.prepare(`INSERT OR IGNORE INTO ${T}(guild_id,user_id,thread_id,title,source,created_at) VALUES(?,?,NULL,?,'pending',?)`).run(guildId, member.id, logbookTitle(db, guildId, member), new Date().toISOString()).changes;
   if (!reserved) {
     const row = db.prepare(`SELECT * FROM ${T} WHERE guild_id=? AND user_id=?`).get(guildId, member.id);
+    // Gespeicherter Post wurde gelöscht (oder ein Anlegen ist hängen geblieben): Verweis verwerfen und neu anlegen.
+    const stalePending = row?.source === "pending" && Date.now() - new Date(row.created_at).getTime() > 5 * 60_000;
+    const gone = row?.thread_id ? await threadGone(client, row.thread_id) : false;
+    if (row && (gone || stalePending) && !retried) {
+      db.prepare(`DELETE FROM ${T} WHERE guild_id=? AND user_id=?`).run(guildId, member.id);
+      audit(db, guildId, actorId ?? client.user?.id ?? "system", "logbook.relinked", member.id, { kind, oldThreadId: row.thread_id, reason: gone ? "Post gelöscht" : "Anlegen hing" });
+      return ensureLogbook({ db, client, config, member, actorId, kind, retried: true });
+    }
     return { status: "existing", threadId: row?.thread_id ?? null, reason: row?.source === "pending" ? "Wird gerade angelegt." : "Logbuch existiert bereits." };
   }
   const release = () => db.prepare(`DELETE FROM ${T} WHERE guild_id=? AND user_id=? AND source='pending'`).run(guildId, member.id);

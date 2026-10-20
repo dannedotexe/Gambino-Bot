@@ -205,6 +205,24 @@ export function createDashboardApi({ db, client, config, settings = null, series
         settings: { days: config.INACTIVITY_DAYS, dm: config.INACTIVITY_DM_ENABLED, alert: config.INACTIVITY_ALERT_ENABLED, maxDays: config.ABSENCE_MAX_DAYS, membersRole: Boolean(config.ROLE_MEMBERS?.length), trackingSince: activity.trackingSince(guildId) },
       }, ids);
     }],
+    // Familienliste für Sammel-Aktionen (Sammelsanktion): Name und Kontostand.
+    [/^\/api\/family-roster$/, async member => {
+      need(member, "staff", "Staff-Rolle");
+      const g = await guild();
+      const list = await familyMembers({ db, guild: g, config });
+      const ids = list.map(m => m.id), names = await resolveNames(ids);
+      return { members: list.map(m => ({ id: m.id, name: names[m.id] ?? m.name, net: finance.previewPayout(guildId, m.id).net })).sort((a, b) => String(a.name).localeCompare(String(b.name), "de")) };
+    }],
+    // Sammelauszahlung, Schritt 1: alle auszahlbaren Konten (Guthaben > 0, Mindestbetrag erreicht) mit Vorschau.
+    [/^\/api\/payouts\/bulk-preview$/, async member => {
+      need(member, "finance", "Finanzrolle");
+      const minimum = config.PAYOUT_MINIMUM_CENTS ?? null;
+      const rows = db.prepare("SELECT user_id FROM accounts WHERE guild_id=? AND balance_cents>0").all(guildId)
+        .map(r => ({ userId: r.user_id, ...finance.previewPayout(guildId, r.user_id) }))
+        .filter(r => minimum == null || r.gross >= minimum).sort((a, b) => b.net - a.net);
+      const names = await resolveNames(rows.map(r => r.userId));
+      return { requestId: randomUUID(), minimum, items: rows.map(r => ({ userId: r.userId, name: names[r.userId] ?? null, gross: r.gross, deduction: r.deduction, net: r.net })) };
+    }],
     [/^\/api\/members\/(\d{17,20})\/profile$/, async (member, url, [, userId]) => {
       need(member, "anyStaff", "Staff-Rolle");
       const g = await guild();
@@ -653,6 +671,56 @@ export function createDashboardApi({ db, client, config, settings = null, series
         await client.users.fetch(userId).then(user => user.send({ embeds: [dm] })).catch(() => {});
       }
       return { message: existing ? "Diese Auszahlung war bereits verbucht; es wurde nichts doppelt gebucht." : `Auszahlung verbucht: ${formatMoney(tx.net_cents)} netto (Abzug ${formatMoney(tx.deduction_cents)}). Bitte jetzt im Spiel auszahlen.`, transaction: { id: tx.id, gross: tx.gross_cents, deduction: tx.deduction_cents, net: tx.net_cents } };
+    }],
+    // Sammelsanktion: gleicher Betrag und Grund für mehrere Mitglieder – alles oder nichts in einer Transaktion.
+    [/^\/api\/sanctions\/bulk$/, async (member, body) => {
+      need(member, "staff", "Staff-Rolle");
+      const request = requestId(body.requestId);
+      const ids = [...new Set((Array.isArray(body.userIds) ? body.userIds : []).map(String))];
+      if (!ids.length) throw new HttpError(400, "Bitte mindestens ein Mitglied auswählen.");
+      if (ids.length > 100) throw new HttpError(400, "Höchstens 100 Mitglieder auf einmal.");
+      ids.forEach(id => snowflake(id));
+      const cents = money(body.amount), reason = text(body.reason, { min: 3, max: 300, label: "Grund" }), caseRef = text(body.caseRef, { max: 100, label: "Fallbezug" }) || null;
+      if (db.prepare("SELECT 1 FROM audit_logs WHERE guild_id=? AND action='sanction.bulk' AND target_id=?").get(guildId, request)) return { message: "Diese Sammelsanktion wurde bereits eingetragen; es wurde nichts doppelt gebucht." };
+      const g = await guild(), present = await g.members.fetch({ user: ids }).catch(() => null);
+      const missing = ids.filter(id => !present?.get?.(id) || present.get(id).user?.bot);
+      if (missing.length) throw new HttpError(400, `${missing.length} ausgewählte Person(en) sind nicht (mehr) auf dem Server. Bitte Auswahl prüfen.`);
+      const created = db.transaction(() => {
+        const list = ids.map(userId => finance.sanction({ guildId, userId, actorId: member.id, cents, reason, caseRef }));
+        audit(db, guildId, member.id, "sanction.bulk", request, { count: ids.length, cents, reason, caseRef, userIds: ids });
+        return list;
+      })();
+      return { message: `${created.length} Sanktionen à ${formatMoney(cents)} vorgemerkt (gesamt ${formatMoney(cents * created.length)}). Sie werden bei der nächsten Auszahlung verrechnet.` };
+    }],
+    // Sammelauszahlung, Schritt 2: jede Auszahlung einzeln und genau einmal (Schlüssel je Anfrage + Mitglied).
+    // Hat sich ein Konto seit der Vorschau geändert, wird es übersprungen und gemeldet.
+    [/^\/api\/payouts\/bulk$/, async (member, body) => {
+      need(member, "finance", "Finanzrolle");
+      const request = requestId(body.requestId);
+      const items = (Array.isArray(body.items) ? body.items : []).slice(0, 200).map(item => ({ userId: snowflake(item.userId), expectedGross: Number(item.expectedGross), expectedDeduction: Number(item.expectedDeduction) }));
+      if (!items.length) throw new HttpError(400, "Bitte mindestens ein Konto auswählen.");
+      const done = [], skipped = [];
+      for (const item of items) {
+        const key = `web-bulk-payout:${request}:${item.userId}`;
+        const existing = db.prepare("SELECT * FROM transactions WHERE idempotency_key=?").get(key);
+        try {
+          const tx = existing ?? finance.payout({ guildId, userId: item.userId, actorId: member.id, key, minimumCents: config.PAYOUT_MINIMUM_CENTS, expectedGross: item.expectedGross, expectedDeduction: item.expectedDeduction });
+          done.push({ userId: item.userId, net: tx.net_cents, deduction: tx.deduction_cents, fresh: !existing });
+          if (!existing) {
+            const dm = new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  FAMILIENKONTO" }).setTitle("💸 Auszahlung verbucht")
+              .addFields({ name: "Brutto", value: formatMoney(tx.gross_cents), inline: true }, { name: "Sanktionsabzug", value: formatMoney(tx.deduction_cents), inline: true }, { name: "Auszahlung", value: `**${formatMoney(tx.net_cents)}**`, inline: true }, { name: "Referenz", value: `\`${tx.id.slice(0, 8)}\``, inline: true })
+              .setFooter({ text: "GAMBINOS  •  Private Nachricht" }).setTimestamp();
+            void client.users.fetch(item.userId).then(user => user.send({ embeds: [dm] })).catch(() => {});
+          }
+        } catch (error) {
+          if (!(error instanceof FinanceError)) throw error;
+          skipped.push({ userId: item.userId, reason: error.code === "PREVIEW_MISMATCH" ? "Kontostand hat sich seit der Vorschau geändert" : error.message });
+        }
+      }
+      audit(db, guildId, member.id, "finance.bulk_payout", request, { paid: done.filter(d => d.fresh).length, skipped: skipped.length, net: done.reduce((s, d) => s + d.net, 0) });
+      const names = await resolveNames(skipped.map(s => s.userId));
+      const total = done.reduce((s, d) => s + d.net, 0);
+      return { message: `${done.length} Auszahlungen verbucht, gesamt ${formatMoney(total)} netto. Bitte jetzt im Spiel auszahlen.${skipped.length ? ` ${skipped.length} übersprungen: ${skipped.map(s => `${names[s.userId] ?? "…" + s.userId.slice(-4)} (${s.reason})`).join(", ")}.` : ""}`, done, skipped };
     }],
     [/^\/api\/sanctions$/, async (member, body) => {
       need(member, "staff", "Staff-Rolle");

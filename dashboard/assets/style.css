@@ -464,3 +464,10 @@ dialog .cselect-list{z-index:1000}
 }
 .logbook-forums{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-top:10px}
 .logbook-forum{padding:14px 16px;border-radius:var(--radius-md);background:var(--fill2)}.logbook-forum h3{font-size:16px;letter-spacing:-.015em}.logbook-forum .row-title{font-size:14px}
+
+/* Mehrfachauswahl (Sammelsanktion, Sammelauszahlung) */
+.check[hidden]{display:none!important}
+.multi-pick{display:block}.multi-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.multi-tools .multi-filter{flex:1 1 200px;min-width:0}
+.multi-count{font-size:13px;color:var(--muted);font-weight:500;margin-left:auto}
+.multi-list{display:flex;flex-wrap:wrap;gap:8px;max-height:260px;overflow:auto;padding:2px}
