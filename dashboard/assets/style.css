@@ -55,7 +55,7 @@ footer{color:var(--faint);font-size:11px;padding:28px 0 6px;border-top:1px solid
 .quick-btn svg{width:14px;height:14px;fill:none;stroke:var(--muted);stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .section-intro{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:20px 0 14px;flex-wrap:wrap}.section-intro h2{font-size:20px}.section-intro p{color:var(--muted);margin:4px 0 0;font-size:13px;max-width:680px;line-height:1.5}
 .section-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.section-tools input,.section-tools select,.subhead-row select,.panel-head select{background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:var(--radius-sm);padding:7px 10px;font:inherit;font-size:13px;outline:none;min-width:0}
+.section-tools input,.section-tools select,.subhead-row select,.subhead-row input,.panel-head select{background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:var(--radius-sm);padding:7px 10px;font:inherit;font-size:13px;outline:none;min-width:0}
 .section-tools input{width:min(260px,60vw)}.section-tools input:focus,.section-tools select:focus{border-color:var(--line2)}
 .subhead{font-size:14px;font-weight:600;margin:24px 0 10px}
 
@@ -277,3 +277,33 @@ dialog .cselect-list{z-index:1000}
 
 /* Zusatz unter dem Wert (z. B. „noch $…“) klein und ruhig statt umbrechend */
 .stat .value small{display:block;margin-top:3px;font-size:12px;font-weight:500;color:var(--muted)}
+
+/* ---------- Aufgaben-Logs ---------- */
+.task-queue{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.task-card{display:flex;flex-direction:column;border-radius:var(--radius);background:var(--surface);border:1px solid var(--line);overflow:hidden;min-width:0;transition:border-color .15s,transform .15s}
+.task-card:hover{border-color:var(--line2)}
+.task-card.flagged{border-color:#a16207}
+.task-card.leaving{opacity:0;transform:scale(.97);transition:opacity .25s,transform .25s}
+.task-shot{position:relative;display:block;width:100%;aspect-ratio:16/9;border:0;padding:0;background:var(--surface2);cursor:zoom-in;overflow:hidden}
+.task-shot img{width:100%;height:100%;object-fit:cover;display:block}
+.task-shot span{position:absolute;inset:0;display:grid;place-items:center;color:var(--faint);font-size:12px}
+.task-reward{position:absolute;right:10px;bottom:10px;background:#000c;color:#86efac;font-weight:600;font-size:13px;padding:3px 9px;border-radius:999px;font-variant-numeric:tabular-nums}
+.task-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:4px;flex:1}
+.task-body h3{font-size:15px;font-weight:600;margin:0}
+.task-flag{font-size:12px;color:#fde047;background:var(--warn-soft);border-radius:var(--radius-sm);padding:6px 8px;margin-top:4px}
+.task-body .actions{margin-top:auto;padding-top:10px}
+.action.approve{background:var(--green-soft);border-color:#166534;color:#86efac}.action.approve:hover{background:#22c55e33}
+.lightbox-img{display:block;max-width:100%;max-height:75vh;margin:0 auto;border-radius:var(--radius-sm)}
+.level-panel{margin-bottom:16px}
+.level-card{display:flex;gap:16px;align-items:center;margin-bottom:14px}
+.level-badge{flex:none;width:58px;height:58px;border-radius:16px;display:grid;place-items:center;font-size:30px;background:linear-gradient(135deg,#d4a84333,#dc262622);border:1px solid #d4a84355}
+.level-body{flex:1;min-width:0}.level-body h2{font-size:18px}
+.level-bar{height:8px;border-radius:4px;background:var(--hover);overflow:hidden;margin-top:8px}
+.level-bar i{display:block;height:100%;width:0;border-radius:4px;background:linear-gradient(90deg,var(--gold),#f59e0b);transition:width .6s ease}
+.stats.compact .stat{padding:10px 14px}.stats.compact .stat .value{font-size:17px}
+.medal{display:inline-block;width:26px}
+.type-row .row-title .off{color:var(--faint);font-weight:400;margin-left:6px;font-size:12px}
+.task-hist{grid-template-columns:minmax(120px,.9fr) minmax(140px,1.2fr) minmax(150px,1.3fr) .8fr minmax(120px,1fr)}
+@media (max-width:700px){.task-queue{grid-template-columns:1fr}.task-hist{grid-template-columns:1fr 1fr}}
+.row .ok,.stat .ok{color:#86efac}
+.subhead-row input{width:min(260px,100%)}.subhead-row input:focus{border-color:var(--line2);outline:none}

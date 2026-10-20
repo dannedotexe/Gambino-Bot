@@ -38,6 +38,8 @@ export const CHANNEL_BINDINGS = {
   CHANNEL_EVENT_RESULTS: ["EVENTS", "event-ergebnisse"],
   CHANNEL_EVENT_CHECK: ["STAFF", "event-check"],
   CHANNEL_PAYOUT_LIST: ["FAMILIE", "auszahlungsliste"],
+  CHANNEL_TASK_REVIEW: ["STAFF", "aufgaben-prüfung"],
+  CHANNEL_TASK_BOARD: ["FAMILIE", "aufgaben"],
   CHANNEL_BOT_COMMANDS: ["FAMILIE", "bot-befehle"],
   CHANNEL_EVENT_LOG: ["EVENTS", "event-logs"],
   CHANNEL_GIVEAWAYS: ["COMMUNITY", "giveaway"],

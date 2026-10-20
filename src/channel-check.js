@@ -30,6 +30,8 @@ export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_EVENT_RESULTS", label: "Event-Ergebnisse", audience: "public", expect: ["ergebnis", "result"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_BOT_COMMANDS", label: "Befehls-Channel (Mitglieder)", audience: "public", expect: ["befehl", "command", "bot"], perms: ["SendMessages", "ManageMessages"] },
   { key: "CHANNEL_PAYOUT_LIST", label: "Auszahlungsliste", audience: "any", expect: ["auszahl", "liste", "konto"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
+  { key: "CHANNEL_TASK_REVIEW", label: "Aufgaben-Logs prüfen", audience: "staff", expect: ["aufgabe", "log", "prüf", "task"], perms: ["SendMessages", "EmbedLinks", "AttachFiles"] },
+  { key: "CHANNEL_TASK_BOARD", label: "Aufgaben-Board", audience: "public", expect: ["aufgabe", "task", "board", "log"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
   { key: "CHANNEL_EVENT_CHECK", label: "Event-Check (Anwesenheit)", audience: "staff", expect: ["check", "anwesen", "event"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_EVENT_LOG", label: "Event-Log", audience: "any", expect: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_GIVEAWAYS", label: "Giveaways", audience: "public", expect: ["giveaway", "gewinn"], perms: ["SendMessages", "EmbedLinks"] },

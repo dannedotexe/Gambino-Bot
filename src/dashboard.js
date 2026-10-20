@@ -27,8 +27,9 @@ export function createDashboard({ db, client, config, settings = null, series = 
   const secret = config.DASHBOARD_SESSION_SECRET;
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   // Login: alle Staff-Stufen, reine Finanz-Einsicht und für Ticket-Kategorien zuständige Rollen (live, damit Rollenänderungen sofort gelten).
-  const staffRoleIds = () => [...new Set([...groups.anyStaff, ...groups.financeView, ...(config.TICKET_CATEGORIES_JSON ?? []).flatMap(category => category.roleIds)])];
+  const staffRoleIds = () => [...new Set([...groups.anyStaff, ...groups.financeView, ...groups.tasks, ...(config.TICKET_CATEGORIES_JSON ?? []).flatMap(category => category.roleIds)])];
   const extendedApi = createDashboardApi({ db, client, config, settings, series });
+  const extendedTasks = member => member.owner || groups.tasks.some(id => member.roles.includes(id));
   const ticketService = createTicketService(db);
   const categoryLabel = id => (config.TICKET_CATEGORIES_JSON ?? []).find(category => category.id === id)?.label ?? id;
   const sign = value => createHmac("sha256", secret).update(value).digest("base64url");
@@ -325,6 +326,7 @@ export function createDashboard({ db, client, config, settings = null, series = 
             overdueEvents: count("SELECT COUNT(*) n FROM events WHERE guild_id=? AND status='scheduled' AND series_id IS NULL AND starts_at<?", g, new Date(Date.now() - 3 * 3_600_000).toISOString()),
             activeSeries: count("SELECT COUNT(*) n FROM event_series WHERE guild_id=? AND active=1", g),
             attendanceOpen: count("SELECT COUNT(*) n FROM events e WHERE e.guild_id=? AND e.status IN ('scheduled','ended') AND e.attendance_closed_at IS NULL AND e.starts_at<=? AND e.starts_at>=? AND EXISTS(SELECT 1 FROM event_participants p WHERE p.event_id=e.id AND p.status IN ('signed_up','present','absent'))", g, new Date(Date.now() - (config.EVENT_SERIES_AUTO_END_MINUTES ?? 120) * 60_000).toISOString(), db.prepare("SELECT value FROM guild_settings WHERE guild_id=? AND key='ATTENDANCE_SINCE'").get(g)?.value ?? nowIso),
+            ...(extendedTasks(member) ? { tasksPending: count("SELECT COUNT(*) n FROM task_logs WHERE guild_id=? AND status='pending'", g) } : {}),
             ...(canSeeFinance ? { payoutsDue: count("SELECT COUNT(*) n FROM accounts WHERE guild_id=? AND balance_cents>0 AND balance_cents>=?", g, config.PAYOUT_MINIMUM_CENTS ?? 1), accountClosures: count("SELECT COUNT(*) n FROM account_closures WHERE guild_id=? AND status='pending'", g) } : {}),
           };
           if (canSeeFinance) {

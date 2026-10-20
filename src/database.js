@@ -202,6 +202,16 @@ export const MIGRATIONS = [
       CREATE TABLE IF NOT EXISTS event_kills (event_id TEXT NOT NULL, user_id TEXT NOT NULL, kills INTEGER NOT NULL CHECK(kills >= 0 AND kills <= 999), updated_at TEXT NOT NULL, PRIMARY KEY(event_id,user_id));
     `),
   },
+  {
+    version: 17,
+    name: "task-logs",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS task_types (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, name TEXT NOT NULL, emoji TEXT NOT NULL DEFAULT '📋', reward_cents INTEGER NOT NULL DEFAULT 0 CHECK(reward_cents >= 0), per_unit INTEGER NOT NULL DEFAULT 0, unit TEXT NOT NULL DEFAULT 'Stück', daily_limit INTEGER, active INTEGER NOT NULL DEFAULT 1, sort INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_logs (id TEXT PRIMARY KEY, guild_id TEXT NOT NULL, user_id TEXT NOT NULL, type_id TEXT NOT NULL REFERENCES task_types(id), quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity >= 1 AND quantity <= 999), reward_cents INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT '', proof_url TEXT, proof_key TEXT, duplicate_of TEXT, status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected')), reviewer_id TEXT, reviewed_at TEXT, reject_reason TEXT, transaction_id TEXT, channel_id TEXT, message_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS task_logs_guild_status ON task_logs(guild_id,status,created_at);
+      CREATE INDEX IF NOT EXISTS task_logs_user ON task_logs(guild_id,user_id,created_at);
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

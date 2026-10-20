@@ -20,6 +20,8 @@ import { describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { buildActivityBoard, publishActivityBoard, refreshActivityBoard } from "./activity-board.js";
 import { PANEL_CHANNEL_KEYS, ensurePanels, postEventResult } from "./panels.js";
 import { handleAttendanceInteraction, requestAttendance } from "./attendance.js";
+import { handleTaskInteraction, myTasksView, rewardLabel, submitTaskLog } from "./task-logs.js";
+import { createTaskService } from "./services/tasks.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
@@ -273,13 +275,19 @@ export function buildCommands() {
       .addRoleOption(o=>o.setName("rolle").setDescription("Nur Mitglieder mit dieser Rolle dürfen abstimmen"))
       .addChannelOption(o=>o.setName("kanal").setDescription("Channel (Standard: Abstimmungs-Channel)").addChannelTypes(ChannelType.GuildText,ChannelType.GuildAnnouncement)))
     .addSubcommand(s=>s.setName("beenden").setDescription("Abstimmung vorzeitig beenden (Staff)").addStringOption(o=>o.setName("umfrage").setDescription("Abstimmung auswählen").setRequired(true).setAutocomplete(true)));
+  const log = new SlashCommandBuilder().setName("log").setDescription("Erledigte Familien-Aufgabe mit Screenshot einreichen (Belohnung nach Prüfung)")
+    .addStringOption(o=>o.setName("aufgabe").setDescription("Welche Aufgabe? (tippen zum Suchen)").setRequired(true).setAutocomplete(true))
+    .addAttachmentOption(o=>o.setName("beweis").setDescription("Screenshot – ganzer Bildschirm mit Datum und Uhrzeit").setRequired(true))
+    .addIntegerOption(o=>o.setName("menge").setDescription("Wie viele? (nur bei Aufgaben mit Stückzahl, Standard 1)").setMinValue(1).setMaxValue(999))
+    .addStringOption(o=>o.setName("notiz").setDescription("Optional, z. B. wen du eingeladen hast").setMaxLength(300));
+  const myTasks = new SlashCommandBuilder().setName("aufgaben").setDescription("Deine Aufgaben-Logs: Stufe, Serie, Woche und Verdienst");
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
     new SlashCommandBuilder().setName("help").setDescription("Befehlsübersicht"),
     new SlashCommandBuilder().setName("bewerbung-panel").setDescription("Bewerbungs-Panel senden (Reviewer)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen (Staff)").addIntegerOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices(...Object.entries(PERIODS).map(([days,label])=>({name:label,value:Number(days)})))),
   ];
-  return [money,sanction,warn,warnings,unwarn,poll,timeout,untimeout,kick,ban,unban,control,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
+  return [log,myTasks,money,sanction,warn,warnings,unwarn,poll,timeout,untimeout,kick,ban,unban,control,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
 }
 
 export function createHandler({db,finance,config,client,settings=null,series=null}) {
@@ -344,6 +352,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         choices=rows.filter(r=>r.user_id!==i.user.id||isOwner(i)).map(r=>({name:`${target?"":`${nick(r.user_id)} · `}${new Date(r.created_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})} · ${r.reason} · ${r.id.slice(0,8)}`.slice(0,100),value:r.id}));
       }else if(i.commandName==="aktivitaeten"&&series&&can(i,"events")){
         choices=series.list(g).map(r=>({name:`${r.active?"🟢":"⚪"} ${r.name} · ${describeSchedule(r)}`.slice(0,100),value:r.id}));
+      }else if(i.commandName==="log"){
+        choices=createTaskService(db,{timezone:()=>config.TIMEZONE}).listTypes(g).map(t=>({name:`${t.emoji} ${t.name} · ${rewardLabel(t)}${t.daily_limit?` · max. ${t.daily_limit}×/Tag`:""}`.slice(0,100),value:t.id}));
       }else if(i.commandName==="giveaway"&&sub==="abbrechen"&&can(i,"staff")){
         rows=db.prepare("SELECT id,prize,ends_at FROM giveaways WHERE guild_id=? AND status='active' ORDER BY ends_at LIMIT 100").all(g);
         choices=rows.map(r=>({name:`🎉 ${r.prize.slice(0,65)} · endet ${new Date(r.ends_at).toLocaleDateString("de-AT",{timeZone:config.TIMEZONE})}`,value:r.id}));
@@ -362,6 +372,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="ping") return respond(i,`Pong! ${client.ws.ping} ms`);
       if (i.commandName==="help") return answer(i,{...fieldsEmbed("📚 Gambinos Bot – Befehle",[
         {name:"💰 Konto & Sanktionen",value:"`/konto` Guthaben, Gutschriften, Auszahlungen, Korrekturen und Historie\n`/sanktion` Sanktionen und Verwarnungen eintragen, ansehen, korrigieren oder aufheben"},
+        {name:"📋 Aufgaben",value:"`/log` erledigte Aufgabe (Invite, Plantage …) mit Screenshot einreichen – Belohnung nach Prüfung aufs Konto\n`/aufgaben` deine Stufe, Serie und Verdienst"},
         {name:"🚫 Abmeldung & Aktivität",value:"`/abwesend melden | beenden | liste` Urlaub oder Pause eintragen\n`/rangliste` aktivste Mitglieder nach Event-Teilnahmen"},
         {name:"🛡️ Moderation",value:"`/timeout` `/untimeout` (Moderation) · `/kick` (Staff) · `/ban` `/unban` (Leitung) – mit Grund, DM und Eintrag in der Mitgliederhistorie"},
         {name:"📝 Verwarnungen",value:"`/warn` Mitglied verwarnen (DM, ohne Geldabzug)\n`/warnings` eigene bzw. fremde Verwarnungen ansehen\n`/unwarn` Verwarnung zurücknehmen"},
@@ -380,6 +391,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         try{const r=await announceControl({db,client,config,actorId:u,family:i.options.getString("familie"),when:i.options.getString("wann")??"jetzt",mode:i.options.getString("art")==="attack"?"attack":"defend"});return respond(i,`🚩 **${r.name}** angekündigt – Beginn <t:${Math.floor(r.startsAt.getTime()/1000)}:t>.`);}
         catch(error){if(error instanceof ControlError)return respond(i,error.message);throw error;}
       }
+      if (i.commandName==="log"){const denied=memberGate(i);if(denied)return respond(i,denied);return await submitTaskLog({i,db,client:i.client??client,config});}
+      if (i.commandName==="aufgaben"){const denied=memberGate(i);if(denied)return respond(i,denied);return answer(i,{embeds:[myTasksView(db,config,g,u)],ephemeral:true});}
       if (i.commandName==="abwesend") return await absenceCommand(i,sub,g,u);
       if (i.commandName==="umfrage") return await pollCommand(i,sub,g,u);
       if (i.commandName==="rangliste") return answer(i,{...buildLeaderboardView(g,i.options.getString("zeitraum")??"week"),ephemeral:true});
@@ -1386,7 +1399,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
 
   const attendance=i=>handleAttendanceInteraction({i,db,client:i.client??client,config});
-  return {command,autocomplete,button,select,modal,reviewButton,eventButton,attendance};
+  const tasks=i=>handleTaskInteraction({i,db,client:i.client??client,config}).catch(e=>{console.error("Aufgaben-Aktion fehlgeschlagen:",e);return replyError(i,e);});
+  return {command,autocomplete,button,select,modal,reviewButton,eventButton,attendance,tasks};
 }
 
 /** Lädt bis zu `limit` Nachrichten (seitenweise à 100) chronologisch. Wirft bei fehlendem Zugriff. */
@@ -1466,4 +1480,4 @@ async function applicationReviewChannel(guild,config,kind){
   return channels?.find(channel=>channel?.isTextBased()&&channel.name.includes(channelName)&&channel.parent?.name.toLowerCase().includes("staff"))??null;
 }
 
-export async function handleComponent(i,handlers){if(i.customId?.startsWith("att:")&&handlers.attendance)return handlers.attendance(i);if(i.isButton()){if(i.customId.startsWith("application:"))return handlers.reviewButton(i);if(i.customId.startsWith("event:"))return handlers.eventButton(i);return handlers.button(i);}if(i.isStringSelectMenu())return handlers.select(i);if(i.isModalSubmit())return handlers.modal(i);}
+export async function handleComponent(i,handlers){if(i.customId?.startsWith("att:")&&handlers.attendance)return handlers.attendance(i);if(i.customId?.startsWith("task:")&&handlers.tasks)return handlers.tasks(i);if(i.isButton()){if(i.customId.startsWith("application:"))return handlers.reviewButton(i);if(i.customId.startsWith("event:"))return handlers.eventButton(i);return handlers.button(i);}if(i.isStringSelectMenu())return handlers.select(i);if(i.isModalSubmit())return handlers.modal(i);}

@@ -30,6 +30,7 @@ const labels = {
   "finance.credit": "Gutschrift verbucht", "finance.account_opened": "Familienkonto angelegt", "finance.account_closed": "Familienkonto gelöscht", "finance.closure_requested": "Konto-Löschung angefragt", "finance.closure_dismissed": "Konto behalten", "finance.payout": "Auszahlung gebucht", "finance.correction": "Korrekturbuchung", "finance.failed": "Buchung fehlgeschlagen",
   "sanction.created": "Sanktion vorgemerkt", "sanction.applied": "Sanktion teilweise verrechnet", "sanction.settled": "Sanktion beglichen", "sanction.void": "Sanktion aufgehoben", "sanction.corrected": "Sanktion korrigiert", "sanction.refunded": "Sanktion erstattet", "sanction.warning": "Verwarnung", "sanction.warning_revoked": "Verwarnung zurückgenommen", "sanction.warning_deleted": "Verwarnung gelöscht", "sanction.warning_timeout": "Timeout nach Verwarnungen", "sanction.warning_timeout_failed": "Timeout nach Verwarnungen fehlgeschlagen",
   "giveaway.created": "Giveaway gestartet", "giveaway.ended": "Giveaway ausgelost", "giveaway.cancelled": "Giveaway abgebrochen", "giveaway.draw_requested": "Giveaway vorzeitig ausgelost", "giveaway.entry": "Giveaway-Teilnahme",
+  "task.submitted": "Aufgaben-Log eingereicht", "task.approved": "Aufgaben-Log bestätigt", "task.rejected": "Aufgaben-Log abgelehnt", "task.withdrawn": "Aufgaben-Log zurückgezogen", "task.type_created": "Aufgabe angelegt", "task.type_updated": "Aufgabe geändert",
   "absence.created": "Abmeldung eingetragen", "absence.ended": "Abmeldung beendet", "activity.reminder": "Inaktivitäts-Erinnerung",
   "moderation.timeout": "Timeout", "moderation.untimeout": "Timeout aufgehoben", "moderation.kick": "Kick", "moderation.ban": "Bann", "moderation.unban": "Entbannt",
   "moderation.timeout_failed": "Timeout fehlgeschlagen", "moderation.kick_failed": "Kick fehlgeschlagen", "moderation.ban_failed": "Bann fehlgeschlagen", "moderation.unban_failed": "Entbannen fehlgeschlagen", "moderation.untimeout_failed": "Timeout-Aufhebung fehlgeschlagen",
@@ -40,7 +41,7 @@ const answerLabels = { name: "Ingame-Name", alter: "Alter", erfahrung: "Grand-RP
 const txLabels = { credit: "Gutschrift", payout: "Auszahlung", correction_credit: "Korrektur (+)", correction_debit: "Korrektur (−)", sanction_refund: "Sanktions-Erstattung" };
 const TABS = [
   ["overview", "Übersicht", c => c.team], ["mine", "Mein Bereich", c => c.mine], ["applications", "Anträge", c => c.applications], ["tickets", "Tickets", c => c.tickets],
-  ["events", "Events", c => c.staff], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["payouts", "Auszahlungen", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
+  ["events", "Events", c => c.staff], ["tasks", "Aufgaben", c => c.tasks], ["members", "Mitglieder", c => c.staff], ["activity", "Aktivität", c => c.staff], ["finance", "Familienkonto", c => c.financeView], ["payouts", "Auszahlungen", c => c.financeView], ["sanctions", "Sanktionen", c => c.sanctionsView],
   ["announcements", "Ankündigungen", c => c.announcements], ["polls", "Abstimmungen", c => c.polls], ["giveaways", "Giveaways", c => c.giveaways], ["stats", "Statistik", c => c.staff], ["audit", "Protokoll", c => c.staff], ["status", "Status", c => c.admin], ["settings", "Einstellungen", c => c.settings],
 ];
 
@@ -61,10 +62,11 @@ const ICONS = {
   polls: "M4 20V10 M10 20V4 M16 20v-7 M22 20H2",
   status: "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M9 12l2 2 4-4",
   mine: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8",
+  tasks: "M9 11l3 3 8-8 M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9",
   settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
-const NAV_GROUPS = [["", ["overview", "mine"]], ["Familie", ["members", "activity", "applications", "events"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "payouts", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
+const NAV_GROUPS = [["", ["overview", "mine"]], ["Familie", ["members", "activity", "applications", "events", "tasks"]], ["Support", ["tickets"]], ["Finanzen", ["finance", "payouts", "sanctions"]], ["Community", ["announcements", "polls", "giveaways"]], ["Auswertung", ["stats", "audit"]], ["Verwaltung", ["status", "settings"]]];
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers ?? {}) } });
@@ -199,6 +201,7 @@ function renderTabs() {
   document.querySelectorAll(".needs-staff").forEach(el => el.classList.toggle("hidden", !caps.staff));
   document.querySelectorAll(".needs-events").forEach(el => el.classList.toggle("hidden", !caps.events));
   document.querySelectorAll(".needs-finance").forEach(el => el.classList.toggle("hidden", !caps.finance));
+  document.querySelectorAll(".needs-tasktypes").forEach(el => el.classList.toggle("hidden", !caps.taskTypes));
   document.querySelectorAll(".needs-sanctions").forEach(el => el.classList.toggle("hidden", !caps.sanctions));
   document.querySelectorAll(".needs-warnings").forEach(el => el.classList.toggle("hidden", !caps.warnings));
 }
@@ -216,7 +219,7 @@ function openMenu() { document.body.classList.add("menu-open"); $("menu-toggle")
 function closeMenu() { document.body.classList.remove("menu-open"); $("menu-toggle").setAttribute("aria-expanded", "false"); }
 /** Zähler offener Arbeit in der Navigation. */
 function applyBadges(data) {
-  state.badges = { tickets: data.stats.tickets, applications: data.stats.applications, finance: (data.todo?.payoutsDue ?? 0) + (data.todo?.accountClosures ?? 0) };
+  state.badges = { tickets: data.stats.tickets, applications: data.stats.applications, finance: (data.todo?.payoutsDue ?? 0) + (data.todo?.accountClosures ?? 0), tasks: data.todo?.tasksPending ?? 0 };
   renderTabs();
 }
 
@@ -244,6 +247,7 @@ async function loadOverview() {
     [todo.openApplications, "Neue Anträge", "Noch von niemandem übernommen.", "applications", caps.applications],
     [todo.reviewApplications, "Anträge in Prüfung", "Warten auf eine Entscheidung.", "applications", caps.applications],
     [todo.overdueEvents, "Events nicht beendet", "Startzeit ist über 3 Stunden vorbei – beenden und Anwesenheit eintragen.", "events", caps.events],
+    [todo.tasksPending, "Aufgaben-Logs prüfen", "Mitglieder warten auf ihre Belohnung – Screenshot ansehen und bestätigen.", "tasks", caps.tasks],
     [todo.accountClosures, "Konto-Löschungen bestätigen", "Mitglieder haben die Familie verlassen – Konto löschen oder behalten?", "finance", caps.financeView],
     [todo.attendanceOpen, "Anwesenheit eintragen", "Beendete Events ohne abgeschlossene Anwesenheit – erst danach zählen No-Shows.", "events", caps.events],
     [todo.payoutsDue, "Auszahlungen möglich", "Mitglieder mit auszahlbarem Familienguthaben.", "finance", caps.financeView],

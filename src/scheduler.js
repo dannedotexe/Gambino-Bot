@@ -16,6 +16,7 @@ import { checkEventMinimums, processNoShows } from "./event-checks.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { runDailySnapshot } from "./role-snapshots.js";
 import { refreshPayoutList } from "./payout-list.js";
+import { refreshTaskBoard } from "./task-logs.js";
 import { requestAttendance, requestDueAttendance } from "./attendance.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
@@ -35,6 +36,8 @@ export function dueReminder(startsAt, reminderMinutes, sentSlots, now = new Date
 
 /** Bereichs-Logs: Sanktionen, Finanzen und Events in ihre eigenen Channels, alles andere ins Audit-Log. */
 export function auditChannelFor(action,config){
+  // Einreichungen und Entscheidungen stehen schon als Prüf-Karte im Aufgaben-Channel (Buchung zusätzlich im Finanz-Log).
+  if(/^task\.(submitted|approved|rejected|withdrawn)$/.test(action))return null;
   const area=action.startsWith("sanction.")||action.startsWith("moderation.")?config.CHANNEL_SANCTION_LOG:action.startsWith("absence.")||action.startsWith("activity.")?config.CHANNEL_ACTIVITY_LOG:action.startsWith("finance.")?config.CHANNEL_FINANCE_LOG:action.startsWith("event.")?config.CHANNEL_EVENT_LOG:null;
   return area||config.CHANNEL_AUDIT_LOG||null;
 }
@@ -87,6 +90,7 @@ export function startScheduler({db,client,config,series=null}) {
         await sendWeeklyReport({db,client,config,reference:now}).catch(error=>console.warn("Wochenbericht fehlgeschlagen:",error.message));
         await runDailyInactivity({db,client,config,reference:now}).catch(error=>console.warn("Inaktivitätsprüfung fehlgeschlagen:",error.message));
         await refreshPayoutList({db,client,config}).catch(error=>console.warn("Auszahlungsliste konnte nicht aktualisiert werden:",error.message));
+        await refreshTaskBoard({db,client,config}).catch(error=>console.warn("Aufgaben-Board konnte nicht aktualisiert werden:",error.message));
         await runDailySnapshot({db,client,config,reference:now}).catch(error=>console.warn("Rollen-Sicherung fehlgeschlagen:",error.message));
       }
       client.gambinoSchedulerTick=Date.now();

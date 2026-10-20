@@ -31,11 +31,13 @@ import { createRankHistory, rankFor } from "./services/ranks.js";
 import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
-import { afterClose, afterNotPlayed, closeAttendance, markNotPlayed, requestAttendance } from "./attendance.js";
+import { afterClose, afterNotPlayed, closeAttendance, markNotPlayed, parseAmount, requestAttendance } from "./attendance.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
+import { TaskError, createTaskService, weekStart } from "./services/tasks.js";
+import { decideTask, refreshTaskBoard } from "./task-logs.js";
 import { noShowsOf, removeNoShow } from "./event-checks.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
@@ -76,6 +78,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const groups = new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const finance = createFinance(db), closures = createAccountClosureService(db, finance), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
+  const tasks = createTaskService(db, { timezone: () => config.TIMEZONE });
   const names = new Map();
 
   const guild = async () => client.guilds.cache.get(guildId) ?? client.guilds.fetch(guildId);
@@ -124,7 +127,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       capabilities: {
         applications: can(member, "reviewers"), tickets: can(member, "staff") || (config.TICKET_CATEGORIES_JSON ?? []).some(c => c.roleIds.some(id => member.roles.includes(id))),
         events: can(member, "events"), finance: can(member, "finance"), financeView: can(member, "financeView"), leaders: can(member, "leaders"),
-        sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), announcements: can(member, "staff"), announceEveryone: can(member, "leaders"), polls: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"),
+        sanctions: can(member, "staff"), warnings: can(member, "moderation"), absences: can(member, "staff"), announcements: can(member, "staff"), announceEveryone: can(member, "leaders"), polls: can(member, "staff"), sanctionsView: can(member, "staff") || can(member, "financeView") || can(member, "moderation"), giveaways: can(member, "staff"), staff: can(member, "anyStaff"), tasks: can(member, "tasks"), taskTypes: can(member, "finance"),
         settings: Boolean(settings) && member.owner, admin: member.owner, team: member.team !== false, mine: true,
       },
       settings: {
@@ -157,6 +160,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
           record: db.prepare("SELECT COALESCE(SUM(e.outcome='win'),0) wins, COALESCE(SUM(e.outcome='lose'),0) losses FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status='present'").get(guildId, userId),
           earned: db.prepare("SELECT COALESCE(SUM(amount_cents),0) n FROM transactions WHERE guild_id=? AND user_id=? AND idempotency_key LIKE 'event-win:%'").get(guildId, userId).n, noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
         rank: { current: rank?.label ?? null, history: rankHistory.forUser(guildId, userId, 15).map(r => ({ from: r.from_label, to: r.to_label, kind: r.kind, created_at: r.created_at })) },
+        tasks: { profile: tasks.profile(guildId, userId), recent: tasks.list(guildId, { userId, limit: 15 }).map(l => ({ type: `${l.type_emoji} ${l.type_name}`, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, status: l.status, reject_reason: l.reject_reason, created_at: l.created_at })) },
         absences: { open: absences.openFor(guildId, userId, day), list: absences.forUser(guildId, userId, 10).map(a => ({ id: a.id, starts_on: a.starts_on, ends_on: a.ends_on, reason: a.reason, ended_at: a.ended_at })), maxDays: config.ABSENCE_MAX_DAYS },
         leaderboard,
       }, [userId, ...Object.values(leaderboard).flat().map(r => r.userId)]);
@@ -262,6 +266,29 @@ export function createDashboardApi({ db, client, config, settings = null, series
         logs: { failedLast24h: failedLogs },
         warnings: configWarnings(config),
       };
+    }],
+    [/^\/api\/tasks$/, async member => {
+      need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
+      const week = weekStart(today()), month = `${today().slice(0, 7)}-01`;
+      const pending = tasks.list(guildId, { status: "pending", limit: 200 }), recent = tasks.list(guildId, { limit: 150 }).filter(l => l.status !== "pending");
+      const board = { week: tasks.leaderboard(guildId, { since: week, limit: 15 }), month: tasks.leaderboard(guildId, { since: month, limit: 15 }), all: tasks.leaderboard(guildId, { limit: 15 }) };
+      const strip = l => ({ id: l.id, user_id: l.user_id, type: `${l.type_emoji} ${l.type_name}`, type_id: l.type_id, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, note: l.note, status: l.status, duplicate_of: l.duplicate_of, reviewer_id: l.reviewer_id, reviewed_at: l.reviewed_at, reject_reason: l.reject_reason, created_at: l.created_at, hasProof: Boolean(l.message_id || l.proof_url) });
+      const ids = [...pending, ...recent].flatMap(l => [l.user_id, l.reviewer_id]).concat(Object.values(board).flat().map(r => r.userId));
+      return withNames({ summary: tasks.summary(guildId), pending: pending.map(strip), recent: recent.map(strip), types: tasks.listTypes(guildId, { all: true }), board, me: member.id, owner: member.owner }, ids);
+    }],
+    [/^\/api\/tasks\/([\w-]+)\/proof$/, async (member, url, [, id]) => {
+      need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
+      const log = tasks.get(guildId, id);
+      if (!log) throw new HttpError(404, "Log nicht gefunden.");
+      // Discord-Bildlinks sind signiert und laufen ab (Parameter ex = Ablaufzeit in Hex); dann frisch aus der Nachricht holen.
+      const expires = Number.parseInt(/[?&]ex=([0-9a-f]+)/i.exec(log.proof_url ?? "")?.[1] ?? "0", 16) * 1000;
+      if (log.proof_url && (!expires || expires > Date.now() + 60_000)) return { url: log.proof_url };
+      const ch = log.channel_id ? await client.channels.fetch(log.channel_id).catch(() => null) : null;
+      const message = log.message_id ? await ch?.messages?.fetch(log.message_id).catch(() => null) : null;
+      const fresh = message?.attachments?.first?.()?.url ?? message?.embeds?.[0]?.image?.url ?? null;
+      if (!fresh) throw new HttpError(404, "Der Screenshot ist nicht mehr verfügbar (Nachricht gelöscht?).");
+      tasks.setProofUrl(id, fresh);
+      return { url: fresh };
     }],
     [/^\/api\/polls$/, async member => {
       need(member, "staff", "Staff-Rolle");
@@ -442,6 +469,20 @@ export function createDashboardApi({ db, client, config, settings = null, series
 
   // ---------------------------------------------------------------- Schreiben
   const postRoutes = [
+    [/^\/api\/tasks\/([\w-]+)\/(approve|reject)$/, async (member, body, [, id, action]) => {
+      need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
+      const quantity = body.quantity === "" || body.quantity == null ? null : Number(body.quantity);
+      const log = await decideTask({ db, client, config, guildId, id, actorId: member.id, approve: action === "approve", quantity, reason: body.reason, owner: member.owner });
+      return { message: log.status === "approved" ? `Bestätigt${log.reward_cents ? ` – ${formatMoney(log.reward_cents)} gutgeschrieben` : ""}.` : "Abgelehnt. Das Mitglied wird informiert." };
+    }],
+    [/^\/api\/task-types$/, async (member, body) => {
+      need(member, "finance", "Finanz- oder Leitungsrolle");
+      const rawReward = String(body.reward ?? "").trim(), rewardCents = /^[$0.,\s]*$/.test(rawReward) ? 0 : parseAmount(rawReward);
+      if (rewardCents == null) throw new HttpError(400, "Belohnung: z. B. 25000, 25.000 oder 25k – leer bzw. 0 = ohne Geld.");
+      const type = tasks.saveType(guildId, member.id, { id: body.id || null, name: body.name, emoji: body.emoji, unit: body.unit, rewardCents, perUnit: body.perUnit, dailyLimit: body.dailyLimit, active: body.active });
+      await refreshTaskBoard({ db, client, config }).catch(() => {});
+      return { message: `${type.emoji} ${type.name} gespeichert.`, type };
+    }],
     [/^\/api\/applications\/([\w-]+)\/note$/, async (member, body, [, id]) => {
       need(member, "reviewers", "Reviewer- oder Leitungsrolle");
       const note = text(body.note, { min: 2, max: 1000, label: "Notiz" });
@@ -900,6 +941,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       catch (error) {
         if (error instanceof HttpError) return { status: error.status, body: { error: error.message } };
         if (error instanceof PollError) return { status: 400, body: { error: error.message } };
+        if (error instanceof TaskError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "CONFLICT" ? 409 : error.code === "SELF" ? 403 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof AnnouncementError) return { status: 400, body: { error: error.message } };
         if (error instanceof AbsenceError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "OVERLAP" || error.code === "ALREADY_ENDED" ? 409 : 400, body: { error: error.message, code: error.code } };
         if (error instanceof WarningError) return { status: error.code === "NOT_FOUND" ? 404 : error.code === "ALREADY_REVOKED" ? 409 : 400, body: { error: error.message, code: error.code } };

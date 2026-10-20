@@ -21,6 +21,7 @@ async function loadMine() {
     myStat("Durch Events verdient", money(e.earned), "$"),
     myStat("No-Shows", e.noShowLimit ? `${e.noShows} von ${e.noShowLimit} <small>(${e.noShowWindow} Tage)</small>` : escapeHtml(e.noShows)),
   ].join("");
+  renderMyTasks(d.tasks);
   $("my-absence-label").textContent = d.absences.open ? "Abmeldung beenden" : "Abmelden";
   $("my-transactions").innerHTML = a.transactions.map(t => myRow(`${txLabels[t.type] ?? t.type} · ${t.type === "payout" ? `${money(t.net_cents)} ausgezahlt${t.deduction_cents ? ` (Abzug ${money(t.deduction_cents)})` : ""}` : `${["payout", "correction_debit"].includes(t.type) ? "−" : "+"}${money(t.amount_cents)}`}`, `${date(t.created_at)} · ${escapeHtml(t.reason)}`)).join("") || empty("Noch keine Buchungen.");
   $("my-discipline").innerHTML = [
@@ -34,6 +35,25 @@ async function loadMine() {
   $("my-ranks").innerHTML = d.rank.history.map(r => myRow(`${myRankKinds[r.kind] ?? r.kind}: ${escapeHtml(r.from ?? "—")} → ${escapeHtml(r.to ?? "—")}`, date(r.created_at))).join("") || empty("Noch keine Rangänderung erfasst.");
   $("my-absences").innerHTML = d.absences.list.map(x => myRow(`${myDay(x.starts_on)} – ${myDay(x.ends_on)}${x.ended_at ? " · beendet" : d.absences.open?.id === x.id ? " · läuft" : ""}`, escapeHtml(x.reason))).join("") || empty("Keine Abmeldungen.");
   renderMyBoard();
+}
+const nLogs = n => `${n} ${n === 1 ? "Log" : "Logs"}`;
+const myTaskIcons = { pending: "⏳", approved: "✅", rejected: "❌" };
+function renderMyTasks(t) {
+  if (!t) { $("my-tasks-panel").hidden = true; return; }
+  const p = t.profile, lvl = p.level;
+  $("my-level-badge").textContent = lvl.emoji;
+  $("my-level-title").textContent = `Stufe: ${lvl.name}`;
+  // Breite per CSSOM (Inline-Styles sind durch die Content-Security-Policy gesperrt).
+  requestAnimationFrame(() => { $("my-level-fill").style.width = `${Math.round(lvl.progress * 100)}%`; });
+  $("my-level-next").textContent = lvl.next ? `${lvl.count} von ${lvl.next.min} bestätigten Logs – noch ${lvl.next.missing} bis ${lvl.next.emoji} ${lvl.next.name}` : `${lvl.count} Logs – höchste Stufe erreicht 👑`;
+  $("my-tasks-stats").innerHTML = [
+    myStat("Serie", p.streak ? `🔥 ${p.streak} ${p.streak === 1 ? "Tag" : "Tage"}` : "—"),
+    myStat("Diese Woche", `${nLogs(p.week.logs)}${p.week.place ? ` <small>Platz ${p.week.place} von ${p.week.of}</small>` : ""}`),
+    myStat("Woche verdient", money(p.week.earned)),
+    myStat("Gesamt verdient", `${money(p.total.earned)} <small>${nLogs(p.total.logs)}</small>`),
+    ...(p.pending ? [myStat("Wartet auf Prüfung", escapeHtml(p.pending))] : []),
+  ].join("");
+  $("my-tasks").innerHTML = t.recent.map(l => myRow(`${myTaskIcons[l.status] ?? ""} ${escapeHtml(l.type)}${l.perUnit ? ` ×${l.quantity} ${escapeHtml(l.unit)}` : ""}${l.status === "approved" && l.reward_cents ? ` · <span class="ok">+${money(l.reward_cents)}</span>` : ""}`, `${date(l.created_at)}${l.status === "pending" ? " · wird geprüft" : l.status === "rejected" ? ` · abgelehnt: ${escapeHtml(l.reject_reason ?? "—")}` : ""}`)).join("") || empty("Noch keine Aufgaben-Logs. Reiche erledigte Aufgaben in Discord mit /log und Screenshot ein.");
 }
 function renderMyBoard() {
   const d = state.cache.mine;
