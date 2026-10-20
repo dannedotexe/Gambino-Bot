@@ -39,7 +39,7 @@ import { EXPORTS, buildExportFile } from "./export.js";
 import { TaskError, createTaskService, weekStart } from "./services/tasks.js";
 import { killLeaderboard, killsOf, weekCalendar } from "./services/calendar.js";
 import { decideTask, refreshTaskBoard } from "./task-logs.js";
-import { LOGBOOK_FORUMS, createMissingLogbooks, logbookStatus } from "./logbooks.js";
+import { LOGBOOK_FORUMS, createMissingLogbooks, logbookStatus, resetLogbookForum } from "./logbooks.js";
 import { noShowsOf, removeNoShow } from "./event-checks.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
@@ -529,6 +529,22 @@ export function createDashboardApi({ db, client, config, settings = null, series
         .catch(error => console.warn("Logbücher konnten nicht angelegt werden:", error.message))
         .finally(() => { logbookRun = null; });
       return { message: `${status.missing.length} × ${LOGBOOK_FORUMS[kind].label} werden angelegt – dauert ca. ${Math.ceil(status.missing.length * 1.7 / 60)} Min. Bestehende Posts mit gleichem Namen/ID werden nur verknüpft.` };
+    }],
+    // Forum neu aufsetzen: alle Posts löschen und für jedes Familienmitglied frisch anlegen (nur Leitung, mit Bestätigungswort).
+    [/^\/api\/logbooks\/reset$/, async (member, body) => {
+      need(member, "leaders", "Leitungsrolle");
+      const kind = Object.hasOwn(LOGBOOK_FORUMS, body.kind) ? body.kind : null;
+      if (!kind) throw new HttpError(400, "Unbekanntes Forum.");
+      if (String(body.confirm ?? "").trim().toUpperCase() !== "NEU") throw new HttpError(400, "Zum Bestätigen bitte NEU eintippen.");
+      if (logbookRun) throw new HttpError(409, "Es läuft gerade schon eine Logbuch-Aktion – bitte kurz warten.");
+      const g = await guild(), status = await logbookStatus({ db, client, config, guild: g, kind });
+      if (!status.forum) throw new HttpError(400, status.problems[0] ?? "Kein Forum eingestellt.");
+      logbookRun = { kind, startedAt: nowIso(), total: status.family };
+      void resetLogbookForum({ db, client, config, guild: g, actorId: member.id, kind })
+        .then(r => audit(db, guildId, member.id, "logbook.bulk", null, { kind, reset: true, deleted: r.deleted, created: r.created, failed: r.failed }))
+        .catch(error => console.warn("Forum konnte nicht neu aufgesetzt werden:", error.message))
+        .finally(() => { logbookRun = null; });
+      return { message: `${LOGBOOK_FORUMS[kind].label}: Alle Posts werden gelöscht und für ${status.family} Familienmitglieder neu angelegt – dauert ein paar Minuten.` };
     }],
     [/^\/api\/task-types$/, async (member, body) => {
       need(member, "finance", "Finanz- oder Leitungsrolle");

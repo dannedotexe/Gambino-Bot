@@ -175,7 +175,8 @@ async function loadLogbooks() {
       ...(d.missing.length ? [myRow(`Ohne ${escapeHtml(d.label)} (${d.missing.length})`, d.missing.slice(0, 40).map(m => escapeHtml(m.name)).join(", ") + (d.missing.length > 40 ? " …" : ""))] : []),
     ].join("");
     const button = staff && d.forum ? `<button type="button" class="primary-btn" data-action="logbook-create" data-kind="${escapeHtml(d.kind)}" ${!d.missing.length || d.running ? "disabled" : ""}>${d.missing.length ? `Fehlende anlegen (${d.missing.length})` : "Alle haben eins"}</button>` : "";
-    return `<div class="logbook-forum"><div class="panel-head"><div><h3>${escapeHtml(d.label)}</h3><p class="subtle">${info}</p></div>${button}</div><div class="rows">${rows}</div></div>`;
+    const reset = state.me.capabilities.leaders && d.forum ? `<button type="button" class="action reject" data-action="logbook-reset" data-kind="${escapeHtml(d.kind)}" ${d.running ? "disabled" : ""}>Neu aufsetzen …</button>` : "";
+    return `<div class="logbook-forum"><div class="panel-head"><div><h3>${escapeHtml(d.label)}</h3><p class="subtle">${info}</p></div><div class="section-tools">${reset}${button}</div></div><div class="rows">${rows}</div></div>`;
   }).join("");
 }
 
@@ -203,6 +204,10 @@ Object.assign(actions, {
     openInfo(l ? taskTitle(l) : "Screenshot", `<img class="lightbox-img" src="${escapeHtml(url)}" alt="Screenshot"><p class="subtle"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">In neuem Tab öffnen</a></p>`, "BEWEIS", true);
   },
   "logbook-check": () => loadLogbooks(),
+  "logbook-reset": ({ kind }) => openForm({ eyebrow: "LOGBÜCHER", title: "Forum neu aufsetzen", danger: true,
+    intro: "<p><b>Alle Posts in diesem Forum werden gelöscht</b> (außer einem Post „Vorlage …“) – auch die Bilder darin. Danach bekommt jedes Familienmitglied einen frischen Post mit dem aktuellen Text. Das lässt sich nicht rückgängig machen.</p>",
+    fields: [{ name: "confirm", label: "Zum Bestätigen NEU eintippen", required: true, max: 10 }],
+    submit: "Löschen und neu anlegen", onSubmit: v => post("/api/logbooks/reset", { kind, confirm: v.confirm }) }),
   "logbook-create": ({ kind }) => confirmAction("Fehlende Logbücher anlegen?", "Für jedes Familienmitglied ohne Logbuch wird ein Post im Forum erstellt und die Person markiert. Gibt es schon einen Post mit ihrem Namen oder ihrer ID, wird er nur verknüpft.", "Anlegen", () => post("/api/logbooks/create-missing", { kind }), false),
   "task-reason-chip": ({ reason }) => { const box = $("dialog-fields").querySelector("textarea"); if (box) { box.value = reason; box.focus(); } },
   "task-quick": () => quickOpen(),

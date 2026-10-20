@@ -120,8 +120,9 @@ test("Event-Forum: eigenes Logbuch mit Event-Vorlage, getrennt vom Aufgaben-Logb
   const config = { DISCORD_GUILD_ID: G, CHANNEL_TASK_FORUM: FORUM, CHANNEL_EVENT_FORUM: EVENT_FORUM };
   assert.equal((await ensureLogbook({ db, client, config, member: member(), kind: "events" })).status, "created");
   assert.equal((await ensureLogbook({ db, client, config, member: member() })).status, "created", "Aufgaben-Logbuch zusätzlich");
-  assert.match(created[0].message.content, /Event Logs/);
-  assert.match(created[0].message.content, /`Tony Soprano \| 123456`/);
+  assert.match(created[0].message.content, /^## 📋 \*\*Event Logs:\*\*/);
+  assert.match(created[0].message.content, /Kill Nachricht/);
+  assert.ok(created[0].message.content.endsWith(`ungültig**.\n\n<@${U}>`), "Markierung ganz unten außerhalb des Zitats");
   assert.ok(DEFAULT_EVENT_LOGBOOK_TEMPLATE.includes("Nur EVENT-LOGS"));
   assert.equal(db.prepare("SELECT thread_id FROM event_logbooks").get().thread_id, "e1");
   const LEAD = "20000000000000001";
@@ -138,4 +139,22 @@ test("Gelöschter Post: Verweis wird verworfen und das Logbuch neu angelegt", as
   assert.equal(db.prepare("SELECT thread_id FROM logbooks").get().thread_id, "n0");
   m.client.channels.fetch = async id => { if (id === "n0") throw Object.assign(new Error("Discord down"), { code: 500 }); return fetch(id); };
   assert.equal((await ensureLogbook({ db, client: m.client, config, member: member() })).status, "existing", "bei anderen Fehlern nichts verwerfen");
+});
+
+test("Forum neu aufsetzen: alle Posts außer Vorlage löschen, Verknüpfungen leeren, für alle frisch anlegen", async () => {
+  const { resetLogbookForum } = await import("../src/logbooks.js");
+  const EV = "60000000000000061", FAM = "20000000000000005", A = "30000000000000011", db = testDb(), deleted = [], created = [];
+  const thread = (id, name) => ({ id, name, parentId: EV, delete: async () => { deleted.push(name); } });
+  const forum = { id: EV, type: ChannelType.GuildForum, flags: { has: () => false }, availableTags: [], permissionsFor: () => ({ has: () => true }),
+    threads: { fetchActive: async () => ({ threads: new Map([["v", thread("v", "Vorlage")], ["o", thread("o", "Alt | 1")]]) }), fetchArchived: async () => ({ threads: new Map([["x", thread("x", "Archiv | 2")]]), hasMore: false }),
+      create: async o => { created.push(o); return { id: `n${created.length}`, name: o.name }; } } };
+  const members = new Map([[A, { id: A, displayName: "Tony Soprano | 111111", user: { bot: false }, guild: { id: G }, roles: { cache: new Map([[FAM, true]]) } }]]);
+  const guild = { id: G, members: { me: { id: "bot" }, fetch: async () => members, cache: members } };
+  const client = { user: { id: "bot" }, channels: { fetch: async () => forum } };
+  db.prepare("INSERT INTO event_logbooks(guild_id,user_id,thread_id,title,source,created_at) VALUES(?,?,?,?,'existing','x')").run(G, A, "o", "Alt");
+  const r = await resetLogbookForum({ db, client, config: { DISCORD_GUILD_ID: G, CHANNEL_EVENT_FORUM: EV, ROLE_MEMBERS: [FAM], LOGBOOK_AUTO_CREATE: true }, guild, actorId: "x", kind: "events", pauseMs: 0 });
+  assert.deepEqual(deleted.sort(), ["Alt | 1", "Archiv | 2"], "Vorlage bleibt");
+  assert.equal(r.deleted, 2); assert.equal(r.created, 1, JSON.stringify(r));
+  assert.match(created[0].message.content, /Event Logs/);
+  assert.equal(db.prepare("SELECT thread_id FROM event_logbooks").get().thread_id, "n1");
 });

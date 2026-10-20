@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ChannelType, EmbedBuilder } from "discord.js";
 import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
@@ -23,10 +24,10 @@ export const DEFAULT_LOGBOOK_TEMPLATE = [
 ].join("\n");
 
 export const DEFAULT_EVENT_LOGBOOK_TEMPLATE = [
-  "📋 **Event Logs:**",
-  "**Titel des eigenem Logbuchs:** `Vorname Nachname | ID`",
+  "## 📋 **Event Logs:**",
   "",
   "In diesen Post kommt vor und nach jedem Event ein Bild, damit wir nachvollziehen können, ob ihr dabei wart oder nicht.",
+  "Wenn ihr Kills bei einem Event mit Kill Auszahlung macht ein Bild von der Kill Nachricht.",
   "",
   "> ⚠️ **Wichtig:**",
   "> **Nur EVENT-LOGS**",
@@ -76,7 +77,7 @@ async function forumThreads(forum) {
 /** Text aus dem Post „Vorlage …“ im Forum; ohne Vorlage der Standardtext. */
 async function templateFrom(threads, fallback = DEFAULT_LOGBOOK_TEMPLATE) {
   const thread = threads.find(t => /^\W*vorlage/i.test(t.name));
-  const starter = thread ? await thread.fetchStarterMessage().catch(() => null) : null;
+  const starter = thread ? await Promise.resolve(thread.fetchStarterMessage?.()).catch(() => null) : null;
   return starter?.content?.trim() || fallback;
 }
 
@@ -254,4 +255,68 @@ export async function remindInactiveLogbooks({ db, client, config, reference = n
   }
   if (sent) audit(db, guildId, client.user?.id ?? "system", "logbook.reminded", null, { sent, days });
   return sent;
+}
+
+
+/**
+ * Vorlage geändert (neuer Standardtext oder Post „Vorlage …“ bearbeitet): Startnachrichten der vom Bot angelegten
+ * Logbücher auf den neuen Text bringen – mit eigenem Titel und Markierung, ohne erneuten Ping. Läuft nur bei Änderung.
+ */
+export async function syncLogbookTemplates({ db, client, config, guildId, kind = "tasks", pauseMs = 1200 }) {
+  const f = forumOf(kind);
+  if (!config[f.key]) return 0;
+  const forum = await client.channels.fetch(config[f.key]).catch(() => null);
+  if (!forum || forum.type !== ChannelType.GuildForum) return 0;
+  const template = await templateFrom(await forumThreads(forum), f.template);
+  const hash = createHash("sha256").update(template).digest("hex"), key = `LOGBOOK_TEMPLATE_${kind.toUpperCase()}`;
+  const previous = getSetting(db, guildId, key);
+  setSetting(db, guildId, key, hash);
+  if (!previous || previous === hash) return 0; // erster Lauf: nur merken, nichts umschreiben
+  let updated = 0;
+  for (const row of db.prepare(`SELECT user_id,thread_id,title FROM ${f.table} WHERE guild_id=? AND source='created' AND thread_id IS NOT NULL AND archived_at IS NULL`).all(guildId)) {
+    const thread = await client.channels.fetch(row.thread_id).catch(() => null);
+    const starter = await thread?.fetchStarterMessage?.().catch(() => null);
+    if (!starter || starter.author?.id !== client.user?.id) continue;
+    const content = buildLogbookContent(template, row.title, row.user_id);
+    if (starter.content === content) continue;
+    if (await starter.edit({ content, allowedMentions: { parse: [] } }).then(() => true).catch(() => false)) { updated++; await new Promise(r => setTimeout(r, pauseMs)); }
+  }
+  if (updated) audit(db, guildId, client.user?.id ?? "system", "logbook.template_synced", null, { kind, updated });
+  return updated;
+}
+
+/** Alle Posts eines Forums (aktiv + archiviert, seitenweise). */
+async function allForumThreads(forum) {
+  const threads = new Map();
+  const active = await forum.threads.fetchActive().catch(() => null);
+  active?.threads?.forEach?.(t => { if (!t.parentId || t.parentId === forum.id) threads.set(t.id, t); });
+  let before;
+  for (let page = 0; page < 20; page++) {
+    const archived = await forum.threads.fetchArchived({ limit: 100, ...(before ? { before } : {}) }).catch(() => null);
+    const list = [...(archived?.threads?.values?.() ?? [])];
+    list.forEach(t => threads.set(t.id, t));
+    if (!archived?.hasMore || !list.length) break;
+    before = list.at(-1).id;
+  }
+  return [...threads.values()];
+}
+
+/**
+ * Forum neu aufsetzen: alle Posts außer „Vorlage …“ löschen, Verknüpfungen leeren und für jedes Familienmitglied
+ * frisch anlegen. Bilder in den alten Posts gehen dabei verloren – nur nach ausdrücklicher Bestätigung aufrufen.
+ */
+export async function resetLogbookForum({ db, client, config, guild, actorId, kind = "events", pauseMs = 1200 }) {
+  const f = forumOf(kind);
+  const forum = config[f.key] ? await client.channels.fetch(config[f.key]).catch(() => null) : null;
+  if (!forum || forum.type !== ChannelType.GuildForum) throw new Error(`Kein Forum für das ${f.label} eingestellt.`);
+  let deleted = 0, failed = 0;
+  for (const thread of await allForumThreads(forum)) {
+    if (/^\W*vorlage/i.test(thread.name)) continue;
+    if (await thread.delete(`${f.label}: Forum neu aufgesetzt`).then(() => true).catch(() => false)) { deleted++; await new Promise(r => setTimeout(r, pauseMs / 2)); }
+    else failed++;
+  }
+  db.prepare(`DELETE FROM ${f.table} WHERE guild_id=?`).run(guild.id);
+  audit(db, guild.id, actorId, "logbook.reset", null, { kind, deleted, failed });
+  const created = await createMissingLogbooks({ db, client, config, guild, actorId, kind, pauseMs });
+  return { deleted, failedDeletes: failed, ...created };
 }

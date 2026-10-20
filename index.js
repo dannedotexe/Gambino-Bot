@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { audit, getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
+import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
@@ -79,6 +79,19 @@ async function adoptLeadershipDefaults(){
   if(!config.CHANNEL_VERIFICATION_PANEL){
     const matches=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.isTextBased?.()&&/neue-spieler/i.test(ch.name));
     if(matches.length===1&&adopt("CHANNEL_VERIFICATION_PANEL",matches[0].id,`Verifizierungs-Panel-Channel (#${matches[0].name})`))await ensurePanels({db,client,config,series,only:["CHANNEL_VERIFICATION_PANEL"]}).catch(()=>{});
+  }
+  // Geänderte Vorlage (Standardtext oder „Vorlage …“-Post) in die bestehenden Bot-Posts übernehmen.
+  for(const kind of activeLogbookKinds(config)){const n=await syncLogbookTemplates({db,client,config,guildId:guild.id,kind}).catch(()=>0);if(n)console.log(`${LOGBOOK_FORUMS[kind].label}: Text in ${n} Posts aktualisiert.`);}
+  // Auf Wunsch der Leitung (20.10.2026) einmalig: Forum event-logs leeren und alle Event-Logbücher mit dem neuen Text frisch anlegen.
+  // Nur wenn Forum und Bot-Rechte (inkl. „Threads verwalten“ zum Löschen) passen – sonst beim nächsten Start erneut.
+  if(config.CHANNEL_EVENT_FORUM&&!getSetting(db,guild.id,"EVENT_LOGBOOKS_RESET_V1")){
+    const status=await logbookStatus({db,client,config,guild,kind:"events"}).catch(()=>null);
+    if(status?.forum&&!status.problems.length){
+      setSetting(db,guild.id,"EVENT_LOGBOOKS_RESET_V1",new Date().toISOString());
+      setSetting(db,guild.id,"EVENT_LOGBOOKS_BACKFILLED",new Date().toISOString());
+      const r=await resetLogbookForum({db,client,config,guild,actorId:client.user.id,kind:"events"}).catch(error=>({error:error.message}));
+      console.log(r.error?`Event-Logbücher neu aufsetzen fehlgeschlagen: ${r.error}`:`Event-Logbücher neu aufgesetzt: ${r.deleted} gelöscht, ${r.created} neu angelegt, ${r.failed} fehlgeschlagen.`);
+    }else if(status)console.warn("Event-Logbücher werden noch nicht neu aufgesetzt:",status.problems.join(" "));
   }
   // Event-Logbücher einmalig für alle bestehenden Familienmitglieder anlegen (Neue bekommen ihres automatisch).
   // Erst wenn Forum und Bot-Rechte passen – sonst beim nächsten Start erneut versuchen.
