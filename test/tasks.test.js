@@ -15,8 +15,8 @@ const typeNamed = (db, name) => service(db).listTypes(G, { all: true }).find(t =
 test("Standard-Aufgaben werden genau einmal angelegt und nie wieder aufgefüllt", () => {
   const db = testDb(), tasks = service(db);
   const types = tasks.listTypes(G);
-  assert.deepEqual(types.map(t => t.name), ["Invite – normales Mitglied", "Invite – guter Gambo", "Plantage", "Solar Panele"]);
-  assert.equal(types[0].reward_cents, 2_500_000);
+  assert.deepEqual(types.map(t => t.name), ["Invite – gute Leute", "Plantage", "Solar Panele"]);
+  assert.equal(types[0].reward_cents, 5_000_000);
   db.prepare("DELETE FROM task_types").run();
   assert.equal(tasks.listTypes(G).length, 0, "gelöschte Vorlagen kommen nicht zurück");
 });
@@ -34,8 +34,8 @@ test("Bestätigen bucht genau einmal; Menge korrigierbar; eigene Logs gesperrt",
   assert.equal(finance.balance(G, U), 3_000_000, "kein zweites Mal gebucht");
   assert.match(db.prepare("SELECT reason FROM transactions WHERE idempotency_key=?").get(`task-log:${log.id}`).reason, /Plantage ×3 Ernte/);
   // Feste Belohnung ignoriert die Menge.
-  const invite = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – normales").id, quantity: 7 });
-  assert.equal(invite.quantity, 1); assert.equal(invite.reward_cents, 2_500_000);
+  const invite = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id, quantity: 7 });
+  assert.equal(invite.quantity, 1); assert.equal(invite.reward_cents, 5_000_000);
   assert.throws(() => tasks.reject({ guildId: G, id: invite.id, actorId: R, reason: "x" }), /Grund/);
   assert.equal(tasks.reject({ guildId: G, id: invite.id, actorId: R, reason: "Uhrzeit fehlt" }).status, "rejected");
   assert.equal(finance.balance(G, U), 3_000_000);
@@ -79,7 +79,7 @@ test("/log postet Prüf-Karte mit Screenshot; Bestätigen per Button bucht, aktu
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
   const replies = [];
-  const typeId = typeNamed(db, "Invite – guter").id;
+  const typeId = typeNamed(db, "Invite – gute").id;
   const i = { guildId: G, user: { id: U }, options: { getAttachment: () => ({ url: "https://cdn.discordapp.com/a.png", contentType: "image/png", name: "a.png", size: 8, width: 10, height: 10 }), getString: k => (k === "aufgabe" ? typeId : "Max eingeladen"), getInteger: () => null },
     deferReply: async () => {}, editReply: async p => replies.push(p), reply: async p => replies.push(p) };
   try { await submitTaskLog({ i, db, client: m.client, config }); } finally { globalThis.fetch = realFetch; }
@@ -106,10 +106,10 @@ test("/log postet Prüf-Karte mit Screenshot; Bestätigen per Button bucht, aktu
 test("Board: Preisliste, Top-Farmer, nur bei Änderung bearbeitet", async () => {
   const db = testDb(), m = discordMocks(), config = baseConfig({ CHANNEL_TASK_BOARD: BOARD });
   const tasks = service(db), finance = createFinance(db);
-  const log = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – normales").id });
+  const log = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id });
   tasks.approve({ guildId: G, id: log.id, actorId: R, finance });
   const board = buildTaskBoard(db, config, G);
-  assert.match(board.embeds[0].data.description, /Invite – normales Mitglied\*\* · \$25\.000,00/);
+  assert.match(board.embeds[0].data.description, /Invite – gute Leute\*\* · \$50\.000,00/);
   assert.match(board.embeds[0].data.fields[0].value, new RegExp(`🥇 <@${U}> · 1 Log`));
   assert.equal(await refreshTaskBoard({ db, client: m.client, config }), true);
   assert.equal(await refreshTaskBoard({ db, client: m.client, config }), false);
@@ -123,12 +123,12 @@ test("Website: Rechte, Bestätigen, Aufgabe mit „25k“ anlegen, Mein Bereich"
   const api = createDashboardApi({ db, client, config });
   const nobody = { id: "1", owner: false, roles: [] }, reviewer = { id: R, owner: false, roles: [REV] }, fin = { id: "40000000000000001", owner: false, roles: [FIN] };
   assert.equal((await api.get(nobody, new URL("/api/tasks", "https://x"))).status, 403);
-  const tasks = service(db), log = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – normales").id });
+  const tasks = service(db), log = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id });
   const list = await api.get(reviewer, new URL("/api/tasks", "https://x"));
   assert.equal(list.status, 200); assert.equal(list.body.pending.length, 1); assert.equal(list.body.summary.pending, 1);
   assert.equal((await api.post(reviewer, new URL(`/api/tasks/${log.id}/approve`, "https://x"), {})).status, 200);
   assert.equal((await api.post(reviewer, new URL(`/api/tasks/${log.id}/approve`, "https://x"), {})).status, 409);
-  assert.equal(createFinance(db).balance(G, U), 2_500_000);
+  assert.equal(createFinance(db).balance(G, U), 5_000_000);
   assert.equal((await api.post(reviewer, new URL("/api/task-types", "https://x"), { name: "Autoklau", reward: "25k" })).status, 403, "Preise festlegen nur Finanzen/Leitung");
   const created = await api.post(fin, new URL("/api/task-types", "https://x"), { name: "Autoklau", emoji: "🚗", reward: "25k", perUnit: "true", unit: "Auto", dailyLimit: "3" });
   assert.equal(created.status, 200); assert.equal(created.body.type.reward_cents, 2_500_000); assert.equal(created.body.type.daily_limit, 3);
@@ -207,13 +207,13 @@ test("Logbuch: mehrere Screenshots in einer Nachricht → ein Menü pro Bild, je
   await handleLogbookMessage({ db, config, message: source });
   assert.match(replies[0].content, /3 Screenshots erkannt/);
   assert.deepEqual(replies[0].components.slice(0, 3).map(r => r.components[0].data.custom_id), ["task:pick:s2:0", "task:pick:s2:1", "task:pick:s2:2"]);
-  const invite = typeNamed(db, "Invite – normales").id, updates = [];
+  const invite = typeNamed(db, "Invite – gute").id, updates = [];
   const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: false });
   const client = { channels: { fetch: async () => null }, users: { fetch: async () => ({ send: async () => {} }) } };
   try {
     await handleTaskInteraction({ i: { guildId: G, channel: thread, channelId: THREAD, message: { id: "p2" }, member: { roles: { cache: new Map() } }, customId: "task:pick:s2:1", user: { id: U }, values: [invite], update: async p => updates.push(p) }, db, client, config });
   } finally { globalThis.fetch = realFetch; }
-  assert.match(updates[0].content, /Bild 2: ⏳ \*\*🤝 Invite – normales Mitglied\*\* eingereicht/);
+  assert.match(updates[0].content, /Bild 2: ⏳ \*\*🤝 Invite – gute Leute\*\* eingereicht/);
   assert.deepEqual(updates[0].components.map(r => r.components[0].data.custom_id), ["task:pick:s2:0", "task:pick:s2:2"], "nur noch offene Bilder, kein „Kein Log“ mehr");
   assert.equal(db.prepare("SELECT source_index FROM task_logs").get().source_index, 1);
 });
@@ -221,12 +221,12 @@ test("Logbuch: mehrere Screenshots in einer Nachricht → ein Menü pro Bild, je
 test("Excel: Monatsabrechnung pro Mitglied und Monat", async () => {
   const { buildTable } = await import("../src/export.js");
   const db = testDb(), tasks = service(db), finance = createFinance(db);
-  const invite = typeNamed(db, "Invite – normales").id;
+  const invite = typeNamed(db, "Invite – gute").id;
   for (let n = 0; n < 2; n++) { const l = tasks.submit({ guildId: G, userId: U, typeId: invite, reference: new Date(`2026-10-1${n}T10:00:00Z`) }); tasks.approve({ guildId: G, id: l.id, actorId: R, finance }); }
   tasks.reject({ guildId: G, id: tasks.submit({ guildId: G, userId: U, typeId: invite, reference: new Date("2026-10-15T10:00:00Z") }).id, actorId: R, reason: "Uhrzeit fehlt" });
   const t = buildTable("taskmonths", { db, guildId: G, name: id => (id === U ? "Tony" : id) });
   const row = t.rows.find(r => r[0] === "10/2026");
-  assert.deepEqual(row.slice(1, 7), ["Tony", 2, 2, 50000, 1, 0]);
+  assert.deepEqual(row.slice(1, 7), ["Tony", 2, 2, 100000, 1, 0]);
   assert.equal(buildTable("tasks", { db, guildId: G, name: id => id }).rows.length, 3);
 });
 
@@ -244,4 +244,16 @@ test("Event-Forum: Bilder bleiben ohne Aufgaben-Menü, Text wird gelöscht", asy
   assert.equal(image.deleted, false);
   await handleLogbookMessage({ db, config, message: text });
   assert.equal(text.deleted, true);
+});
+
+test("Bestehende Installation: alte Invite-Stufen werden einmalig auf „gute Leute“ umgestellt", () => {
+  const db = testDb(), now = "2026-01-01T00:00:00.000Z";
+  const add = (id, name, reward) => db.prepare("INSERT INTO task_types(id,guild_id,name,emoji,reward_cents,per_unit,unit,active,sort,created_at,updated_at) VALUES(?,?,?,?,?,0,'Invite',1,0,?,?)").run(id, G, name, "🤝", reward, now, now);
+  add("n", "Invite – normales Mitglied", 2_500_000); add("g", "Invite – guter Gambo", 5_000_000);
+  db.prepare("INSERT INTO guild_settings(guild_id,key,value,updated_at) VALUES(?,?,?,?)").run(G, "TASK_TYPES_SEEDED", now, now);
+  const tasks = service(db);
+  assert.deepEqual(tasks.listTypes(G).map(t => [t.name, t.reward_cents]), [["Invite – gute Leute", 5_000_000]]);
+  assert.equal(tasks.listTypes(G, { all: true }).find(t => t.id === "n").active, 0, "25k-Stufe deaktiviert, nicht gelöscht");
+  db.prepare("UPDATE task_types SET active=1 WHERE id='n'").run();
+  assert.equal(tasks.listTypes(G).length, 2, "nur einmal – später wieder eingeschaltet bleibt so");
 });

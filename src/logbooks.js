@@ -13,7 +13,7 @@ export const DEFAULT_LOGBOOK_TEMPLATE = [
   "📋 **Aufgaben Logs:**",
   "**Titel des eigenem Logbuch:** `Vorname Nachname | ID`",
   "",
-  "• **Invite Log** → `25k normales Mitglied | 50k guter Gambo`",
+  "• **Invite Log** → `50k gute Leute` *(mind. 2 Tage bleiben & bei 4 Events beteiligt sein)*",
   "• **Plantage** →",
   "• **Solar Panele** →",
   "",

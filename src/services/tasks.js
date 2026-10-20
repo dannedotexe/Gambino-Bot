@@ -16,8 +16,7 @@ const DAY = 86_400_000;
 const now = () => new Date().toISOString();
 // Startwerte aus der bisherigen Forum-Vorlage; Beträge für Plantage/Solar legt das Team auf der Website fest.
 const DEFAULT_TYPES = [
-  { name: "Invite – normales Mitglied", emoji: "🤝", reward: 2_500_000, perUnit: false, unit: "Invite" },
-  { name: "Invite – guter Gambo", emoji: "⭐", reward: 5_000_000, perUnit: false, unit: "Invite" },
+  { name: "Invite – gute Leute", emoji: "🤝", reward: 5_000_000, perUnit: false, unit: "Invite" },
   { name: "Plantage", emoji: "🌿", reward: 0, perUnit: true, unit: "Ernte" },
   { name: "Solar Panele", emoji: "☀️", reward: 0, perUnit: true, unit: "Panel" },
 ];
@@ -72,7 +71,22 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
     })();
   }
 
+  /**
+   * Einmalig (Leitung, 20.10.2026): Bei Invites gibt es nur noch „gute Leute“ (50k). Die alte 25k-Stufe wird
+   * deaktiviert, „guter Gambo“ umbenannt – nur wenn die Namen noch dem alten Standard entsprechen.
+   */
+  function migrateInviteTiers(guildId) {
+    if (!guildId || getSetting(db, guildId, "TASK_INVITE_GOOD_ONLY")) return;
+    db.transaction(() => {
+      db.prepare("UPDATE task_types SET active=0,updated_at=? WHERE guild_id=? AND name='Invite – normales Mitglied' AND active=1").run(now(), guildId);
+      if (!db.prepare("SELECT 1 FROM task_types WHERE guild_id=? AND name='Invite – gute Leute'").get(guildId))
+        db.prepare("UPDATE task_types SET name='Invite – gute Leute',emoji='🤝',updated_at=? WHERE guild_id=? AND name='Invite – guter Gambo'").run(now(), guildId);
+      setSetting(db, guildId, "TASK_INVITE_GOOD_ONLY", now());
+    })();
+  }
+
   function listTypes(guildId, { all = false } = {}) {
+    migrateInviteTiers(guildId);
     ensureDefaults(guildId);
     return db.prepare(`SELECT * FROM task_types WHERE guild_id=? ${all ? "" : "AND active=1"} ORDER BY sort,name`).all(guildId);
   }
