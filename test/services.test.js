@@ -21,18 +21,24 @@ function addEvent(db, max = null, status = "scheduled") {
   db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,max_participants,status,created_at) VALUES('e','g','Event','',?,'HQ','host',?,?,?)").run(future(), max, status, now());
 }
 
-test("Event-Anmeldung: doppelte Klicks, volle Events und Wiederanmeldung", () => {
+test("Event-Anmeldung: doppelte Klicks, Warteliste bei vollem Event, Nachrücken", () => {
   const db = testDb(), events = createEventService(db);
   addEvent(db, 1);
   assert.equal(events.join({ guildId: "g", eventId: "e", userId: "a" }).status, "joined");
   assert.equal(events.join({ guildId: "g", eventId: "e", userId: "a" }).status, "already");
-  assert.equal(events.join({ guildId: "g", eventId: "e", userId: "b" }).status, "full");
-  assert.equal(events.leave({ guildId: "g", eventId: "e", userId: "a" }).status, "left");
+  const waiting = events.join({ guildId: "g", eventId: "e", userId: "b" });
+  assert.equal(waiting.status, "waitlisted"); assert.equal(waiting.position, 1);
+  assert.equal(events.join({ guildId: "g", eventId: "e", userId: "c" }).position, 2);
+  assert.equal(events.join({ guildId: "g", eventId: "e", userId: "b" }).status, "already_waiting");
+  const left = events.leave({ guildId: "g", eventId: "e", userId: "a" });
+  assert.equal(left.status, "left"); assert.deepEqual(left.promoted, ["b"], "Erster auf der Warteliste rückt nach");
   assert.equal(events.leave({ guildId: "g", eventId: "e", userId: "a" }).status, "not_joined");
-  assert.equal(events.join({ guildId: "g", eventId: "e", userId: "b" }).status, "joined");
   assert.deepEqual(events.participants("e").map(p => p.user_id), ["b"]);
-  assert.equal(events.join({ guildId: "other-guild", eventId: "e", userId: "c" }).status, "closed");
-  assert.deepEqual(actions(db), ["event.participation", "event.participation", "event.participation"]);
+  assert.deepEqual(events.waitlist("e"), ["c"]);
+  assert.equal(events.leave({ guildId: "g", eventId: "e", userId: "c" }).status, "left_waitlist");
+  assert.deepEqual(events.waitlist("e"), []);
+  assert.equal(events.join({ guildId: "other-guild", eventId: "e", userId: "d" }).status, "closed");
+  assert.ok(actions(db).every(a => a === "event.participation"));
 });
 
 test("Anwesenheit kann auch ohne Anmeldung dokumentiert werden und wird protokolliert", () => {

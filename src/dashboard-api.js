@@ -37,6 +37,7 @@ import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
 import { EXPORTS, buildExportFile } from "./export.js";
 import { TaskError, createTaskService, weekStart } from "./services/tasks.js";
+import { killLeaderboard, killsOf, weekCalendar } from "./services/calendar.js";
 import { decideTask, refreshTaskBoard } from "./task-logs.js";
 import { LOGBOOK_FORUMS, createMissingLogbooks, logbookStatus } from "./logbooks.js";
 import { noShowsOf, removeNoShow } from "./event-checks.js";
@@ -160,7 +161,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         sanctions, warnings,
         events: { upcoming, past, stats: activity.eventStats(guildId, userId),
           record: db.prepare("SELECT COALESCE(SUM(e.outcome='win'),0) wins, COALESCE(SUM(e.outcome='lose'),0) losses FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status='present'").get(guildId, userId),
-          earned: db.prepare("SELECT COALESCE(SUM(amount_cents),0) n FROM transactions WHERE guild_id=? AND user_id=? AND idempotency_key LIKE 'event-win:%'").get(guildId, userId).n, noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
+          earned: db.prepare("SELECT COALESCE(SUM(amount_cents),0) n FROM transactions WHERE guild_id=? AND user_id=? AND idempotency_key LIKE 'event-win:%'").get(guildId, userId).n, kills: killsOf(db, guildId, userId), noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
         rank: { current: rank?.label ?? null, history: rankHistory.forUser(guildId, userId, 15).map(r => ({ from: r.from_label, to: r.to_label, kind: r.kind, created_at: r.created_at })) },
         tasks: { profile: tasks.profile(guildId, userId), recent: tasks.list(guildId, { userId, limit: 15 }).map(l => ({ type: `${l.type_emoji} ${l.type_name}`, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, status: l.status, reject_reason: l.reject_reason, created_at: l.created_at })) },
         absences: { open: absences.openFor(guildId, userId, day), list: absences.forUser(guildId, userId, 10).map(a => ({ id: a.id, starts_on: a.starts_on, ends_on: a.ends_on, reason: a.reason, ended_at: a.ended_at })), maxDays: config.ABSENCE_MAX_DAYS },
@@ -286,6 +287,15 @@ export function createDashboardApi({ db, client, config, settings = null, series
         logs: { failedLast24h: failedLogs },
         warnings: configWarnings(config),
       };
+    }],
+    // Wochenkalender und Kill-Bestenliste: für alle Angemeldeten (Team und Familie).
+    [/^\/api\/calendar$/, async (member, url) => {
+      const offset = Math.max(-26, Math.min(26, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0));
+      return weekCalendar(db, { guildId, timezone: config.TIMEZONE, offset });
+    }],
+    [/^\/api\/kills$/, async member => {
+      const board = Object.fromEntries(["week", "month", "all"].map(period => [period, killLeaderboard(db, { guildId, timezone: config.TIMEZONE, period })]));
+      return withNames({ board, me: { userId: member.id, ...killsOf(db, guildId, member.id) } }, Object.values(board).flat().map(r => r.userId));
     }],
     [/^\/api\/tasks$/, async member => {
       need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
@@ -577,6 +587,8 @@ export function createDashboardApi({ db, client, config, settings = null, series
         if (changed.includes("starts_at")) db.prepare("DELETE FROM event_reminders WHERE event_id=?").run(id);
         audit(db, guildId, member.id, "event.updated", id, { name: next.name, startsAt: next.starts_at, changed: changed.join(", ") });
       })();
+      // Höheres Limit: Wartende rücken nach.
+      if (changed.includes("max_participants")) for (const userId of events.fillFromWaitlist(id)) void client.users.fetch(userId).then(user => user.send(`🎉 Du bist für **${next.name}** von der Warteliste nachgerückt (<t:${Math.floor(new Date(next.starts_at).getTime() / 1000)}:F>).`)).catch(() => {});
       const refreshed = await refreshEventMessage(db.prepare("SELECT * FROM events WHERE id=?").get(id));
       return { message: refreshed ? "Event gespeichert und Ankündigung aktualisiert." : "Event gespeichert; die Discord-Ankündigung war nicht erreichbar." };
     }],

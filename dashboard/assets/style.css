@@ -471,3 +471,27 @@ dialog .cselect-list{z-index:1000}
 .multi-tools .multi-filter{flex:1 1 200px;min-width:0}
 .multi-count{font-size:13px;color:var(--muted);font-weight:500;margin-left:auto}
 .multi-list{display:flex;flex-wrap:wrap;gap:8px;max-height:260px;overflow:auto;padding:2px}
+
+/* ---------- Kalender ---------- */
+.calendar-panel,.kills-panel{margin-bottom:18px}
+.cal-nav{display:flex;gap:6px}.cal-nav .action{min-width:38px}
+.calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-top:10px}
+.cal-day{min-height:130px;padding:10px;border-radius:var(--radius-md);background:var(--fill2);display:flex;flex-direction:column;gap:6px;min-width:0}
+.cal-day.past{opacity:.6}
+.cal-day.today{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--accent) 55%,transparent)}
+.cal-head{display:flex;align-items:baseline;justify-content:space-between;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.cal-head b{font-size:20px;color:var(--text);letter-spacing:-.02em;text-transform:none}
+.cal-day.today .cal-head b{color:var(--accent)}
+.cal-item{display:grid;gap:1px;padding:7px 8px 7px 10px;border-radius:var(--radius-xs);background:var(--surface);box-shadow:var(--card-ring);border-left:3px solid var(--blue);font-size:12.5px;min-width:0}
+.cal-item time{font-weight:700;font-variant-numeric:tabular-nums;font-size:12px}
+.cal-item span{font-weight:500;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.cal-item small{color:var(--muted);font-size:11.5px}
+.cal-item.k-series{border-left-color:var(--green)}.cal-item.k-control{border-left-color:var(--accent)}.cal-item.k-planned{border-left-color:var(--line2);border-left-style:dashed;background:transparent;box-shadow:inset 0 0 0 .5px var(--line)}
+.cal-item.done{opacity:.6}
+.cal-empty{color:var(--faint);font-size:13px;margin:auto 0;text-align:center}
+.cal-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:12px}
+.cal-dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:-8px;background:var(--blue)}.cal-dot.k-series{background:var(--green)}.cal-dot.k-control{background:var(--accent)}.cal-dot.k-planned{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line2)}
+@media (max-width:900px){
+  .calendar{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(150px,46%);overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:6px;margin-right:-16px;padding-right:16px}
+  .cal-day{scroll-snap-align:start}
+}

@@ -23,6 +23,7 @@ import { handleAttendanceInteraction, requestAttendance } from "./attendance.js"
 import { handleTaskInteraction, myTasksView, rewardLabel, submitTaskLog } from "./task-logs.js";
 import { createTaskService } from "./services/tasks.js";
 import { LOGBOOK_FORUMS, activeLogbookKinds, ensureLogbook, renameLogbook } from "./logbooks.js";
+import { killLeaderboard, killsOf } from "./services/calendar.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
@@ -284,6 +285,8 @@ export function buildCommands() {
   const logbook = new SlashCommandBuilder().setName("logbuch").setDescription("Logbuch im Forum für ein Mitglied anlegen (Staff)")
     .addUserOption(o=>o.setName("mitglied").setDescription("Für wen?").setRequired(true))
     .addStringOption(o=>o.setName("art").setDescription("Welches Logbuch? (Standard: alle eingestellten)").addChoices({name:"Aufgaben-Logbuch",value:"tasks"},{name:"Event-Logbuch",value:"events"}));
+  const kills = new SlashCommandBuilder().setName("kills").setDescription("Kill-Bestenliste aus den Events")
+    .addStringOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices({name:"Diese Woche",value:"week"},{name:"Dieser Monat",value:"month"},{name:"Gesamt",value:"all"}));
   const myTasks = new SlashCommandBuilder().setName("aufgaben").setDescription("Deine Aufgaben-Logs: Stufe, Serie, Woche und Verdienst");
   const misc = [
     new SlashCommandBuilder().setName("ping").setDescription("Bot-Latenz anzeigen"),
@@ -291,7 +294,7 @@ export function buildCommands() {
     new SlashCommandBuilder().setName("bewerbung-panel").setDescription("Bewerbungs-Panel senden (Reviewer)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen (Staff)").addIntegerOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices(...Object.entries(PERIODS).map(([days,label])=>({name:label,value:Number(days)})))),
   ];
-  return [log,myTasks,logbook,money,sanction,warn,warnings,unwarn,poll,timeout,untimeout,kick,ban,unban,control,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
+  return [log,myTasks,logbook,kills,money,sanction,warn,warnings,unwarn,poll,timeout,untimeout,kick,ban,unban,control,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
 }
 
 export function createHandler({db,finance,config,client,settings=null,series=null}) {
@@ -410,6 +413,13 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
           lines.push(r.status==="created"?`📒 ${label} angelegt: <#${r.threadId}>`:r.status==="existing"?`${label}: gibt es schon${r.threadId?` – <#${r.threadId}>`:""}.`:`${label}: ${r.reason}`);
         }
         return i.editReply(presentInteractionPayload({content:lines.join("\n")}));
+      }
+      if (i.commandName==="kills"){
+        const period=i.options.getString("zeitraum")??"week",rows=killLeaderboard(db,{guildId:g,timezone:config.TIMEZONE,period,limit:10}),mine=killsOf(db,g,u);
+        const medals=["🥇","🥈","🥉"],label={week:"diese Woche",month:"diesen Monat",all:"gesamt"}[period];
+        return answer(i,{embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  EVENTS"}).setTitle(`🎯 Kill-Bestenliste – ${label}`)
+          .setDescription(rows.map((r,n)=>`${medals[n]??`**${n+1}.**`} <@${r.userId}> · **${r.kills}** Kills · ${r.events} Events · Bestwert ${r.best}`).join("\n")||"Noch keine Kills eingetragen. Kills trägt das Team beim Win mit Kill-Prämie ein.")
+          .setFooter({text:`Du gesamt: ${mine.kills} Kills · Bestwert ${mine.best}`})],allowedMentions:{parse:[]},ephemeral:true});
       }
       if (i.commandName==="aufgaben"){const denied=memberGate(i);if(denied)return respond(i,denied);return answer(i,{embeds:[myTasksView(db,config,g,u)],ephemeral:true});}
       if (i.commandName==="abwesend") return await absenceCommand(i,sub,g,u);
@@ -856,6 +866,8 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         if(changes.starts_at)db.prepare("DELETE FROM event_reminders WHERE event_id=?").run(id);
         audit(db,g,u,"event.updated",id,{name:next.name,startsAt:next.starts_at,changed:Object.keys(changes).join(", ")});
       })();
+      // Höheres Limit: Wartende rücken nach.
+      if(changes.max_participants)for(const userId of events.fillFromWaitlist(id))void client.users.fetch(userId).then(user=>user.send(`🎉 Du bist für **${next.name}** von der Warteliste nachgerückt (<t:${unix(next.starts_at)}:F>).`)).catch(()=>{});
       const updated=db.prepare("SELECT * FROM events WHERE id=?").get(id);
       const message=await refreshEventPosts({db,client,config,event:updated});
       return answer(i,{...fieldsEmbed("✏️ Event aktualisiert",[
@@ -1168,10 +1180,11 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         if(action==="join"){const gate=memberGate(i);if(gate)return answer(i,{content:gate,ephemeral:true});}
         const result=action==="join"?events.join({guildId:g,eventId:id,userId:u}):events.leave({guildId:g,eventId:id,userId:u});
         if(result.status==="closed")return answer(i,{content:"Dieses Event ist nicht mehr offen.",ephemeral:true});
-        if(result.status==="full")return answer(i,{content:"Das Event ist bereits voll.",ephemeral:true});
-        if(["joined","left"].includes(result.status))await refreshEventPosts({db,client,config,event:result.event,cardOnly:true});
-        const titles={joined:"✅ Anmeldung bestätigt",already:"ℹ️ Bereits angemeldet",left:"↩️ Abmeldung bestätigt",not_joined:"ℹ️ Keine aktive Anmeldung"};
-        const texts={joined:"Du stehst jetzt auf der Teilnehmerliste.",already:"Deine Anmeldung ist bereits gespeichert.",left:"Du wurdest von der Teilnehmerliste entfernt.",not_joined:"Du warst für dieses Event nicht angemeldet."};
+        if(["joined","left","waitlisted","left_waitlist"].includes(result.status))await refreshEventPosts({db,client,config,event:result.event,cardOnly:true});
+        // Nachgerückte von der Warteliste per DM informieren.
+        for(const userId of result.promoted??[])void (i.client??client).users.fetch(userId).then(user=>user.send({embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  EVENTS"}).setTitle("🎉 Du bist nachgerückt!").setDescription(`Für **${result.event.name}** (<t:${unix(result.event.starts_at)}:F>) ist ein Platz frei geworden – du stehst jetzt auf der Teilnehmerliste.\nKannst du doch nicht? Dann bitte über die Event-Karte abmelden.`).setTimestamp()]})).catch(()=>{});
+        const titles={joined:"✅ Anmeldung bestätigt",already:"ℹ️ Bereits angemeldet",left:"↩️ Abmeldung bestätigt",not_joined:"ℹ️ Keine aktive Anmeldung",waitlisted:"⏳ Auf der Warteliste",already_waiting:"⏳ Schon auf der Warteliste",left_waitlist:"↩️ Von der Warteliste entfernt"};
+        const texts={joined:"Du stehst jetzt auf der Teilnehmerliste.",already:"Deine Anmeldung ist bereits gespeichert.",left:"Du wurdest von der Teilnehmerliste entfernt.",not_joined:"Du warst für dieses Event nicht angemeldet.",waitlisted:`Das Event ist voll – du bist **Platz ${result.position}** auf der Warteliste. Wird ein Platz frei, rückst du automatisch nach und bekommst eine DM.`,already_waiting:`Du bist **Platz ${result.position}** auf der Warteliste.`,left_waitlist:"Du stehst nicht mehr auf der Warteliste."};
         return answer(i,{...fieldsEmbed(titles[result.status],[
           {name:"Event",value:`**${result.event.name}**`,inline:true},
           {name:"Beginn",value:`<t:${unix(result.event.starts_at)}:F>`,inline:true},

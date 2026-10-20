@@ -19,6 +19,7 @@ async function loadMine() {
     myStat("Event-Teilnahmen", escapeHtml(e.stats.participations), "#"),
     myStat("Event-Bilanz", `${e.record.wins} Win · ${e.record.losses} Lose`, "🏆"),
     myStat("Durch Events verdient", money(e.earned), "$"),
+    ...(e.kills?.kills ? [myStat("Kills", `${e.kills.kills} <small>Bestwert ${e.kills.best} in einem Event</small>`)] : []),
     myStat("No-Shows", e.noShowLimit ? `${e.noShows} von ${e.noShowLimit} <small>(${e.noShowWindow} Tage)</small>` : escapeHtml(e.noShows)),
   ].join("");
   renderMyTasks(d.tasks);
@@ -35,6 +36,7 @@ async function loadMine() {
   $("my-ranks").innerHTML = d.rank.history.map(r => myRow(`${myRankKinds[r.kind] ?? r.kind}: ${escapeHtml(r.from ?? "—")} → ${escapeHtml(r.to ?? "—")}`, date(r.created_at))).join("") || empty("Noch keine Rangänderung erfasst.");
   $("my-absences").innerHTML = d.absences.list.map(x => myRow(`${myDay(x.starts_on)} – ${myDay(x.ends_on)}${x.ended_at ? " · beendet" : d.absences.open?.id === x.id ? " · läuft" : ""}`, escapeHtml(x.reason))).join("") || empty("Keine Abmeldungen.");
   renderMyBoard();
+  loadCalendar("my").catch(() => {});
 }
 const nLogs = n => `${n} ${n === 1 ? "Log" : "Logs"}`;
 const myTaskIcons = { pending: "⏳", approved: "✅", rejected: "❌" };
