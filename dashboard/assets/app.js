@@ -63,6 +63,7 @@ const ICONS = {
   status: "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20 M9 12l2 2 4-4",
   mine: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8",
   tasks: "M9 11l3 3 8-8 M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9",
+  more: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M7.8 12h.01 M12 12h.01 M16.2 12h.01",
   settings: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6",
 };
 const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] ?? ICONS.overview}"/></svg>`;
@@ -195,6 +196,11 @@ function renderTabs() {
     if (!items.length) return "";
     return `${group ? `<div class="nav-group">${escapeHtml(group)}</div>` : ""}${items.map(id => `<button type="button" class="nav-item ${state.tab === id ? "active" : ""}" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ""}>${icon(id)}<span>${escapeHtml(allowed.get(id))}</span>${badge(id)}</button>`).join("")}`;
   }).join("");
+  // Mobile Tab-Leiste (iOS): die wichtigsten erlaubten Bereiche + „Mehr“ (öffnet die volle Navigation).
+  const primary = ["overview", "mine", "tasks", "events", "finance", "tickets", "applications", "members"].filter(id => allowed.has(id)).slice(0, 4);
+  const short = { overview: "Übersicht", mine: "Ich", tasks: "Aufgaben", events: "Events", finance: "Konto", tickets: "Tickets", applications: "Anträge", members: "Mitglieder" };
+  $("tabbar").innerHTML = primary.map(id => `<button type="button" class="tab-item ${state.tab === id ? "active" : ""}" data-tab="${id}" ${state.tab === id ? 'aria-current="page"' : ""}>${icon(id)}<span>${escapeHtml(short[id] ?? allowed.get(id))}</span>${badge(id)}</button>`).join("")
+    + `<button type="button" class="tab-item ${primary.includes(state.tab) ? "" : "active"}" data-action="menu-more">${icon("more")}<span>Mehr</span></button>`;
   $("page-title").textContent = allowed.get(state.tab) ?? "Übersicht";
   document.title = `${allowed.get(state.tab) ?? "Übersicht"} · Gambinos`;
   for (const [id] of TABS) $(`tab-${id}`).classList.toggle("hidden", id !== state.tab);
@@ -474,6 +480,16 @@ const loaders = { members: loadMembers, overview: loadOverview, applications: lo
 
 // ------------------------------------------------------------------ Aktionen
 const actions = {
+  "menu-more": () => (document.body.classList.contains("menu-open") ? closeMenu() : openMenu()),
+  appearance: () => {
+    const now = window.gambinosAppearance?.get() ?? { design: "ios", mode: "auto" };
+    openForm({ eyebrow: "DARSTELLUNG", title: "Darstellung", intro: "<p>Gilt nur auf diesem Gerät. Das klassische Design ist der Look vor dem Redesign.</p>",
+      fields: [
+        { name: "mode", label: "Erscheinungsbild", type: "select", value: now.mode, options: [["auto", "Automatisch (wie das Gerät)"], ["light", "Hell"], ["dark", "Dunkel"]] },
+        { name: "design", label: "Design", type: "select", value: now.design, options: [["ios", "Neu (iOS-Stil)"], ["classic", "Klassisch (altes Design)"]] },
+      ],
+      submit: "Übernehmen", onSubmit: v => { window.gambinosAppearance?.set(v); return { message: "Darstellung gespeichert." }; } });
+  },
   "app-claim": ({ id }) => post(`/api/applications/${id}/claim`).then(r => notify(r.message)).then(refresh),
   "app-accept": ({ id }) => confirmAction("Antrag annehmen?", "Der Antragsteller erhält sofort eine private Nachricht.", "Annehmen", () => post(`/api/applications/${id}/decision`, { status: "accepted" }), false),
   "app-reject": ({ id }) => openForm({ eyebrow: "ANTRÄGE", title: "Antrag ablehnen", intro: "<p>Der Antragsteller erhält diesen Grund als private Nachricht.</p>", danger: true, submit: "Mit Begründung ablehnen", fields: [{ name: "reason", label: "Begründung", type: "textarea", required: true, rows: 4 }], onSubmit: v => post(`/api/applications/${id}/decision`, { status: "rejected", reason: v.reason }) }),

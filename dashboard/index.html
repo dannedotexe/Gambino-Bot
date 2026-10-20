@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#111114"><meta name="description" content="Gambinos – Dashboard"><title>Gambinos · Dashboard</title>
-  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script><script src="/assets/announce.js" defer></script><script src="/assets/polls.js" defer></script><script src="/assets/mine.js" defer></script><script src="/assets/tasks.js" defer></script><script src="/assets/ui.js" defer></script>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark light"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Gambinos">
+  <meta name="theme-color" content="#000000"><meta name="description" content="Gambinos – Dashboard"><title>Gambinos · Dashboard</title>
+  <link rel="icon" href="/assets/gambinos-profile.gif"><link rel="apple-touch-icon" href="/assets/gambinos-profile.gif"><link id="theme-css" rel="stylesheet" href="/assets/style.css"><script src="/assets/theme.js"></script><script src="/assets/app.js" defer></script><script src="/assets/admin.js" defer></script><script src="/assets/people.js" defer></script><script src="/assets/announce.js" defer></script><script src="/assets/polls.js" defer></script><script src="/assets/mine.js" defer></script><script src="/assets/tasks.js" defer></script><script src="/assets/ui.js" defer></script>
 </head>
 <body>
   <div id="progress" class="progress" aria-hidden="true"></div>
@@ -24,9 +24,10 @@
     <aside id="sidebar" class="sidebar" aria-label="Navigation">
       <a class="brand" href="/"><img class="brand-mark" src="/assets/gambinos-profile.gif" alt=""><span><b>GAMBINOS</b><small>DASHBOARD</small></span></a>
       <nav id="tabs" class="nav"></nav>
-      <div class="sidebar-foot"><div class="me"><span id="staff-avatar" class="avatar">G</span><div><b id="staff-name">Gambinos</b><small id="staff-role">Dashboard</small></div></div><button id="logout" class="logout-btn" type="button" aria-label="Abmelden" title="Abmelden"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9"/></svg></button></div>
+      <div class="sidebar-foot"><div class="me"><span id="staff-avatar" class="avatar">G</span><div><b id="staff-name">Gambinos</b><small id="staff-role">Dashboard</small></div></div><button class="logout-btn appearance-btn" type="button" data-action="appearance" aria-label="Darstellung" title="Darstellung (Hell/Dunkel, Design)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 3v18 M12 7.5h5.6 M12 12h9 M12 16.5h5.6"/></svg></button><button id="logout" class="logout-btn" type="button" aria-label="Abmelden" title="Abmelden"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9"/></svg></button></div>
     </aside>
     <div id="scrim" class="scrim"></div>
+    <nav id="tabbar" class="tabbar" aria-label="Schnellnavigation"></nav>
     <main class="content">
       <header class="topbar"><button id="menu-toggle" class="icon-btn" type="button" aria-label="Menü öffnen" aria-controls="sidebar" aria-expanded="false"><span></span><span></span><span></span></button><div class="crumb"><b id="page-title">Übersicht</b></div><div class="live"><i></i>Live<span id="updated-at"></span></div></header>
 
@@ -171,7 +172,7 @@
       <footer>Alle Aktionen werden protokolliert <span>·</span> Version <b id="app-version">–</b></footer>
     </main>
   </div>
-  <dialog id="quick" class="quick" aria-label="Schnell prüfen" tabindex="-1"><div class="quick-wrap"><div class="quick-shot"><img id="quick-img" alt="Screenshot"><span id="quick-loading">Screenshot lädt …</span></div>
+  <dialog id="quick" class="qreview" aria-label="Schnell prüfen" tabindex="-1"><div class="quick-wrap"><div class="quick-shot"><img id="quick-img" alt="Screenshot"><span id="quick-loading">Screenshot lädt …</span></div>
     <aside class="quick-side"><div class="quick-top"><span id="quick-count" class="badge"></span><button type="button" class="link-btn" data-action="quick-close">Schließen <kbd>Esc</kbd></button></div>
       <h2 id="quick-title"></h2><div id="quick-reward" class="quick-reward"></div><div id="quick-meta" class="manage-meta"></div><div id="quick-note" class="desc"></div><div id="quick-flag" class="task-flag" hidden>⚠️ Gleicher Screenshot wie ein früheres Log – bitte genau prüfen.</div>
       <div id="quick-main" class="quick-actions"><button type="button" class="action approve" data-action="quick-approve">✓ Bestätigen <kbd>J</kbd></button><button type="button" class="action" id="quick-qty-btn" data-action="quick-qty">Menge ändern <kbd>M</kbd></button><button type="button" class="action reject" data-action="quick-reject">Ablehnen <kbd>N</kbd></button><button type="button" class="action" data-action="quick-skip">Überspringen <kbd>→</kbd></button></div>
