@@ -353,3 +353,4 @@ kbd{font:11px var(--font);padding:1px 6px;border-radius:4px;border:1px solid var
 @media (max-width:900px){.calendar{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(150px,46%);overflow-x:auto}}
 .proofs{display:grid;gap:12px}.proof{padding:10px;border:1px solid var(--line);border-radius:var(--radius-sm)}.proof-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px}.proof-head small{color:var(--muted)}
 .proof-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}.proof-images img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;display:block}
+.held-actions{display:flex;justify-content:flex-end;margin:-4px 0 10px}

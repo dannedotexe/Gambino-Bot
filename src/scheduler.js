@@ -17,7 +17,7 @@ import { checkEventMinimums, processNoShows } from "./event-checks.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { runDailySnapshot } from "./role-snapshots.js";
 import { refreshPayoutList } from "./payout-list.js";
-import { refreshTaskBoard } from "./task-logs.js";
+import { refreshTaskBoard, releaseHeldInvites } from "./task-logs.js";
 import { remindInactiveLogbooks } from "./logbooks.js";
 import { requestAttendance, requestDueAttendance } from "./attendance.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
@@ -102,6 +102,7 @@ export function startScheduler({db,client,config,series=null}) {
         await sendWeeklyReport({db,client,config,reference:now}).catch(error=>console.warn("Wochenbericht fehlgeschlagen:",error.message));
         await runDailyInactivity({db,client,config,reference:now}).catch(error=>console.warn("Inaktivitätsprüfung fehlgeschlagen:",error.message));
         await refreshPayoutList({db,client,config}).catch(error=>console.warn("Auszahlungsliste konnte nicht aktualisiert werden:",error.message));
+        await releaseHeldInvites({db,client,config,reference:now}).catch(error=>console.warn("Invite-Bedingungen konnten nicht geprüft werden:",error.message));
         await refreshTaskBoard({db,client,config}).catch(error=>console.warn("Aufgaben-Board konnte nicht aktualisiert werden:",error.message));
         await runDailySnapshot({db,client,config,reference:now}).catch(error=>console.warn("Rollen-Sicherung fehlgeschlagen:",error.message));
         // Logbuch-Erinnerungen einmal täglich am Abend (ab 18 Uhr Server-Zeit), wenn die meisten online sind.

@@ -285,7 +285,8 @@ export function buildCommands() {
     .addStringOption(o=>o.setName("aufgabe").setDescription("Welche Aufgabe? (tippen zum Suchen)").setRequired(true).setAutocomplete(true))
     .addAttachmentOption(o=>o.setName("beweis").setDescription("Screenshot – ganzer Bildschirm mit Datum und Uhrzeit").setRequired(true))
     .addIntegerOption(o=>o.setName("menge").setDescription("Wie viele? (nur bei Aufgaben mit Stückzahl, Standard 1)").setMinValue(1).setMaxValue(999))
-    .addStringOption(o=>o.setName("notiz").setDescription("Optional, z. B. wen du eingeladen hast").setMaxLength(300));
+    .addUserOption(o=>o.setName("eingeladen").setDescription("Nur bei Invites: Wen hast du eingeladen?"))
+    .addStringOption(o=>o.setName("notiz").setDescription("Optional, kurze Notiz fürs Team").setMaxLength(300));
   const logbook = new SlashCommandBuilder().setName("logbuch").setDescription("Logbuch im Forum für ein Mitglied anlegen (Staff)")
     .addUserOption(o=>o.setName("mitglied").setDescription("Für wen?").setRequired(true))
     .addStringOption(o=>o.setName("art").setDescription("Welches Logbuch? (Standard: alle eingestellten)").addChoices({name:"Aufgaben-Logbuch",value:"tasks"},{name:"Event-Logbuch",value:"events"}));

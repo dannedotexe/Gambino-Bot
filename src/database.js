@@ -273,6 +273,12 @@ const COLUMNS = [
   ["task_logs", "source_index", "INTEGER"],
   ["logbooks", "archived_at", "TEXT"],
   ["events", "signup_closed_at", "TEXT"],
+  ["task_types", "invite_min_days", "INTEGER"],
+  ["task_types", "invite_min_events", "INTEGER"],
+  ["task_logs", "invitee_id", "TEXT"],
+  ["task_logs", "preapproved_by", "TEXT"],
+  ["task_logs", "preapproved_at", "TEXT"],
+  ["task_logs", "progress", "TEXT"],
   ["logbooks", "reminded_at", "TEXT"],
 ];
 

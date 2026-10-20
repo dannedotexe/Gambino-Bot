@@ -16,7 +16,7 @@ const DAY = 86_400_000;
 const now = () => new Date().toISOString();
 // Startwerte aus der bisherigen Forum-Vorlage; Beträge für Plantage/Solar legt das Team auf der Website fest.
 const DEFAULT_TYPES = [
-  { name: "Invite – gute Leute", emoji: "🤝", reward: 5_000_000, perUnit: false, unit: "Invite" },
+  { name: "Invite – gute Leute", emoji: "🤝", reward: 5_000_000, perUnit: false, unit: "Invite", minDays: 2, minEvents: 4 },
   { name: "Plantage", emoji: "🌿", reward: 0, perUnit: true, unit: "Ernte" },
   { name: "Solar Panele", emoji: "☀️", reward: 0, perUnit: true, unit: "Panel" },
 ];
@@ -56,7 +56,8 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
   const tz = () => (typeof timezone === "function" ? timezone() : timezone) || "Europe/Vienna";
   const day = iso => localDay(new Date(iso), tz());
   const typeById = (guildId, id) => db.prepare("SELECT * FROM task_types WHERE guild_id=? AND id=?").get(guildId, id);
-  const logById = (guildId, id) => db.prepare("SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.guild_id=? AND l.id=?").get(guildId, id);
+  const logById = (guildId, id) => db.prepare("SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit,t.invite_min_days,t.invite_min_events FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.guild_id=? AND l.id=?").get(guildId, id);
+  const needsInvitee = type => type?.invite_min_days != null || type?.invite_min_events != null;
   const rewardFor = (type, quantity) => (type.per_unit ? type.reward_cents * quantity : type.reward_cents);
 
   /** Legt beim ersten Aufruf die Standard-Aufgaben an – nie wieder, auch wenn das Team später alle löscht. */
@@ -64,8 +65,8 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
     if (!guildId || getSetting(db, guildId, "TASK_TYPES_SEEDED")) return;
     db.transaction(() => {
       if (!db.prepare("SELECT 1 FROM task_types WHERE guild_id=?").get(guildId)) {
-        DEFAULT_TYPES.forEach((t, index) => db.prepare("INSERT INTO task_types(id,guild_id,name,emoji,reward_cents,per_unit,unit,daily_limit,active,sort,created_at,updated_at) VALUES(?,?,?,?,?,?,?,NULL,1,?,?,?)")
-          .run(randomUUID(), guildId, t.name, t.emoji, t.reward, t.perUnit ? 1 : 0, t.unit, index, now(), now()));
+        DEFAULT_TYPES.forEach((t, index) => db.prepare("INSERT INTO task_types(id,guild_id,name,emoji,reward_cents,per_unit,unit,daily_limit,active,sort,invite_min_days,invite_min_events,created_at,updated_at) VALUES(?,?,?,?,?,?,?,NULL,1,?,?,?,?,?)")
+          .run(randomUUID(), guildId, t.name, t.emoji, t.reward, t.perUnit ? 1 : 0, t.unit, index, t.minDays ?? null, t.minEvents ?? null, now(), now()));
       }
       setSetting(db, guildId, "TASK_TYPES_SEEDED", now());
     })();
@@ -84,9 +85,18 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
       setSetting(db, guildId, "TASK_INVITE_GOOD_ONLY", now());
     })();
   }
+  /** Einmalig: „gute Leute“ = mind. 2 Tage auf dem Server und bei 4 Events dabei (prüft der Bot selbst). */
+  function migrateInviteConditions(guildId) {
+    if (!guildId || getSetting(db, guildId, "TASK_INVITE_CONDITIONS")) return;
+    db.transaction(() => {
+      db.prepare("UPDATE task_types SET invite_min_days=2,invite_min_events=4,updated_at=? WHERE guild_id=? AND name='Invite – gute Leute' AND invite_min_days IS NULL AND invite_min_events IS NULL").run(now(), guildId);
+      setSetting(db, guildId, "TASK_INVITE_CONDITIONS", now());
+    })();
+  }
 
   function listTypes(guildId, { all = false } = {}) {
     migrateInviteTiers(guildId);
+    migrateInviteConditions(guildId);
     ensureDefaults(guildId);
     return db.prepare(`SELECT * FROM task_types WHERE guild_id=? ${all ? "" : "AND active=1"} ORDER BY sort,name`).all(guildId);
   }
@@ -99,6 +109,9 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
     const limit = input.dailyLimit === "" || input.dailyLimit == null ? null : Number(input.dailyLimit);
     if (limit != null && (!Number.isInteger(limit) || limit < 1 || limit > 100)) throw new TaskError("Tageslimit: 1 bis 100 oder leer.", "INVALID_INPUT");
     const perUnit = input.perUnit === true || input.perUnit === "true" || input.perUnit === "1" ? 1 : 0;
+    // Einladungs-Bedingungen: leer = keine eingeladene Person nötig.
+    const cond = (value, max, label) => { if (value === "" || value == null) return null; const n = Number(value); if (!Number.isInteger(n) || n < 0 || n > max) throw new TaskError(`${label}: 0 bis ${max} oder leer.`, "INVALID_INPUT"); return n; };
+    const minDays = cond(input.inviteMinDays, 60, "Mindest-Tage"), minEvents = cond(input.inviteMinEvents, 50, "Mindest-Events");
     const active = input.active === false || input.active === "false" || input.active === "0" ? 0 : 1;
     return db.transaction(() => {
       const duplicate = db.prepare("SELECT id FROM task_types WHERE guild_id=? AND lower(name)=lower(?) AND id<>?").get(guildId, name, input.id ?? "");
@@ -106,12 +119,12 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
       if (input.id) {
         const before = typeById(guildId, input.id);
         if (!before) throw new TaskError("Aufgabe nicht gefunden.", "NOT_FOUND");
-        db.prepare("UPDATE task_types SET name=?,emoji=?,reward_cents=?,per_unit=?,unit=?,daily_limit=?,active=?,updated_at=? WHERE id=?").run(name, emoji, reward, perUnit, unit, limit, active, now(), input.id);
+        db.prepare("UPDATE task_types SET name=?,emoji=?,reward_cents=?,per_unit=?,unit=?,daily_limit=?,active=?,invite_min_days=?,invite_min_events=?,updated_at=? WHERE id=?").run(name, emoji, reward, perUnit, unit, limit, active, minDays, minEvents, now(), input.id);
         audit(db, guildId, actorId, "task.type_updated", input.id, { name, reward, perUnit: Boolean(perUnit), dailyLimit: limit, active: Boolean(active), previousReward: before.reward_cents });
         return typeById(guildId, input.id);
       }
       const id = randomUUID(), sort = db.prepare("SELECT COALESCE(MAX(sort),-1)+1 n FROM task_types WHERE guild_id=?").get(guildId).n;
-      db.prepare("INSERT INTO task_types(id,guild_id,name,emoji,reward_cents,per_unit,unit,daily_limit,active,sort,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").run(id, guildId, name, emoji, reward, perUnit, unit, limit, active, sort, now(), now());
+      db.prepare("INSERT INTO task_types(id,guild_id,name,emoji,reward_cents,per_unit,unit,daily_limit,active,sort,invite_min_days,invite_min_events,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, guildId, name, emoji, reward, perUnit, unit, limit, active, sort, minDays, minEvents, now(), now());
       audit(db, guildId, actorId, "task.type_created", id, { name, reward, perUnit: Boolean(perUnit), dailyLimit: limit });
       return typeById(guildId, id);
     })();
@@ -121,9 +134,15 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
    * Neue Einreichung. proofKey (Bildmaße + Dateigröße) erkennt denselben Screenshot erneut – er wird nicht blockiert,
    * aber für das Team markiert.
    */
-  function submit({ guildId, userId, typeId, quantity = 1, note = "", proofKey = null, reference = new Date() }) {
+  function submit({ guildId, userId, typeId, quantity = 1, note = "", proofKey = null, inviteeId = null, reference = new Date() }) {
     const type = typeById(guildId, typeId);
     if (!type || !type.active) throw new TaskError("Diese Aufgabe gibt es nicht (mehr). Bitte aus der Liste wählen.", "NOT_FOUND");
+    if (needsInvitee(type)) {
+      if (!inviteeId) throw new TaskError("Bitte angeben, wen du eingeladen hast.", "INVITEE");
+      if (inviteeId === userId) throw new TaskError("Dich selbst kannst du nicht einladen. 😉", "INVITEE");
+      const taken = db.prepare("SELECT user_id FROM task_logs WHERE guild_id=? AND invitee_id=? AND status<>'rejected' LIMIT 1").get(guildId, inviteeId);
+      if (taken) throw new TaskError(taken.user_id === userId ? "Für diese Person hast du schon einen Invite eingereicht." : "Für diese Person hat schon jemand anderes einen Invite eingereicht.", "INVITEE");
+    }
     const qty = type.per_unit ? Number(quantity) : 1;
     if (!Number.isInteger(qty) || qty < 1 || qty > 999) throw new TaskError("Menge: ganze Zahl von 1 bis 999.", "INVALID_INPUT");
     const text = String(note ?? "").trim().slice(0, 300);
@@ -135,8 +154,8 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
       }
       const duplicate = proofKey ? db.prepare("SELECT id,user_id,created_at FROM task_logs WHERE guild_id=? AND proof_key=? AND status<>'rejected' AND created_at>=? ORDER BY created_at LIMIT 1").get(guildId, proofKey, new Date(reference.getTime() - 14 * DAY).toISOString()) : null;
       const id = randomUUID(), ts = reference.toISOString();
-      db.prepare("INSERT INTO task_logs(id,guild_id,user_id,type_id,quantity,reward_cents,note,proof_key,duplicate_of,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?)")
-        .run(id, guildId, userId, typeId, qty, rewardFor(type, qty), text, proofKey, duplicate?.id ?? null, ts, ts);
+      db.prepare("INSERT INTO task_logs(id,guild_id,user_id,type_id,quantity,reward_cents,note,proof_key,duplicate_of,status,invitee_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?,?)")
+        .run(id, guildId, userId, typeId, qty, rewardFor(type, qty), text, proofKey, duplicate?.id ?? null, needsInvitee(type) ? inviteeId : null, ts, ts);
       audit(db, guildId, userId, "task.submitted", id, { type: type.name, quantity: qty, reward: rewardFor(type, qty), duplicateOf: duplicate?.id ?? null });
       return { ...logById(guildId, id), duplicate };
     })();
@@ -148,13 +167,23 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
   const setProofUrl = (id, url) => db.prepare("UPDATE task_logs SET proof_url=? WHERE id=?").run(url, id);
 
   /** Bestätigen (optional mit korrigierter Menge) und Belohnung in derselben Transaktion buchen. */
-  function approve({ guildId, id, actorId, finance, quantity = null, allowSelf = false }) {
+  /**
+   * Bestätigen. Hat die Aufgabe Einladungs-Bedingungen und sind sie noch nicht erfüllt (conditionsMet=false), wird nur
+   * vorgemerkt („bestätigt, wartet“) – die Belohnung bucht später releaseHeld, sobald die Bedingungen erfüllt sind.
+   */
+  function approve({ guildId, id, actorId, finance, quantity = null, allowSelf = false, conditionsMet = true }) {
     return db.transaction(() => {
       const log = logById(guildId, id);
       if (!log) throw new TaskError("Log nicht gefunden.", "NOT_FOUND");
       if (log.status !== "pending") throw new TaskError(log.status === "approved" ? "Dieses Log wurde bereits bestätigt." : "Dieses Log wurde bereits abgelehnt.", "CONFLICT");
       if (log.user_id === actorId && !allowSelf) throw new TaskError("Eigene Logs muss jemand anderes bestätigen.", "SELF");
       const type = typeById(guildId, log.type_id);
+      if (needsInvitee(type) && !conditionsMet) {
+        if (log.preapproved_at) throw new TaskError("Dieses Log ist schon bestätigt und wartet auf die Bedingungen.", "CONFLICT");
+        db.prepare("UPDATE task_logs SET preapproved_by=?,preapproved_at=?,updated_at=? WHERE id=? AND status='pending'").run(actorId, now(), now(), id);
+        audit(db, guildId, actorId, "task.preapproved", id, { userId: log.user_id, inviteeId: log.invitee_id, type: type.name });
+        return { ...logById(guildId, id), held: true };
+      }
       const qty = quantity == null ? log.quantity : Number(quantity);
       if (!Number.isInteger(qty) || qty < 1 || qty > 999) throw new TaskError("Menge: ganze Zahl von 1 bis 999.", "INVALID_INPUT");
       const reward = rewardFor(type, type.per_unit ? qty : 1);
@@ -195,8 +224,20 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
     })();
   }
 
+  /** Bestätigte, aber noch auf Bedingungen wartende Logs. */
+  const held = guildId => db.prepare("SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit,t.invite_min_days,t.invite_min_events FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.guild_id=? AND l.status='pending' AND l.preapproved_at IS NOT NULL ORDER BY l.preapproved_at").all(guildId);
+  /** Fortschritt einer Einladung: Tage seit Beitritt und anwesende Events seitdem. */
+  function inviteProgress(log, type, { joinedAt = null, reference = new Date() } = {}) {
+    const days = joinedAt ? Math.floor((reference - new Date(joinedAt)) / DAY) : 0;
+    const since = joinedAt ? new Date(joinedAt).toISOString() : log.created_at;
+    const events = log.invitee_id ? db.prepare("SELECT COUNT(*) n FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=? AND p.user_id=? AND p.status='present' AND e.starts_at>=?").get(log.guild_id, log.invitee_id, since).n : 0;
+    const needDays = type.invite_min_days ?? 0, needEvents = type.invite_min_events ?? 0;
+    return { days, events, needDays, needEvents, inGuild: Boolean(joinedAt), met: Boolean(joinedAt) && days >= needDays && events >= needEvents };
+  }
+  const setProgress = (id, text) => db.prepare("UPDATE task_logs SET progress=? WHERE id=?").run(text, id);
+
   const list = (guildId, { status = null, userId = null, limit = 100 } = {}) =>
-    db.prepare(`SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.guild_id=? ${status ? "AND l.status=?" : ""} ${userId ? "AND l.user_id=?" : ""} ORDER BY ${status === "pending" ? "l.created_at" : "l.created_at DESC"} LIMIT ?`)
+    db.prepare(`SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit,t.invite_min_days,t.invite_min_events FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.guild_id=? ${status ? "AND l.status=?" : ""} ${userId ? "AND l.user_id=?" : ""} ORDER BY ${status === "pending" ? "l.created_at" : "l.created_at DESC"} LIMIT ?`)
       .all(...[guildId, status, userId].filter(Boolean), Math.min(500, limit));
 
   /** Bestenliste ab einem lokalen Tag (inklusive): Logs, Stück und verdientes Geld. */
@@ -214,7 +255,7 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
 
   /** Persönliche Bilanz: Stufe, Serie, Woche, gesamt, Platz in der Wochen-Bestenliste. */
   function profile(guildId, userId, reference = new Date()) {
-    const rows = db.prepare("SELECT status,quantity,reward_cents,created_at FROM task_logs WHERE guild_id=? AND user_id=?").all(guildId, userId);
+    const rows = db.prepare("SELECT status,quantity,reward_cents,created_at,preapproved_at FROM task_logs WHERE guild_id=? AND user_id=?").all(guildId, userId);
     const approved = rows.filter(r => r.status === "approved"), today = localDay(reference, tz()), week = weekStart(today);
     const weekRows = approved.filter(r => day(r.created_at) >= week);
     const board = leaderboard(guildId, { since: week, limit: 1000 });
@@ -224,16 +265,17 @@ export function createTaskService(db, { timezone = () => "Europe/Vienna" } = {})
       streak: streakOf(approved.map(r => day(r.created_at)), today),
       total: { logs: approved.length, earned: approved.reduce((s, r) => s + r.reward_cents, 0) },
       week: { logs: weekRows.length, earned: weekRows.reduce((s, r) => s + r.reward_cents, 0), place: place >= 0 ? place + 1 : null, of: board.length },
-      pending: rows.filter(r => r.status === "pending").length,
+      pending: rows.filter(r => r.status === "pending" && !r.preapproved_at).length,
+      held: rows.filter(r => r.status === "pending" && r.preapproved_at).length,
     };
   }
 
   function summary(guildId, reference = new Date()) {
     const week = weekStart(localDay(reference, tz()));
-    const rows = db.prepare("SELECT status,reward_cents,created_at,reviewed_at FROM task_logs WHERE guild_id=? AND (status='pending' OR created_at>=?)").all(guildId, new Date(Date.parse(`${week}T00:00:00Z`) - DAY).toISOString());
+    const rows = db.prepare("SELECT status,reward_cents,created_at,reviewed_at,preapproved_at FROM task_logs WHERE guild_id=? AND (status='pending' OR created_at>=?)").all(guildId, new Date(Date.parse(`${week}T00:00:00Z`) - DAY).toISOString());
     const thisWeek = rows.filter(r => r.status === "approved" && day(r.created_at) >= week);
-    return { pending: rows.filter(r => r.status === "pending").length, weekApproved: thisWeek.length, weekPaid: thisWeek.reduce((s, r) => s + r.reward_cents, 0), weekStart: week };
+    return { pending: rows.filter(r => r.status === "pending" && !r.preapproved_at).length, held: rows.filter(r => r.status === "pending" && r.preapproved_at).length, weekApproved: thisWeek.length, weekPaid: thisWeek.reduce((s, r) => s + r.reward_cents, 0), weekStart: week };
   }
 
-  return { ensureDefaults, listTypes, saveType, typeById, submit, attachMessage, setProofUrl, approve, reject, withdraw, get: logById, list, leaderboard, profile, summary };
+  return { held, inviteProgress, setProgress, needsInvitee, ensureDefaults, listTypes, saveType, typeById, submit, attachMessage, setProofUrl, approve, reject, withdraw, get: logById, list, leaderboard, profile, summary };
 }

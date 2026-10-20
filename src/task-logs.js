@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
+import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle, UserSelectMenuBuilder } from "discord.js";
 import { accessGroups } from "./config.js";
 import { getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
@@ -12,7 +12,9 @@ import { handleEventProofMessage } from "./event-proofs.js";
  * Discord-Seite der Aufgaben-Logs: /log reicht ein, die Prüf-Karte im Staff-Channel entscheidet,
  * das öffentliche Aufgaben-Board zeigt Belohnungen und die Top-Farmer der Woche.
  */
-const GREEN = 0x2e7d32, RED = 0xc62828;
+const GREEN = 0x2e7d32, RED = 0xc62828, AMBER = 0xf9a825;
+const DAY = 86_400_000;
+const HELD_MAX_DAYS = 30;
 const MEDALS = ["🥇", "🥈", "🥉"];
 const unix = iso => Math.floor(new Date(iso).getTime() / 1000);
 const MAX_PROOF_BYTES = 10 * 1024 * 1024;
@@ -26,21 +28,30 @@ export const typeLabel = type => `${type.emoji} ${type.name}`;
 const logTitle = log => `${log.type_emoji} ${log.type_name}${log.type_per_unit ? ` ×${log.quantity} ${log.type_unit}` : ""}`;
 const bar = (progress, width = 10) => "▰".repeat(Math.round(progress * width)) + "▱".repeat(width - Math.round(progress * width));
 const nLogs = n => `${n} ${n === 1 ? "Log" : "Logs"}`;
+/** Bestätigt, aber die Belohnung wartet auf die Einladungs-Bedingungen. */
+const isHeld = log => log.status === "pending" && Boolean(log.preapproved_at);
+/** Bedingungen als Text, z. B. „mind. 2 Tage auf dem Server & bei 4 Events dabei“. */
+export const conditionText = type => [type.invite_min_days ? `mind. ${type.invite_min_days} ${type.invite_min_days === 1 ? "Tag" : "Tage"} auf dem Server` : null, type.invite_min_events ? `bei ${type.invite_min_events} Events dabei` : null].filter(Boolean).join(" & ") || "keine Bedingungen";
+/** Fortschritt, z. B. „1/2 Tage · 3/4 Events“. */
+export const progressText = p => !p.inGuild ? "nicht (mehr) auf dem Server" : [p.needDays ? `${Math.min(p.days, p.needDays)}/${p.needDays} Tage` : null, p.needEvents ? `${Math.min(p.events, p.needEvents)}/${p.needEvents} Events` : null].filter(Boolean).join(" · ");
 const levelLine = level => `${level.emoji} **${level.name}**${level.next ? ` · noch ${level.next.missing} bis ${level.next.emoji} ${level.next.name}` : " · höchste Stufe"}`;
 
 /** Prüf-Karte für das Team. decision: null (offen) oder der entschiedene Log. */
 export function taskReviewCard(log, { profile = null, duplicate = null, imageName = null, imageUrl = null } = {}) {
   const state = log.status;
-  const embed = new EmbedBuilder().setColor(state === "approved" ? GREEN : state === "rejected" ? RED : BRAND_COLOR)
+  const held = isHeld(log);
+  const embed = new EmbedBuilder().setColor(state === "approved" ? GREEN : state === "rejected" ? RED : held ? AMBER : BRAND_COLOR)
     .setAuthor({ name: "GAMBINOS  •  AUFGABEN-LOG" })
-    .setTitle(`${state === "approved" ? "✅ " : state === "rejected" ? "❌ " : ""}${logTitle(log)}`.slice(0, 256))
+    .setTitle(`${state === "approved" ? "✅ " : state === "rejected" ? "❌ " : held ? "⏳ " : ""}${logTitle(log)}`.slice(0, 256))
     .setDescription([
       `**Von:** <@${log.user_id}>${profile ? ` · ${profile.level.emoji} ${profile.level.name}${profile.streak > 1 ? ` · 🔥 ${profile.streak} Tage Serie` : ""}` : ""}`,
       `**Belohnung:** ${log.reward_cents ? `**${formatMoney(log.reward_cents)}**` : "keine (nur Zählung)"}`,
+      log.invitee_id ? `**Eingeladen:** <@${log.invitee_id}>${log.invite_min_days != null || log.invite_min_events != null ? ` · Bedingung: ${conditionText(log)}` : ""}` : null,
       log.note ? `**Notiz:** ${log.note}` : null,
     ].filter(Boolean).join("\n"))
     .setFooter({ text: `Log ${log.id.slice(0, 8)} · eingereicht` }).setTimestamp(new Date(log.created_at));
-  if (profile && state === "pending") embed.addFields({ name: "Diese Woche", value: `${profile.week.logs} bestätigt · ${formatMoney(profile.week.earned)}${profile.week.place ? ` · Platz ${profile.week.place}` : ""}`, inline: true }, { name: "Gesamt", value: `${nLogs(profile.total.logs)} · ${formatMoney(profile.total.earned)}`, inline: true });
+  if (held) embed.addFields({ name: "Bestätigt – Auszahlung wartet auf die Bedingung", value: `von <@${log.preapproved_by}> <t:${unix(log.preapproved_at)}:R>\n**Stand:** ${log.progress ?? "wird geprüft …"}\nDie Belohnung wird automatisch gebucht, sobald die Bedingung erfüllt ist (verfällt nach ${HELD_MAX_DAYS} Tagen).`.slice(0, 1024) });
+  if (profile && state === "pending" && !held) embed.addFields({ name: "Diese Woche", value: `${profile.week.logs} bestätigt · ${formatMoney(profile.week.earned)}${profile.week.place ? ` · Platz ${profile.week.place}` : ""}`, inline: true }, { name: "Gesamt", value: `${nLogs(profile.total.logs)} · ${formatMoney(profile.total.earned)}`, inline: true });
   if (duplicate) embed.addFields({ name: "⚠️ Möglicherweise doppelter Screenshot", value: `Gleiche Bildgröße und Dateigröße wie ein Log von <@${duplicate.user_id}> <t:${unix(duplicate.created_at)}:R>. Bitte genau hinschauen.` });
   if (state === "approved") embed.addFields({ name: "Bestätigt", value: `von <@${log.reviewer_id}> <t:${unix(log.reviewed_at)}:R>${log.reward_cents ? ` · ${formatMoney(log.reward_cents)} gutgeschrieben` : ""}` });
   if (state === "rejected") embed.addFields({ name: log.reviewer_id === log.user_id ? "Zurückgezogen" : "Abgelehnt", value: `${log.reviewer_id === log.user_id ? "vom Mitglied selbst" : `von <@${log.reviewer_id}>`} <t:${unix(log.reviewed_at)}:R>\n**Grund:** ${log.reject_reason ?? "—"}`.slice(0, 1024) });
@@ -51,6 +62,7 @@ export function taskReviewCard(log, { profile = null, duplicate = null, imageNam
 
 export function taskReviewButtons(log) {
   if (log.status !== "pending") return [];
+  if (isHeld(log)) return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`task:no:${log.id}`).setLabel("Doch ablehnen").setEmoji("✖️").setStyle(ButtonStyle.Danger))];
   return [new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`task:ok:${log.id}`).setLabel(log.reward_cents ? `Bestätigen · ${formatMoney(log.reward_cents)}` : "Bestätigen").setEmoji("✅").setStyle(ButtonStyle.Success),
     ...(log.type_per_unit ? [new ButtonBuilder().setCustomId(`task:qty:${log.id}`).setLabel("Menge ändern").setEmoji("✏️").setStyle(ButtonStyle.Secondary)] : []),
@@ -69,7 +81,7 @@ export function myTasksView(db, config, guildId, userId) {
       { name: "📅 Diese Woche", value: `${nLogs(p.week.logs)} · ${formatMoney(p.week.earned)}${p.week.place ? `\nPlatz **${p.week.place}** von ${p.week.of}` : ""}`, inline: true },
       { name: "💰 Gesamt verdient", value: `${formatMoney(p.total.earned)}\n${nLogs(p.total.logs)}`, inline: true },
       { name: "Letzte Logs", value: recent.map(l => `${status[l.status]} ${logTitle(l)} · <t:${unix(l.created_at)}:R>${l.status === "rejected" && l.reject_reason ? ` – ${l.reject_reason.slice(0, 60)}` : ""}`).join("\n") || "Noch keine – starte mit `/log`." },
-    ).setFooter({ text: p.pending ? `${p.pending} Log(s) warten auf Prüfung` : "Neue Logs mit /log einreichen" });
+    ).setFooter({ text: [p.pending ? `${p.pending} Log(s) warten auf Prüfung` : null, p.held ? `${p.held} Invite(s) warten auf die Bedingung` : null].filter(Boolean).join(" · ") || "Screenshot ins Logbuch posten oder /log" });
 }
 
 /** Lädt den Screenshot herunter, damit er dauerhaft an der Prüf-Karte hängt (Slash-Anhänge laufen ab). */
@@ -117,11 +129,12 @@ const MAX_IMAGES = 4;
 export function logbookPrompt(db, config, guildId, messageId, imageCount = 1) {
   const types = service(db, config).listTypes(guildId).slice(0, 25);
   const n = Math.max(1, Math.min(MAX_IMAGES, imageCount)), multi = n > 1;
-  const logs = new Map(db.prepare("SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.source_message_id=?").all(messageId).map(l => [l.source_index ?? 0, l]));
+  const logs = new Map(db.prepare("SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit,t.invite_min_days,t.invite_min_events FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.source_message_id=?").all(messageId).map(l => [l.source_index ?? 0, l]));
   if (!types.length && !logs.size) return null;
   const status = l => l.status === "approved" ? `✅ **${logTitle(l)}** bestätigt${l.reward_cents ? ` · **+${formatMoney(l.reward_cents)}** aufs Konto` : ""}`
     : l.status === "rejected" ? `❌ **${logTitle(l)}** abgelehnt – ${l.reject_reason ?? "ohne Grund"}`
-    : `⏳ **${logTitle(l)}** eingereicht${l.reward_cents ? ` · ${formatMoney(l.reward_cents)}` : ""} – wartet auf Prüfung.`;
+    : isHeld(l) ? `⏳ **${logTitle(l)}** für <@${l.invitee_id}> bestätigt – ${l.reward_cents ? `**${formatMoney(l.reward_cents)}** kommen` : "zählt"}, sobald die Bedingung erfüllt ist (${conditionText(l)}). Stand: ${l.progress ?? "wird geprüft …"}`
+    : `⏳ **${logTitle(l)}** eingereicht${l.invitee_id ? ` für <@${l.invitee_id}>` : ""}${l.reward_cents ? ` · ${formatMoney(l.reward_cents)}` : ""} – wartet auf Prüfung.`;
   const lines = [];
   if (logs.size < n) lines.push(multi ? `📸 **${imageCount} Screenshots erkannt!** Wähle für jedes Bild die Aufgabe.` : "📸 **Screenshot erkannt!** Welche Aufgabe ist das? Danach prüft das Team und die Belohnung kommt automatisch aufs Konto.");
   for (let k = 0; k < n; k++) if (logs.has(k)) lines.push(`${multi ? `Bild ${k + 1}: ` : ""}${status(logs.get(k))}`);
@@ -161,18 +174,24 @@ export async function handleLogbookMessage({ db, config, message }) {
 }
 
 /** Auswahl im Logbuch: Log für ein Bild anlegen (bei Stückzahl erst Menge abfragen), Antwort zeigt den Status. */
-async function submitFromLogbook({ i, db, client, config, messageId, index = 0, typeId, quantity = 1 }) {
+/** promptId: bei der Invite-Abfrage (eigene, nur sichtbare Nachricht) die ID der Antwort unter dem Screenshot. */
+async function submitFromLogbook({ i, db, client, config, messageId, index = 0, typeId, quantity = 1, inviteeId = null, promptId = null }) {
   const tasks = service(db, config);
   const source = await i.channel?.messages?.fetch(messageId).catch(() => null);
   if (!source) return i.update({ content: "Der Screenshot wurde gelöscht.", components: [] });
   const images = imagesOf(source), attachment = images[index];
   if (!attachment) return i.reply({ content: "Dieses Bild gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
-  if (db.prepare("SELECT 1 FROM task_logs WHERE source_message_id=? AND COALESCE(source_index,0)=?").get(messageId, index)) return i.update(logbookPrompt(db, config, i.guildId, messageId, images.length) ?? { content: "Dieser Screenshot wurde bereits eingereicht.", components: [] });
+  if (db.prepare("SELECT 1 FROM task_logs WHERE source_message_id=? AND COALESCE(source_index,0)=?").get(messageId, index)) return i.update(promptId ? { content: "Dieser Screenshot wurde bereits eingereicht.", components: [] } : logbookPrompt(db, config, i.guildId, messageId, images.length) ?? { content: "Dieser Screenshot wurde bereits eingereicht.", components: [] });
   let log;
-  try { log = tasks.submit({ guildId: i.guildId, userId: source.author.id, typeId, quantity, proofKey: proofKeyOf(attachment) }); }
-  catch (error) { if (error instanceof TaskError) return i.reply({ content: error.message, flags: MessageFlags.Ephemeral }); throw error; }
-  db.prepare("UPDATE task_logs SET source_channel_id=?,source_message_id=?,source_index=?,prompt_message_id=? WHERE id=?").run(source.channelId ?? i.channelId, messageId, index, i.message.id, log.id);
-  await i.update(logbookPrompt(db, config, i.guildId, messageId, images.length));
+  try { log = tasks.submit({ guildId: i.guildId, userId: source.author.id, typeId, quantity, inviteeId, proofKey: proofKeyOf(attachment) }); }
+  catch (error) { if (error instanceof TaskError) return promptId ? i.update({ content: `⚠️ ${error.message}`, components: [] }) : i.reply({ content: error.message, flags: MessageFlags.Ephemeral }); throw error; }
+  db.prepare("UPDATE task_logs SET source_channel_id=?,source_message_id=?,source_index=?,prompt_message_id=? WHERE id=?").run(source.channelId ?? i.channelId, messageId, index, promptId ?? i.message.id, log.id);
+  const payload = logbookPrompt(db, config, i.guildId, messageId, images.length);
+  if (promptId) {
+    await i.update({ content: `✅ Invite für <@${inviteeId}> eingereicht. Nach der Prüfung wird die Bedingung (${conditionText(tasks.typeById(i.guildId, typeId))}) automatisch überwacht.`, components: [], allowedMentions: { parse: [] } });
+    const prompt = await i.channel?.messages?.fetch(promptId).catch(() => null);
+    if (prompt && payload) await prompt.edit(payload).catch(() => {});
+  } else await i.update(payload);
   await postReviewCard({ db, client, config, log, attachment });
   return null;
 }
@@ -186,9 +205,10 @@ export async function submitTaskLog({ i, db, client, config }) {
   let log;
   try {
     log = tasks.submit({ guildId, userId: i.user.id, typeId: i.options.getString("aufgabe"), quantity: i.options.getInteger("menge") ?? 1, note: i.options.getString("notiz") ?? "",
+      inviteeId: i.options.getUser?.("eingeladen")?.id ?? null,
       proofKey: proofKeyOf(attachment) });
   } catch (error) {
-    if (error instanceof TaskError) return i.editReply({ content: error.message });
+    if (error instanceof TaskError) return i.editReply({ content: error.code === "INVITEE" ? `${error.message} (Option \`eingeladen\`)` : error.message });
     throw error;
   }
   const { profile, posted } = await postReviewCard({ db, client, config, log, attachment });
@@ -198,15 +218,14 @@ export async function submitTaskLog({ i, db, client, config }) {
     .setFooter({ text: posted ? "Wartet auf Prüfung" : "Hinweis: Der Prüf-Channel ist nicht erreichbar – das Team sieht dein Log auf der Website." })] });
 }
 
-/** Nach einer Entscheidung (Discord oder Website): Karte aktualisieren, DM senden, Board auffrischen. */
-export async function afterTaskDecision({ db, client, config, log, levelBefore = null }) {
-  const tasks = service(db, config);
+/** Prüf-Karte und Antwort im Logbuch auf den aktuellen Stand bringen. */
+async function refreshTaskMessages({ db, client, config, log }) {
   if (log.channel_id && log.message_id) {
     const channel = await client.channels.fetch(log.channel_id).catch(() => null);
     const message = await channel?.messages?.fetch(log.message_id).catch(() => null);
     // Angehängter Screenshot bleibt beim Bearbeiten erhalten; das Embed verweist weiter darauf.
     const file = message?.attachments?.first?.()?.name ?? null;
-    if (message) await message.edit({ embeds: [taskReviewCard(log, { imageName: file, imageUrl: file ? null : message.embeds?.[0]?.image?.url ?? null })], components: [] }).catch(() => {});
+    if (message) await message.edit({ embeds: [taskReviewCard(log, { imageName: file, imageUrl: file ? null : message.embeds?.[0]?.image?.url ?? null })], components: taskReviewButtons(log) }).catch(() => {});
   }
   // Im Logbuch: Antwort unter dem Screenshot aktualisieren und Reaktion setzen.
   const raw = db.prepare("SELECT source_channel_id,source_message_id,prompt_message_id FROM task_logs WHERE id=?").get(log.id);
@@ -216,14 +235,24 @@ export async function afterTaskDecision({ db, client, config, log, levelBefore =
     const source = await thread?.messages?.fetch(raw.source_message_id).catch(() => null);
     const payload = logbookPrompt(db, config, log.guild_id, raw.source_message_id, source ? imagesOf(source).length : 1);
     if (prompt && payload) await prompt.edit(payload).catch(() => {});
-    if (source) await source.react(log.status === "approved" ? "✅" : "❌").catch(() => {});
+    if (source) await source.react(log.status === "approved" ? "✅" : log.status === "rejected" ? "❌" : "⏳").catch(() => {});
   }
-  if (config.TASK_DM_ENABLED && log.reviewer_id !== log.user_id) {
+}
+
+/** Nach einer Entscheidung (Discord, Website oder automatische Freigabe): Karte aktualisieren, DM senden, Board auffrischen. */
+export async function afterTaskDecision({ db, client, config, log, levelBefore = null }) {
+  const tasks = service(db, config);
+  await refreshTaskMessages({ db, client, config, log });
+  if (config.TASK_DM_ENABLED && isHeld(log) && log.preapproved_by !== log.user_id) {
+    const dm = new EmbedBuilder().setColor(AMBER).setAuthor({ name: "GAMBINOS  •  AUFGABEN-LOG" }).setTitle(`⏳ ${logTitle(log)} bestätigt`)
+      .setDescription(`Dein Invite für <@${log.invitee_id}> ist bestätigt. ${log.reward_cents ? `Die **${formatMoney(log.reward_cents)}** kommen` : "Er zählt"} automatisch, sobald die Bedingung erfüllt ist: **${conditionText(log)}**.\n\n**Stand:** ${log.progress ?? "wird geprüft …"}`);
+    await client.users.fetch(log.user_id).then(user => user.send({ embeds: [dm.setTimestamp()] })).catch(() => {});
+  } else if (config.TASK_DM_ENABLED && log.status !== "pending" && log.reviewer_id !== log.user_id) {
     const p = tasks.profile(log.guild_id, log.user_id);
     const levelUp = levelBefore && p.level.name !== levelBefore;
     const dm = log.status === "approved"
       ? new EmbedBuilder().setColor(GREEN).setAuthor({ name: "GAMBINOS  •  AUFGABEN-LOG" }).setTitle(`✅ ${logTitle(log)} bestätigt`)
-        .setDescription(`${log.reward_cents ? `**+${formatMoney(log.reward_cents)}** sind auf deinem Familienkonto.` : "Dein Log wurde gezählt."}${levelUp ? `\n\n🎉 **Level-Up!** Du bist jetzt ${p.level.emoji} **${p.level.name}**.` : ""}`)
+        .setDescription(`${log.preapproved_at ? `Die Bedingung für <@${log.invitee_id}> ist erfüllt. ` : ""}${log.reward_cents ? `**+${formatMoney(log.reward_cents)}** sind auf deinem Familienkonto.` : "Dein Log wurde gezählt."}${levelUp ? `\n\n🎉 **Level-Up!** Du bist jetzt ${p.level.emoji} **${p.level.name}**.` : ""}`)
         .addFields({ name: "🔥 Serie", value: `${p.streak} ${p.streak === 1 ? "Tag" : "Tage"}`, inline: true }, { name: "📅 Woche", value: `${nLogs(p.week.logs)}${p.week.place ? ` · Platz ${p.week.place}` : ""}`, inline: true }, { name: "Stufe", value: levelLine(p.level) })
       : new EmbedBuilder().setColor(RED).setAuthor({ name: "GAMBINOS  •  AUFGABEN-LOG" }).setTitle(`❌ ${logTitle(log)} abgelehnt`).setDescription(`**Grund:** ${log.reject_reason ?? "—"}\n\nBei Fragen melde dich beim Team. Du kannst das Log mit einem passenden Screenshot neu einreichen.`);
     await client.users.fetch(log.user_id).then(user => user.send({ embeds: [dm.setTimestamp()] })).catch(() => {});
@@ -235,11 +264,27 @@ const canReview = (i, config) => (config.BOT_OWNER_IDS ?? []).includes(i.user.id
 const isMember = (i, config) => { const g = accessGroups(config); return !g.members.length || (config.BOT_OWNER_IDS ?? []).includes(i.user.id) || [...g.members, ...g.anyStaff, ...g.tasks].some(id => i.member?.roles?.cache?.has?.(id)); };
 
 /** Bestätigt oder lehnt ab und erledigt alles danach. Wirft TaskError bei ungültigen Zuständen. */
+const approvedCount = (db, guildId, userId) => db.prepare("SELECT COUNT(*) n FROM task_logs WHERE guild_id=? AND user_id=? AND status='approved'").get(guildId, userId).n;
+
+/** Stand der Einladungs-Bedingungen (Beitritt der eingeladenen Person laut Discord). null = Aufgabe ohne Bedingung. */
+async function inviteStatus({ db, client, config, log, reference = new Date() }) {
+  const tasks = service(db, config), type = tasks.typeById(log.guild_id, log.type_id);
+  if (!tasks.needsInvitee(type) || !log.invitee_id) return null;
+  const guild = client.guilds?.cache?.get(log.guild_id) ?? await client.guilds?.fetch?.(log.guild_id).catch(() => null);
+  const member = await guild?.members?.fetch?.(log.invitee_id).catch(() => null);
+  return tasks.inviteProgress(log, type, { joinedAt: member?.joinedAt ?? null, reference });
+}
+
 export async function decideTask({ db, client, config, guildId, id, actorId, approve, quantity = null, reason = "", owner = false }) {
   const tasks = service(db, config), before = tasks.get(guildId, id);
-  const levelBefore = before ? levelFor(db.prepare("SELECT COUNT(*) n FROM task_logs WHERE guild_id=? AND user_id=? AND status='approved'").get(guildId, before.user_id).n).name : null;
+  const levelBefore = before ? levelFor(approvedCount(db, guildId, before.user_id)).name : null;
+  let conditionsMet = true;
+  if (approve && before?.status === "pending") {
+    const status = await inviteStatus({ db, client, config, log: before });
+    if (status) { conditionsMet = status.met; tasks.setProgress(id, progressText(status)); }
+  }
   const log = approve
-    ? tasks.approve({ guildId, id, actorId, finance: createFinance(db), quantity, allowSelf: owner })
+    ? tasks.approve({ guildId, id, actorId, finance: createFinance(db), quantity, allowSelf: owner, conditionsMet })
     : tasks.reject({ guildId, id, actorId, reason, allowSelf: owner });
   await afterTaskDecision({ db, client, config, log, levelBefore });
   return log;
@@ -253,14 +298,18 @@ export async function handleTaskInteraction({ i, db, client, config }) {
     if (!isMember(i, config)) return reply("Das ist nur für Familienmitglieder.");
     return i.reply({ embeds: [myTasksView(db, config, i.guildId, i.user.id)], flags: MessageFlags.Ephemeral });
   }
-  if (["pick", "pickq", "skip"].includes(action)) {
-    const parts = i.customId.split(":"), index = Number(action === "pickq" ? parts[4] : parts[3]) || 0;
+  if (["pick", "pickq", "skip", "invitee"].includes(action)) {
+    const parts = i.customId.split(":"), index = Number(action === "pickq" || action === "invitee" ? parts[4] : parts[3]) || 0;
     const source = await i.channel?.messages?.fetch(id).catch(() => null);
     if (source && source.author?.id !== i.user.id && !canReview(i, config)) return reply("Das kann nur die Person auswählen, die den Screenshot gepostet hat.");
     if (action === "skip") return i.update({ content: "Kein Log – alles gut.", components: [] }).then(() => i.message?.delete?.().catch(() => {}));
-    const typeId = action === "pick" ? i.values[0] : i.customId.split(":")[3];
+    const typeId = action === "pick" ? i.values[0] : parts[3];
     const type = service(db, config).typeById(i.guildId, typeId);
     if (!type?.active) return reply("Diese Aufgabe gibt es nicht mehr.");
+    // Invites: erst fragen, wen man eingeladen hat (nur für dich sichtbar), dann einreichen.
+    if (action === "pick" && service(db, config).needsInvitee(type)) return i.reply({ content: `**${typeLabel(type)}** – wen hast du eingeladen?\nDie Belohnung kommt, sobald die Person die Bedingung erfüllt: **${conditionText(type)}**.`, flags: MessageFlags.Ephemeral,
+      components: [new ActionRowBuilder().addComponents(new UserSelectMenuBuilder().setCustomId(`task:invitee:${id}:${typeId}:${index}:${i.message.id}`).setPlaceholder("Eingeladene Person auswählen …").setMinValues(1).setMaxValues(1))] });
+    if (action === "invitee") return submitFromLogbook({ i, db, client, config, messageId: id, index, typeId, inviteeId: i.values?.[0] ?? null, promptId: parts[5] });
     if (action === "pick" && type.per_unit) return i.showModal(new ModalBuilder().setCustomId(`task:pickq:${id}:${typeId}:${index}`).setTitle(`${type.name}`.slice(0, 45)).addComponents(
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("qty").setLabel(`Wie viele? (${type.unit})`.slice(0, 45)).setValue("1").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3))));
     let quantity = 1;
@@ -301,6 +350,7 @@ export async function handleTaskInteraction({ i, db, client, config }) {
     if (!["ok", "qtyset", "noset"].includes(action)) return reply("Unbekannte Aktion.");
     await i.deferReply({ flags: MessageFlags.Ephemeral });
     const done = await decideTask({ db, client, config, guildId: i.guildId, id, actorId: i.user.id, approve: action !== "noset", quantity, reason, owner });
+    if (isHeld(done)) return i.editReply({ content: `⏳ Bestätigt: ${logTitle(done)} für <@${done.user_id}> – Auszahlung automatisch, sobald <@${done.invitee_id}> die Bedingung erfüllt (${done.progress ?? conditionText(done)}).`, allowedMentions: { parse: [] } });
     return i.editReply({ content: done.status === "approved" ? `✅ Bestätigt: ${logTitle(done)} für <@${done.user_id}>${done.reward_cents ? ` · ${formatMoney(done.reward_cents)} gutgeschrieben` : ""}.` : `❌ Abgelehnt: ${logTitle(done)} von <@${done.user_id}>.`, allowedMentions: { parse: [] } });
   } catch (error) {
     if (error instanceof TaskError) return reply(error.message);
@@ -339,4 +389,37 @@ export async function refreshTaskBoard({ db, client, config, force = false }) {
   else { const message = await channel.send(payload); setSetting(db, guildId, BOARD_MESSAGE, `${channel.id}:${message.id}`); }
   setSetting(db, guildId, BOARD_HASH, hash);
   return true;
+}
+
+/**
+ * Bestätigte Invites mit offener Bedingung: Stand aktualisieren, bei Erfüllung automatisch auszahlen,
+ * nach HELD_MAX_DAYS Tagen ohne Erfüllung ablehnen.
+ */
+export async function releaseHeldInvites({ db, client, config, reference = new Date() }) {
+  const guildId = config.DISCORD_GUILD_ID, result = { released: 0, expired: 0, updated: 0 };
+  if (!guildId) return result;
+  const tasks = service(db, config);
+  for (const held of tasks.held(guildId)) {
+    const status = await inviteStatus({ db, client, config, log: held, reference });
+    if (!status) continue;
+    const text = progressText(status);
+    try {
+      if (status.met) {
+        const levelBefore = levelFor(approvedCount(db, guildId, held.user_id)).name;
+        tasks.setProgress(held.id, text);
+        const log = tasks.approve({ guildId, id: held.id, actorId: held.preapproved_by, finance: createFinance(db), allowSelf: true, conditionsMet: true });
+        result.released++;
+        await afterTaskDecision({ db, client, config, log, levelBefore });
+      } else if (reference - new Date(held.preapproved_at) > HELD_MAX_DAYS * DAY) {
+        const log = tasks.reject({ guildId, id: held.id, actorId: held.preapproved_by, allowSelf: true, reason: `Bedingung nicht erfüllt (${conditionText(held)}) – Stand nach ${HELD_MAX_DAYS} Tagen: ${text}.` });
+        result.expired++;
+        await afterTaskDecision({ db, client, config, log });
+      } else if (text !== held.progress) {
+        tasks.setProgress(held.id, text);
+        result.updated++;
+        await refreshTaskMessages({ db, client, config, log: tasks.get(guildId, held.id) });
+      }
+    } catch (error) { if (!(error instanceof TaskError)) throw error; }
+  }
+  return result;
 }

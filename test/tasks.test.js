@@ -11,6 +11,8 @@ const G = "10000000000000001", U = "30000000000000001", R = "30000000000000002",
 const baseConfig = (extra = {}) => ({ ...loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: G, ROLE_FINANCE: FIN, ROLE_TASK_REVIEWERS: REV }), ...extra });
 const service = db => createTaskService(db, { timezone: "Europe/Vienna" });
 const typeNamed = (db, name) => service(db).listTypes(G, { all: true }).find(t => t.name.startsWith(name));
+/** Invite-Aufgabe ohne Bedingung – für Tests, in denen es nur um die feste Belohnung geht. */
+const fixedInvite = db => { const t = typeNamed(db, "Invite – gute"); db.prepare("UPDATE task_types SET invite_min_days=NULL,invite_min_events=NULL WHERE id=?").run(t.id); return t; };
 
 test("Standard-Aufgaben werden genau einmal angelegt und nie wieder aufgefüllt", () => {
   const db = testDb(), tasks = service(db);
@@ -34,7 +36,7 @@ test("Bestätigen bucht genau einmal; Menge korrigierbar; eigene Logs gesperrt",
   assert.equal(finance.balance(G, U), 3_000_000, "kein zweites Mal gebucht");
   assert.match(db.prepare("SELECT reason FROM transactions WHERE idempotency_key=?").get(`task-log:${log.id}`).reason, /Plantage ×3 Ernte/);
   // Feste Belohnung ignoriert die Menge.
-  const invite = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id, quantity: 7 });
+  const invite = tasks.submit({ guildId: G, userId: U, typeId: fixedInvite(db).id, quantity: 7 });
   assert.equal(invite.quantity, 1); assert.equal(invite.reward_cents, 5_000_000);
   assert.throws(() => tasks.reject({ guildId: G, id: invite.id, actorId: R, reason: "x" }), /Grund/);
   assert.equal(tasks.reject({ guildId: G, id: invite.id, actorId: R, reason: "Uhrzeit fehlt" }).status, "rejected");
@@ -79,7 +81,7 @@ test("/log postet Prüf-Karte mit Screenshot; Bestätigen per Button bucht, aktu
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
   const replies = [];
-  const typeId = typeNamed(db, "Invite – gute").id;
+  const typeId = fixedInvite(db).id;
   const i = { guildId: G, user: { id: U }, options: { getAttachment: () => ({ url: "https://cdn.discordapp.com/a.png", contentType: "image/png", name: "a.png", size: 8, width: 10, height: 10 }), getString: k => (k === "aufgabe" ? typeId : "Max eingeladen"), getInteger: () => null },
     deferReply: async () => {}, editReply: async p => replies.push(p), reply: async p => replies.push(p) };
   try { await submitTaskLog({ i, db, client: m.client, config }); } finally { globalThis.fetch = realFetch; }
@@ -106,7 +108,7 @@ test("/log postet Prüf-Karte mit Screenshot; Bestätigen per Button bucht, aktu
 test("Board: Preisliste, Top-Farmer, nur bei Änderung bearbeitet", async () => {
   const db = testDb(), m = discordMocks(), config = baseConfig({ CHANNEL_TASK_BOARD: BOARD });
   const tasks = service(db), finance = createFinance(db);
-  const log = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id });
+  const log = tasks.submit({ guildId: G, userId: U, typeId: fixedInvite(db).id });
   tasks.approve({ guildId: G, id: log.id, actorId: R, finance });
   const board = buildTaskBoard(db, config, G);
   assert.match(board.embeds[0].data.description, /Invite – gute Leute\*\* · \$50\.000,00/);
@@ -123,7 +125,7 @@ test("Website: Rechte, Bestätigen, Aufgabe mit „25k“ anlegen, Mein Bereich"
   const api = createDashboardApi({ db, client, config });
   const nobody = { id: "1", owner: false, roles: [] }, reviewer = { id: R, owner: false, roles: [REV] }, fin = { id: "40000000000000001", owner: false, roles: [FIN] };
   assert.equal((await api.get(nobody, new URL("/api/tasks", "https://x"))).status, 403);
-  const tasks = service(db), log = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id });
+  const tasks = service(db), log = tasks.submit({ guildId: G, userId: U, typeId: fixedInvite(db).id });
   const list = await api.get(reviewer, new URL("/api/tasks", "https://x"));
   assert.equal(list.status, 200); assert.equal(list.body.pending.length, 1); assert.equal(list.body.summary.pending, 1);
   assert.equal((await api.post(reviewer, new URL(`/api/tasks/${log.id}/approve`, "https://x"), {})).status, 200);
@@ -207,7 +209,7 @@ test("Logbuch: mehrere Screenshots in einer Nachricht → ein Menü pro Bild, je
   await handleLogbookMessage({ db, config, message: source });
   assert.match(replies[0].content, /3 Screenshots erkannt/);
   assert.deepEqual(replies[0].components.slice(0, 3).map(r => r.components[0].data.custom_id), ["task:pick:s2:0", "task:pick:s2:1", "task:pick:s2:2"]);
-  const invite = typeNamed(db, "Invite – gute").id, updates = [];
+  const invite = fixedInvite(db).id, updates = [];
   const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: false });
   const client = { channels: { fetch: async () => null }, users: { fetch: async () => ({ send: async () => {} }) } };
   try {
@@ -221,7 +223,7 @@ test("Logbuch: mehrere Screenshots in einer Nachricht → ein Menü pro Bild, je
 test("Excel: Monatsabrechnung pro Mitglied und Monat", async () => {
   const { buildTable } = await import("../src/export.js");
   const db = testDb(), tasks = service(db), finance = createFinance(db);
-  const invite = typeNamed(db, "Invite – gute").id;
+  const invite = fixedInvite(db).id;
   for (let n = 0; n < 2; n++) { const l = tasks.submit({ guildId: G, userId: U, typeId: invite, reference: new Date(`2026-10-1${n}T10:00:00Z`) }); tasks.approve({ guildId: G, id: l.id, actorId: R, finance }); }
   tasks.reject({ guildId: G, id: tasks.submit({ guildId: G, userId: U, typeId: invite, reference: new Date("2026-10-15T10:00:00Z") }).id, actorId: R, reason: "Uhrzeit fehlt" });
   const t = buildTable("taskmonths", { db, guildId: G, name: id => (id === U ? "Tony" : id) });
@@ -256,4 +258,89 @@ test("Bestehende Installation: alte Invite-Stufen werden einmalig auf „gute Le
   assert.equal(tasks.listTypes(G, { all: true }).find(t => t.id === "n").active, 0, "25k-Stufe deaktiviert, nicht gelöscht");
   db.prepare("UPDATE task_types SET active=1 WHERE id='n'").run();
   assert.equal(tasks.listTypes(G).length, 2, "nur einmal – später wieder eingeschaltet bleibt so");
+});
+
+test("Invite mit Bedingung: eingeladene Person nötig, Bestätigen hält zurück, Auszahlung nach 2 Tagen & 4 Events", async () => {
+  const { releaseHeldInvites, decideTask } = await import("../src/task-logs.js");
+  const db = testDb(), tasks = service(db), finance = createFinance(db), config = baseConfig();
+  const NEW = "30000000000000099", type = typeNamed(db, "Invite – gute");
+  assert.equal(type.invite_min_days, 2); assert.equal(type.invite_min_events, 4);
+  assert.throws(() => tasks.submit({ guildId: G, userId: U, typeId: type.id }), e => e.code === "INVITEE");
+  assert.throws(() => tasks.submit({ guildId: G, userId: U, typeId: type.id, inviteeId: U }), e => e.code === "INVITEE");
+  const log = tasks.submit({ guildId: G, userId: U, typeId: type.id, inviteeId: NEW });
+  assert.throws(() => tasks.submit({ guildId: G, userId: R, typeId: type.id, inviteeId: NEW }), /schon jemand anderes/);
+
+  let joinedAt = new Date(Date.now() - 86_400_000);
+  const guild = { id: G, members: { fetch: async id => (id === NEW ? { id, joinedAt } : null) } };
+  const dms = [];
+  const client = { guilds: { cache: new Map([[G, guild]]) }, channels: { fetch: async () => null }, users: { fetch: async () => ({ send: async p => dms.push(p) }) } };
+  const held = await decideTask({ db, client, config: { ...config, TASK_DM_ENABLED: true }, guildId: G, id: log.id, actorId: R, approve: true });
+  assert.equal(held.status, "pending"); assert.ok(held.preapproved_at);
+  assert.equal(held.progress, "1/2 Tage · 0/4 Events");
+  assert.equal(finance.balance(G, U), 0, "noch nichts gebucht");
+  assert.match(dms[0].embeds[0].data.title, /^⏳/);
+  assert.equal(tasks.summary(G).pending, 0); assert.equal(tasks.summary(G).held, 1);
+
+  // 4 Events dabei, aber erst 1 Tag da → weiter warten, nur Stand aktualisiert.
+  const now = new Date().toISOString();
+  for (let n = 0; n < 5; n++) {
+    const startsAt = new Date(Date.now() - (n === 4 ? 5 * 86_400_000 : 3_600_000)).toISOString();
+    db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at) VALUES(?,?,?,'',?,'',?,'ended',?)").run(`e${n}`, G, `E${n}`, startsAt, R, now);
+    db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,'present',?)").run(`e${n}`, NEW, now);
+  }
+  let result = await releaseHeldInvites({ db, client, config });
+  assert.deepEqual(result, { released: 0, expired: 0, updated: 1 });
+  assert.equal(tasks.get(G, log.id).progress, "1/2 Tage · 4/4 Events", "Event vor dem Beitritt zählt nicht");
+
+  joinedAt = new Date(Date.now() - 2.5 * 86_400_000);
+  result = await releaseHeldInvites({ db, client, config });
+  assert.equal(result.released, 1);
+  const done = tasks.get(G, log.id);
+  assert.equal(done.status, "approved"); assert.equal(done.reviewer_id, R);
+  assert.equal(finance.balance(G, U), 5_000_000);
+  assert.equal((await releaseHeldInvites({ db, client, config })).released, 0, "genau einmal");
+  assert.equal(finance.balance(G, U), 5_000_000);
+});
+
+test("Invite: Bedingung schon erfüllt → sofort ausgezahlt; nach 30 Tagen unerfüllt → abgelehnt", async () => {
+  const { releaseHeldInvites, decideTask } = await import("../src/task-logs.js");
+  const db = testDb(), tasks = service(db), finance = createFinance(db), config = baseConfig();
+  const type = typeNamed(db, "Invite – gute");
+  db.prepare("UPDATE task_types SET invite_min_events=0 WHERE id=?").run(type.id);
+  const guild = { id: G, members: { fetch: async id => (id === "a1" ? { id, joinedAt: new Date(Date.now() - 3 * 86_400_000) } : null) } };
+  const client = { guilds: { cache: new Map([[G, guild]]) }, channels: { fetch: async () => null }, users: { fetch: async () => ({ send: async () => {} }) } };
+  const quick = tasks.submit({ guildId: G, userId: U, typeId: type.id, inviteeId: "a1" });
+  assert.equal((await decideTask({ db, client, config, guildId: G, id: quick.id, actorId: R, approve: true })).status, "approved");
+  assert.equal(finance.balance(G, U), 5_000_000);
+
+  const gone = tasks.submit({ guildId: G, userId: U, typeId: type.id, inviteeId: "a2" });
+  await decideTask({ db, client, config, guildId: G, id: gone.id, actorId: R, approve: true });
+  assert.equal(tasks.get(G, gone.id).progress, "nicht (mehr) auf dem Server");
+  const later = new Date(Date.now() + 31 * 86_400_000);
+  assert.equal((await releaseHeldInvites({ db, client, config, reference: later })).expired, 1);
+  assert.equal(tasks.get(G, gone.id).status, "rejected");
+  assert.match(tasks.get(G, gone.id).reject_reason, /Bedingung nicht erfüllt/);
+  assert.equal(finance.balance(G, U), 5_000_000);
+});
+
+test("Logbuch: Invite gewählt → Auswahl der eingeladenen Person → eingereicht mit Person", async () => {
+  const db = testDb(), FORUM = "60000000000000061", THREAD = "60000000000000062", config = baseConfig({ CHANNEL_TASK_FORUM: FORUM });
+  const source = { id: "s9", guildId: G, channelId: THREAD, author: { id: U }, attachments: new Map([["a", { url: "https://cdn.discordapp.com/x.png", contentType: "image/png", name: "x.png", size: 9, width: 3, height: 3 }]]) };
+  const promptEdits = [];
+  const thread = { id: THREAD, parentId: FORUM, isThread: () => true, messages: { fetch: async id => (id === "s9" ? source : { id, edit: async p => promptEdits.push(p) }) } };
+  const type = typeNamed(db, "Invite – gute"), replies = [], updates = [];
+  const client = { channels: { fetch: async () => null }, users: { fetch: async () => ({ send: async () => {} }) } };
+  const base = { guildId: G, channel: thread, channelId: THREAD, member: { roles: { cache: new Map() } }, user: { id: U } };
+  await handleTaskInteraction({ i: { ...base, customId: "task:pick:s9:0", message: { id: "p9" }, values: [type.id], reply: async p => replies.push(p) }, db, client, config });
+  const select = replies[0].components[0].components[0].data;
+  assert.equal(select.custom_id, `task:invitee:s9:${type.id}:0:p9`);
+  assert.ok(select.custom_id.length <= 100);
+  const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: false });
+  try {
+    await handleTaskInteraction({ i: { ...base, customId: select.custom_id, message: { id: "eph" }, values: ["30000000000000077"], update: async p => updates.push(p) }, db, client, config });
+  } finally { globalThis.fetch = realFetch; }
+  assert.match(updates[0].content, /Invite für <@30000000000000077> eingereicht/);
+  const log = db.prepare("SELECT * FROM task_logs").get();
+  assert.equal(log.invitee_id, "30000000000000077"); assert.equal(log.prompt_message_id, "p9");
+  assert.match(promptEdits[0].content, /eingereicht für <@30000000000000077>/);
 });

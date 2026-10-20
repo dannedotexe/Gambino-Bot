@@ -41,7 +41,7 @@ import { PollError, createPollService, publishPoll, refreshPollMessage, announce
 import { EXPORTS, buildExportFile } from "./export.js";
 import { TaskError, createTaskService, weekStart } from "./services/tasks.js";
 import { killLeaderboard, killsOf, weekCalendar } from "./services/calendar.js";
-import { decideTask, refreshTaskBoard } from "./task-logs.js";
+import { conditionText, decideTask, refreshTaskBoard } from "./task-logs.js";
 import { LOGBOOK_FORUMS, createMissingLogbooks, logbookStatus, resetLogbookForum } from "./logbooks.js";
 import { noShowsOf, removeNoShow } from "./event-checks.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
@@ -306,11 +306,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
     [/^\/api\/tasks$/, async member => {
       need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
       const week = weekStart(today()), month = `${today().slice(0, 7)}-01`;
-      const pending = tasks.list(guildId, { status: "pending", limit: 200 }), recent = tasks.list(guildId, { limit: 150 }).filter(l => l.status !== "pending");
+      const open = tasks.list(guildId, { status: "pending", limit: 300 }), pending = open.filter(l => !l.preapproved_at), held = open.filter(l => l.preapproved_at), recent = tasks.list(guildId, { limit: 150 }).filter(l => l.status !== "pending");
       const board = { week: tasks.leaderboard(guildId, { since: week, limit: 15 }), month: tasks.leaderboard(guildId, { since: month, limit: 15 }), all: tasks.leaderboard(guildId, { limit: 15 }) };
-      const strip = l => ({ id: l.id, user_id: l.user_id, type: `${l.type_emoji} ${l.type_name}`, type_id: l.type_id, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, note: l.note, status: l.status, duplicate_of: l.duplicate_of, reviewer_id: l.reviewer_id, reviewed_at: l.reviewed_at, reject_reason: l.reject_reason, created_at: l.created_at, hasProof: Boolean(l.message_id || l.proof_url) });
-      const ids = [...pending, ...recent].flatMap(l => [l.user_id, l.reviewer_id]).concat(Object.values(board).flat().map(r => r.userId));
-      return withNames({ summary: tasks.summary(guildId), pending: pending.map(strip), recent: recent.map(strip), types: tasks.listTypes(guildId, { all: true }), board, me: member.id, owner: member.owner, rejectReasons: config.TASK_REJECT_REASONS ?? [] }, ids);
+      const strip = l => ({ id: l.id, user_id: l.user_id, type: `${l.type_emoji} ${l.type_name}`, type_id: l.type_id, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, note: l.note, status: l.status, duplicate_of: l.duplicate_of, reviewer_id: l.reviewer_id, reviewed_at: l.reviewed_at, reject_reason: l.reject_reason, created_at: l.created_at, hasProof: Boolean(l.message_id || l.proof_url),
+        invitee_id: l.invitee_id, preapproved_by: l.preapproved_by, preapproved_at: l.preapproved_at, progress: l.progress, condition: l.invite_min_days != null || l.invite_min_events != null ? conditionText(l) : null });
+      const ids = [...open, ...recent].flatMap(l => [l.user_id, l.reviewer_id, l.invitee_id, l.preapproved_by]).concat(Object.values(board).flat().map(r => r.userId));
+      return withNames({ summary: tasks.summary(guildId), pending: pending.map(strip), held: held.map(strip), recent: recent.map(strip), types: tasks.listTypes(guildId, { all: true }), board, me: member.id, owner: member.owner, rejectReasons: config.TASK_REJECT_REASONS ?? [] }, ids);
     }],
     [/^\/api\/logbooks$/, async member => {
       if (!can(member, "staff") && !can(member, "tasks")) throw new HttpError(403, "Dafür brauchst du eine Staff- oder Aufgaben-Prüfer-Rolle.");
@@ -532,6 +533,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
       const quantity = body.quantity === "" || body.quantity == null ? null : Number(body.quantity);
       const log = await decideTask({ db, client, config, guildId, id, actorId: member.id, approve: action === "approve", quantity, reason: body.reason, owner: member.owner });
+      if (log.status === "pending" && log.preapproved_at) return { message: `Bestätigt – die Belohnung wird automatisch gebucht, sobald die Bedingung erfüllt ist (${log.progress ?? conditionText(log)}).` };
       return { message: log.status === "approved" ? `Bestätigt${log.reward_cents ? ` – ${formatMoney(log.reward_cents)} gutgeschrieben` : ""}.` : "Abgelehnt. Das Mitglied wird informiert." };
     }],
     [/^\/api\/logbooks\/create-missing$/, async (member, body) => {
@@ -583,7 +585,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       need(member, "finance", "Finanz- oder Leitungsrolle");
       const rawReward = String(body.reward ?? "").trim(), rewardCents = /^[$0.,\s]*$/.test(rawReward) ? 0 : parseAmount(rawReward);
       if (rewardCents == null) throw new HttpError(400, "Belohnung: z. B. 25000, 25.000 oder 25k – leer bzw. 0 = ohne Geld.");
-      const type = tasks.saveType(guildId, member.id, { id: body.id || null, name: body.name, emoji: body.emoji, unit: body.unit, rewardCents, perUnit: body.perUnit, dailyLimit: body.dailyLimit, active: body.active });
+      const type = tasks.saveType(guildId, member.id, { id: body.id || null, name: body.name, emoji: body.emoji, unit: body.unit, rewardCents, perUnit: body.perUnit, dailyLimit: body.dailyLimit, active: body.active, inviteMinDays: body.inviteMinDays, inviteMinEvents: body.inviteMinEvents });
       await refreshTaskBoard({ db, client, config }).catch(() => {});
       return { message: `${type.emoji} ${type.name} gespeichert.`, type };
     }],

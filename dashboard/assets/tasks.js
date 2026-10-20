@@ -30,11 +30,17 @@ function renderTaskQueue() {
       <button type="button" class="task-shot" data-action="task-proof" data-id="${escapeHtml(l.id)}" aria-label="Screenshot vergrößern"><span>${l.hasProof ? "Screenshot lädt …" : "Kein Screenshot"}</span>${l.reward_cents ? `<b class="task-reward">+${money(l.reward_cents)}</b>` : ""}</button>
       <div class="task-body"><h3>${escapeHtml(taskTitle(l))}</h3>
         <div class="manage-meta">${plink(l.user_id)} · ${date(l.created_at)}</div>
+        ${l.invitee_id ? `<div class="desc">Eingeladen: ${plink(l.invitee_id)}${l.condition ? ` · ${escapeHtml(l.condition)}` : ""}</div>` : ""}
         ${l.note ? `<div class="desc">„${escapeHtml(l.note)}“</div>` : ""}
         ${l.duplicate_of ? '<div class="task-flag">⚠️ Gleicher Screenshot wie ein früheres Log – bitte genau prüfen.</div>' : ""}
         <div class="actions">${buttons}</div></div></article>`;
   }).join("") || '<div class="all-done"><b>Alles geprüft 🎉</b><small>Gerade wartet kein Aufgaben-Log.</small></div>';
   pending.filter(l => l.hasProof).forEach(l => loadTaskProof(l.id));
+  const held = taskState.data.held ?? [];
+  $("tasks-held-wrap").hidden = !held.length;
+  $("tasks-held").innerHTML = held.map(l => myRow(`${escapeHtml(taskTitle(l))} · ${plink(l.user_id)} → ${plink(l.invitee_id)}`,
+    `${escapeHtml(l.condition ?? "")} · Stand: ${escapeHtml(l.progress ?? "wird geprüft …")} · bestätigt von ${plink(l.preapproved_by)} ${date(l.preapproved_at)}${l.reward_cents ? ` · ${money(l.reward_cents)} offen` : ""}`)
+    + `<div class="actions held-actions">${btn("Doch ablehnen", "task-reject", { id: l.id }, "reject")}</div>`).join("");
 }
 
 /** Screenshot-Link frisch vom Server holen (Discord-Links laufen ab) und als Vorschau einsetzen. */
@@ -57,7 +63,7 @@ function renderTaskBoard() {
 
 function renderTaskTypes() {
   const edit = state.me.capabilities.taskTypes;
-  $("tasks-types").innerHTML = taskState.data.types.map(t => `<div class="row type-row"><div><div class="row-title">${escapeHtml(`${t.emoji} ${t.name}`)}${t.active ? "" : '<span class="off">deaktiviert</span>'}</div><div class="row-sub">${escapeHtml(taskReward(t))}${t.daily_limit ? ` · max. ${t.daily_limit}× pro Tag` : ""}</div></div>${edit ? btn("Bearbeiten", "tasktype-edit", { id: t.id }) : ""}</div>`).join("") || empty("Noch keine Aufgaben – lege die erste an.");
+  $("tasks-types").innerHTML = taskState.data.types.map(t => `<div class="row type-row"><div><div class="row-title">${escapeHtml(`${t.emoji} ${t.name}`)}${t.active ? "" : '<span class="off">deaktiviert</span>'}</div><div class="row-sub">${escapeHtml(taskReward(t))}${t.daily_limit ? ` · max. ${t.daily_limit}× pro Tag` : ""}${t.invite_min_days != null || t.invite_min_events != null ? escapeHtml(` · erst nach ${t.invite_min_days ?? 0} Tagen & ${t.invite_min_events ?? 0} Events`) : ""}</div></div>${edit ? btn("Bearbeiten", "tasktype-edit", { id: t.id }) : ""}</div>`).join("") || empty("Noch keine Aufgaben – lege die erste an.");
 }
 
 function renderTaskHistory() {
@@ -85,6 +91,8 @@ function taskTypeForm(type = null) {
       { name: "perUnit", label: "Berechnung", type: "select", value: type?.per_unit ? "true" : "false", options: [["false", "Fester Betrag pro Log"], ["true", "Pro Stück (Mitglied gibt Menge an)"]] },
       { name: "unit", label: "Einheit (bei „pro Stück“)", value: type?.unit ?? "Stück", max: 30, placeholder: "Ernte, Panel, Auto …" },
       { name: "dailyLimit", label: "Tageslimit pro Person", value: type?.daily_limit ?? "", hint: "leer = unbegrenzt", max: 3 },
+      { name: "inviteMinDays", label: "Invite: Mindest-Tage auf dem Server", value: type?.invite_min_days ?? "", hint: "nur für Invites – leer = keine eingeladene Person nötig", max: 2 },
+      { name: "inviteMinEvents", label: "Invite: Mindest-Events dabei", value: type?.invite_min_events ?? "", hint: "Auszahlung erst, wenn beides erfüllt ist", max: 2 },
       ...(type ? [{ name: "active", label: "Status", type: "select", value: type.active ? "true" : "false", options: [["true", "Aktiv"], ["false", "Deaktiviert (nicht mehr wählbar)"]] }] : []),
     ],
     submit: "Speichern", onSubmit: v => post("/api/task-types", { ...v, id: type?.id ?? null }) });
@@ -191,7 +199,7 @@ Object.assign(actions, {
       submit: "Bestätigen", onSubmit: v => post(`/api/tasks/${id}/approve`, v) });
   },
   "task-reject": ({ id }) => {
-    const l = taskState.data.pending.find(x => x.id === id);
+    const l = [...taskState.data.pending, ...(taskState.data.held ?? [])].find(x => x.id === id);
     const chips = (taskState.data.rejectReasons ?? []).map(r => `<button type="button" class="reason-chip" data-action="task-reason-chip" data-reason="${escapeHtml(r)}">${escapeHtml(r)}</button>`).join("");
     openForm({ eyebrow: "AUFGABEN-LOG", title: "Log ablehnen", intro: `<p>${escapeHtml(taskTitle(l))} von ${who(l.user_id)}. Der Grund geht per DM an das Mitglied.</p>${chips ? `<div class="chip-row">${chips}</div>` : ""}`, danger: true,
       fields: [{ name: "reason", label: "Grund", type: "textarea", required: true, max: 300, placeholder: "z. B. Datum und Uhrzeit nicht sichtbar" }],
