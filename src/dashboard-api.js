@@ -31,7 +31,8 @@ import { createRankHistory, rankFor } from "./services/ranks.js";
 import { CLOSURE_REASONS, createAccountClosureService } from "./services/account-closures.js";
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
-import { afterClose, afterNotPlayed, closeAttendance, markNotPlayed, parseAmount, requestAttendance } from "./attendance.js";
+import { addPresent, afterClose, afterNotPlayed, closeAttendance, markNotPlayed, parseAmount, requestAttendance } from "./attendance.js";
+import { proofMessages, proofsByUser } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
@@ -399,8 +400,8 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const rows = past
         ? db.prepare("SELECT * FROM events WHERE guild_id=? AND status IN ('ended','cancelled') ORDER BY starts_at DESC LIMIT 30").all(guildId)
         : db.prepare("SELECT * FROM events WHERE guild_id=? AND status='scheduled' ORDER BY starts_at").all(guildId);
-      const items = rows.map(e => ({ ...e, participants: db.prepare("SELECT user_id,status FROM event_participants WHERE event_id=? AND status<>'left' ORDER BY updated_at").all(e.id) }));
-      return withNames({ events: items }, items.flatMap(e => [e.host_id, ...e.participants.map(p => p.user_id)]));
+      const items = rows.map(e => ({ ...e, participants: db.prepare("SELECT user_id,status FROM event_participants WHERE event_id=? AND status<>'left' ORDER BY updated_at").all(e.id), proofs: Object.fromEntries(proofsByUser(db, e.id)) }));
+      return withNames({ events: items }, items.flatMap(e => [e.host_id, ...e.participants.map(p => p.user_id), ...Object.keys(e.proofs)]));
     }],
     [/^\/api\/accounts$/, async member => {
       need(member, "financeView", "Finanzrolle");
@@ -436,6 +437,19 @@ export function createDashboardApi({ db, client, config, settings = null, series
         return { id: row.id, userId: row.user_id, reason: row.reason, reasonLabel: CLOSURE_REASONS[row.reason], createdAt: row.created_at, balance: plan.gross, openSanctions: plan.openCents, inGuild };
       });
       return withNames({ closures: items, canDecide: can(member, "finance") }, items.map(c => c.userId));
+    }],
+    // Event-Nachweise (Bilder aus dem Event-Logbuch) eines Events – Links frisch aus Discord, da sie ablaufen.
+    [/^\/api\/events\/([\w-]+)\/proofs$/, async (member, url, [, id]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const rows = proofMessages(db, id);
+      const out = [];
+      for (const row of rows.slice(0, 60)) {
+        const ch = await client.channels.fetch(row.channel_id).catch(() => null);
+        const msg = await ch?.messages?.fetch(row.message_id).catch(() => null);
+        const images = [...(msg?.attachments?.values?.() ?? [])].filter(a => /^image\//.test(a.contentType ?? "") || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(a.name ?? "")).map(a => a.url);
+        out.push({ userId: row.user_id, createdAt: row.created_at, images, link: `https://discord.com/channels/${guildId}/${row.channel_id}/${row.message_id}`, missing: !msg });
+      }
+      return withNames({ proofs: out }, out.map(p => p.userId));
     }],
     [/^\/api\/accounts\/(\d{17,20})$/, async (member, url, [, userId]) => {
       need(member, "financeView", "Finanzrolle");
@@ -652,6 +666,17 @@ export function createDashboardApi({ db, client, config, settings = null, series
       await afterClose({ db, client, config, event: result.event, rows: result.rows, actorId: member.id });
       const present = result.rows.filter(r => r.status === "present").length;
       return { message: `Anwesenheit abgeschlossen: ${present} von ${result.rows.length} da. Das Ergebnis wurde gepostet.` };
+    }],
+    [/^\/api\/events\/([\w-]+)\/attendance\/proofs$/, async (member, body, [, id]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=?").get(id, guildId);
+      if (!event || event.status === "cancelled") throw new HttpError(404, "Event nicht gefunden.");
+      if (event.attendance_closed_at) throw new HttpError(409, "Die Anwesenheit ist bereits abgeschlossen.");
+      const ids = [...proofsByUser(db, id).keys()];
+      if (!ids.length) throw new HttpError(400, "Für dieses Event hat noch niemand ein Event-Log gepostet.");
+      addPresent(db, { eventId: id, userIds: ids });
+      audit(db, guildId, member.id, "event.attendance", null, { eventId: id, status: "present", source: "event-logs", count: ids.length });
+      return { message: `${ids.length} ${ids.length === 1 ? "Person" : "Personen"} mit Event-Log als anwesend eingetragen.` };
     }],
     [/^\/api\/events\/([\w-]+)\/attendance$/, async (member, body, [, id]) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");

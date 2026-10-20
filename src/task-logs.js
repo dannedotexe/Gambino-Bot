@@ -6,6 +6,7 @@ import { BRAND_COLOR } from "./presentation.js";
 import { createFinance, formatMoney } from "./services/finance.js";
 import { TaskError, createTaskService, levelFor, weekStart } from "./services/tasks.js";
 import { localDay } from "./services/absences.js";
+import { handleEventProofMessage } from "./event-proofs.js";
 
 /**
  * Discord-Seite der Aufgaben-Logs: /log reicht ein, die Prüf-Karte im Staff-Channel entscheidet,
@@ -139,8 +140,8 @@ export async function handleLogbookMessage({ db, config, message }) {
   const inEvents = Boolean(config.CHANNEL_EVENT_FORUM) && message.channel.parentId === config.CHANNEL_EVENT_FORUM;
   if (!inTasks && !inEvents) return false;
   if (/^\W*vorlage/i.test(message.channel.name ?? "")) return false;
-  // Event-Logbücher: nur Nachweis-Bilder, keine Aufgaben-Auswahl.
-  if (inEvents && imageOf(message)) return false;
+  // Event-Logbücher: Bild als Event-Nachweis zuordnen (keine Aufgaben-Auswahl).
+  if (inEvents && imageOf(message)) return handleEventProofMessage({ db, config, message });
   if (!imageOf(message)) {
     // Nur Bilder: Text von Mitgliedern wird gelöscht (Team darf schreiben), kurzer Hinweis verschwindet wieder.
     const groups = accessGroups(config), roles = message.member?.roles?.cache;

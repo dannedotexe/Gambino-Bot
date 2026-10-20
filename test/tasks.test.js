@@ -234,11 +234,13 @@ test("Event-Forum: Bilder bleiben ohne Aufgaben-Menü, Text wird gelöscht", asy
   const { handleLogbookMessage } = await import("../src/task-logs.js");
   const db = testDb(), EV = "60000000000000061", config = baseConfig({ CHANNEL_EVENT_FORUM: EV });
   const replies = [];
-  const msg = (attachments) => { const m = { deleted: false, guildId: G, author: { id: U }, member: { roles: { cache: new Map() } }, attachments, reply: async p => replies.push(p),
+  const msg = (attachments) => { const m = { id: `m${Math.random()}`, channelId: "t1", deleted: false, guildId: G, author: { id: U }, member: { roles: { cache: new Map() } }, attachments, reply: async p => replies.push(p),
     channel: { parentId: EV, name: "Tony | 1", isThread: () => true, send: async () => ({ delete: async () => {} }) }, delete: async () => { m.deleted = true; } }; return m; };
   const image = msg(new Map([["a", { contentType: "image/png", name: "a.png" }]])), text = msg(new Map());
-  assert.equal(await handleLogbookMessage({ db, config, message: image }), false);
-  assert.equal(replies.length, 0, "kein Aufgaben-Menü im Event-Forum");
+  assert.equal(await handleLogbookMessage({ db, config, message: image }), true);
+  assert.equal(replies.length, 1);
+  assert.doesNotMatch(replies[0].content, /Aufgabe/, "kein Aufgaben-Menü im Event-Forum");
+  assert.match(replies[0].content, /Gerade läuft kein Event/);
   assert.equal(image.deleted, false);
   await handleLogbookMessage({ db, config, message: text });
   assert.equal(text.deleted, true);

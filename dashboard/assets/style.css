@@ -495,3 +495,7 @@ dialog .cselect-list{z-index:1000}
   .calendar{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(150px,46%);overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:6px;margin-right:-16px;padding-right:16px}
   .cal-day{scroll-snap-align:start}
 }
+/* Event-Logs (Nachweise) */
+.proofs{display:grid;gap:14px;margin-top:6px}.proof{padding:12px;border-radius:var(--radius-md);background:var(--fill2)}
+.proof-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline;margin-bottom:8px}.proof-head small{color:var(--muted);font-size:12px}.proof-head a{color:var(--accent)}
+.proof-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}.proof-images img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:var(--radius-sm);display:block;transition:transform .3s var(--ease)}.proof-images a:hover img{transform:scale(1.02)}

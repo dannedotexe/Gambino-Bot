@@ -24,6 +24,7 @@ import { handleTaskInteraction, myTasksView, rewardLabel, submitTaskLog } from "
 import { createTaskService } from "./services/tasks.js";
 import { LOGBOOK_FORUMS, activeLogbookKinds, ensureLogbook, renameLogbook } from "./logbooks.js";
 import { killLeaderboard, killsOf } from "./services/calendar.js";
+import { handleEventProofInteraction } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
@@ -1432,8 +1433,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     return answer(i,{content:"Unbekannte Event-Aktion.",ephemeral:true});}
 
   const attendance=i=>handleAttendanceInteraction({i,db,client:i.client??client,config});
+  const eventProofs=i=>handleEventProofInteraction({i,db,config}).catch(e=>{console.error("Event-Nachweis fehlgeschlagen:",e);return replyError(i,e);});
   const tasks=i=>handleTaskInteraction({i,db,client:i.client??client,config}).catch(e=>{console.error("Aufgaben-Aktion fehlgeschlagen:",e);return replyError(i,e);});
-  return {command,autocomplete,button,select,modal,reviewButton,eventButton,attendance,tasks};
+  return {command,autocomplete,button,select,modal,reviewButton,eventButton,attendance,tasks,eventProofs};
 }
 
 /** Lädt bis zu `limit` Nachrichten (seitenweise à 100) chronologisch. Wirft bei fehlendem Zugriff. */
@@ -1513,4 +1515,4 @@ async function applicationReviewChannel(guild,config,kind){
   return channels?.find(channel=>channel?.isTextBased()&&channel.name.includes(channelName)&&channel.parent?.name.toLowerCase().includes("staff"))??null;
 }
 
-export async function handleComponent(i,handlers){if(i.customId?.startsWith("att:")&&handlers.attendance)return handlers.attendance(i);if(i.customId?.startsWith("task:")&&handlers.tasks)return handlers.tasks(i);if(i.isButton()){if(i.customId.startsWith("application:"))return handlers.reviewButton(i);if(i.customId.startsWith("event:"))return handlers.eventButton(i);return handlers.button(i);}if(i.isStringSelectMenu())return handlers.select(i);if(i.isModalSubmit())return handlers.modal(i);}
+export async function handleComponent(i,handlers){if(i.customId?.startsWith("att:")&&handlers.attendance)return handlers.attendance(i);if(i.customId?.startsWith("task:")&&handlers.tasks)return handlers.tasks(i);if(i.customId?.startsWith("evp:")&&handlers.eventProofs)return handlers.eventProofs(i);if(i.isButton()){if(i.customId.startsWith("application:"))return handlers.reviewButton(i);if(i.customId.startsWith("event:"))return handlers.eventButton(i);return handlers.button(i);}if(i.isStringSelectMenu())return handlers.select(i);if(i.isModalSubmit())return handlers.modal(i);}

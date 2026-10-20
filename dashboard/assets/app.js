@@ -380,8 +380,12 @@ async function loadEvents() {
 }
 function attendanceDialog(id) {
   const e = state.cache.events[id];
-  const rows = e.participants.map(p => `<div class="row"><div><div class="row-title">${who(p.user_id)}</div><div class="row-sub">${statusLabels[p.status]}</div></div><div class="actions tight">${btn("Anwesend", "att", { event: id, user: p.user_id, status: "present" }, p.status === "present" ? "accept" : "")}${btn("Abwesend", "att", { event: id, user: p.user_id, status: "absent" }, p.status === "absent" ? "reject" : "")}</div></div>`).join("");
-  openForm({ eyebrow: "ANWESENHEIT", title: e.name, intro: `<div class="rows">${rows || empty("Noch keine Anmeldungen.")}</div><p class="subtle">Nicht angemeldete Mitglieder unten nachtragen:</p>`, fields: [memberField(), { name: "status", label: "Status", type: "select", options: [["present", "Anwesend"], ["absent", "Abwesend"]] }], submit: "Nachtragen",
+  const proofs = e.proofs ?? {}, proofCount = Object.keys(proofs).length;
+  // Wer ein Event-Log gepostet hat, aber nicht angemeldet war, erscheint ebenfalls.
+  const people = [...e.participants, ...Object.keys(proofs).filter(id => !e.participants.some(p => p.user_id === id)).map(id => ({ user_id: id, status: "proof_only" }))];
+  const rows = people.map(p => `<div class="row"><div><div class="row-title">${who(p.user_id)}${proofs[p.user_id] ? ` <span class="badge status-accepted">📸 ${proofs[p.user_id]}</span>` : ""}</div><div class="row-sub">${p.status === "proof_only" ? "nicht angemeldet · hat Event-Log gepostet" : statusLabels[p.status]}${proofCount && !proofs[p.user_id] ? " · kein Event-Log" : ""}</div></div><div class="actions tight">${btn("Anwesend", "att", { event: id, user: p.user_id, status: "present" }, p.status === "present" ? "accept" : "")}${btn("Abwesend", "att", { event: id, user: p.user_id, status: "absent" }, p.status === "absent" ? "reject" : "")}</div></div>`).join("");
+  const proofTools = proofCount ? `<div class="actions start">${!e.attendance_closed_at ? btn(`📸 Mit Event-Log = da (${proofCount})`, "att-proofs", { event: id }, "approve") : ""}${btn("Event-Logs ansehen", "event-proofs", { id })}</div>` : '<p class="subtle">Noch keine Event-Logs zu diesem Event.</p>';
+  openForm({ eyebrow: "ANWESENHEIT", title: e.name, intro: `${proofTools}<div class="rows">${rows || empty("Noch keine Anmeldungen.")}</div><p class="subtle">Nicht angemeldete Mitglieder unten nachtragen:</p>`, fields: [memberField(), { name: "status", label: "Status", type: "select", options: [["present", "Anwesend"], ["absent", "Abwesend"]] }], submit: "Nachtragen",
     onSubmit: async values => { const result = await post(`/api/events/${id}/attendance`, values); notify(result.message); await loadEvents(); attendanceDialog(id); return { keepOpen: true }; } });
 }
 
@@ -515,6 +519,12 @@ const actions = {
   "event-create": () => openForm({ eyebrow: "EVENT-TEAM", title: "Event veröffentlichen", intro: "<p>Die Ankündigung erscheint im konfigurierten Event-Channel mit Anmeldebuttons.</p>", fields: eventFields(), submit: "Veröffentlichen", onSubmit: v => post("/api/events", { ...v, startsAt: fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null, minimum: v.minimum ? Number(v.minimum) : null }) }),
   "event-edit": ({ id }) => { const e = state.cache.events[id]; openForm({ eyebrow: "EVENT BEARBEITEN", title: e.name, intro: "<p>Die Ankündigung in Discord wird automatisch aktualisiert. Bei geänderter Startzeit werden Erinnerungen neu geplant.</p>", fields: eventFields(e), submit: "Speichern", onSubmit: v => post(`/api/events/${id}/update`, { ...v, startsAt: v.startsAt === toLocalInput(e.starts_at) ? "" : fromLocalInput(v.startsAt), maximum: v.maximum ? Number(v.maximum) : null, minimum: v.minimum ? Number(v.minimum) : null }) }); },
   "event-attendance": ({ id }) => attendanceDialog(id),
+  "att-proofs": async ({ event }) => { const r = await post(`/api/events/${event}/attendance/proofs`); notify(r.message); await loadEvents(); attendanceDialog(event); },
+  "event-proofs": async ({ id }) => {
+    const e = state.cache.events[id], { proofs } = await api(`/api/events/${id}/proofs`);
+    const html = proofs.map(p => `<div class="proof"><div class="proof-head"><b>${who(p.userId)}</b><small>${date(p.createdAt)} · <a href="${escapeHtml(p.link)}" target="_blank" rel="noopener noreferrer">in Discord öffnen</a></small></div>${p.missing ? '<p class="subtle">Nachricht wurde gelöscht.</p>' : `<div class="proof-images">${p.images.map(url => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(url)}" alt="Event-Log" loading="lazy"></a>`).join("")}</div>`}</div>`).join("") || empty("Keine Event-Logs.");
+    openInfo(`Event-Logs · ${e?.name ?? ""}`, `<div class="proofs">${html}</div>`, "NACHWEISE", true);
+  },
   "state-control": () => openForm({ eyebrow: "SPONTAN", title: "🚩 Staatliche Kontrolle", intro: "<p>Angriff oder Verteidigung – der Bot kündigt es sofort im Event-Channel mit Anmeldung an.</p>",
     fields: [{ name: "mode", label: "Wer greift an?", type: "select", options: [["defend", "🛡️ Wir werden angegriffen"], ["attack", "🚩 Wir greifen an"]] }, { name: "family", label: "Welche Familie?", required: true, max: 60, placeholder: "z. B. Death Note" }, { name: "when", label: "Wann?", required: true, value: "jetzt", max: 20, hint: "jetzt, in 20 (Minuten) oder 16:30" }],
     submit: "Ankündigen", onSubmit: v => post("/api/events/control", v) }),

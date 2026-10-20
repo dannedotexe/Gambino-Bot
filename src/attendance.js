@@ -5,6 +5,7 @@ import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR, numberedMentions } from "./presentation.js";
 import { postEventResult } from "./panels.js";
 import { refreshEventPosts } from "./event-posts.js";
+import { proofsByUser } from "./event-proofs.js";
 
 /**
  * Verbindliche Anwesenheit: Nach dem Event hakt das Event-Team im Auswahlmenü ab, wer da war.
@@ -256,13 +257,13 @@ async function pickerPayload({ db, i, event }) {
   const ids = rows.map(r => r.user_id);
   const fetched = guild ? await guild.members.fetch({ user: ids.slice(0, 100) }).catch(() => null) : null;
   const nameOf = id => db.prepare("SELECT nickname FROM member_verifications WHERE guild_id=? AND user_id=?").get(event.guild_id, id)?.nickname ?? fetched?.get?.(id)?.displayName ?? `Mitglied …${id.slice(-4)}`;
-  const menus = [];
+  const menus = [], proofs = proofsByUser(db, event.id);
   for (let start = 0; start < rows.length && menus.length < MAX_MENUS; start += PER_MENU) {
     const chunk = rows.slice(start, start + PER_MENU);
     menus.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`att:pick:${event.id}:${start}`)
       .setPlaceholder(rows.length > PER_MENU ? `Wer war da? (${start + 1}–${start + chunk.length})` : "Wer war da? – alle Anwesenden auswählen")
       .setMinValues(0).setMaxValues(chunk.length)
-      .addOptions(chunk.map(r => ({ label: nameOf(r.user_id).slice(0, 100), value: r.user_id, default: r.status === "present" })))));
+      .addOptions(chunk.map(r => ({ label: nameOf(r.user_id).slice(0, 100), value: r.user_id, default: r.status === "present", ...(proofs.get(r.user_id) ? { description: `📸 ${proofs.get(r.user_id)} ${proofs.get(r.user_id) === 1 ? "Bild" : "Bilder"} im Event-Logbuch` } : {}) })))));
   }
   const present = rows.filter(r => r.status === "present").length;
   const add = new ActionRowBuilder().addComponents(new UserSelectMenuBuilder().setCustomId(`att:add:${event.id}`)
@@ -270,9 +271,11 @@ async function pickerPayload({ db, i, event }) {
   const buttons = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`att:close:${event.id}`).setLabel(`✅ Abschließen (${present}/${rows.length} da)`).setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`att:all:${event.id}`).setLabel("Alle waren da").setStyle(ButtonStyle.Secondary),
+    ...(proofs.size ? [new ButtonBuilder().setCustomId(`att:proofs:${event.id}`).setLabel(`📸 Mit Nachweis = da (${proofs.size})`).setStyle(ButtonStyle.Primary)] : []),
     new ButtonBuilder().setCustomId(`att:skip:${event.id}`).setLabel("🚫 Nicht gespielt").setStyle(ButtonStyle.Secondary));
   const more = rows.length > PER_MENU * MAX_MENUS ? `\n⚠️ Mehr als ${PER_MENU * MAX_MENUS} Angemeldete – den Rest bitte auf der Website eintragen.` : "";
-  return { content: `**${event.name}** – wähle alle aus, die **wirklich da waren**. Wer nicht angemeldet war, aber da war, kommt über ➕ dazu. Die Auswahl wird sofort gespeichert; „Abschließen“ setzt alle anderen auf *nicht da* (No-Show).${more}`, components: [...menus, add, buttons] };
+  const noProof = proofs.size ? rows.filter(r => !proofs.has(r.user_id)).length : 0;
+  return { content: `${proofs.size ? `📸 **${proofs.size}** ${proofs.size === 1 ? "Person hat" : "Personen haben"} Event-Logs gepostet${noProof ? `, ${noProof} Angemeldete ohne Bild` : ""}.\n` : ""}**${event.name}** – wähle alle aus, die **wirklich da waren**. Wer nicht angemeldet war, aber da war, kommt über ➕ dazu. Die Auswahl wird sofort gespeichert; „Abschließen“ setzt alle anderen auf *nicht da* (No-Show).${more}`, components: [...menus, add, buttons] };
 }
 
 /** Alle Interaktionen mit customId „att:…“ (Button und Auswahlmenü). */
@@ -307,6 +310,11 @@ export async function handleAttendanceInteraction({ i, db, client, config }) {
   }
   if (action === "add") {
     addPresent(db, { eventId: event.id, userIds: i.values.filter(id => !i.users?.get?.(id)?.bot) });
+    return i.update(await pickerPayload({ db, i, event }));
+  }
+  if (action === "proofs") {
+    // Alle mit Event-Log-Bild als anwesend – auch wer nicht angemeldet war.
+    addPresent(db, { eventId: event.id, userIds: [...proofsByUser(db, event.id).keys()] });
     return i.update(await pickerPayload({ db, i, event }));
   }
   if (action === "all") {
