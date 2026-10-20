@@ -240,6 +240,9 @@ const COLUMNS = [
   ["task_logs", "source_channel_id", "TEXT"],
   ["task_logs", "source_message_id", "TEXT"],
   ["task_logs", "prompt_message_id", "TEXT"],
+  ["task_logs", "source_index", "INTEGER"],
+  ["logbooks", "archived_at", "TEXT"],
+  ["logbooks", "reminded_at", "TEXT"],
 ];
 
 export function initializeSchema(db) {

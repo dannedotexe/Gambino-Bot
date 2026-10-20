@@ -151,7 +151,7 @@ test("Logbuch: Screenshot posten → Menü → Menge → Prüf-Karte; Bestätige
   source.channel = thread;
   assert.equal(await handleLogbookMessage({ db, config, message: { ...source, channel: { ...thread, name: "Vorlage + Info:" } } }), false, "Vorlage wird ignoriert");
   assert.equal(await handleLogbookMessage({ db, config, message: source }), true);
-  assert.match(replies[0].components[0].components[0].data.custom_id, /^task:pick:s1$/);
+  assert.equal(replies[0].components[0].components[0].data.custom_id, "task:pick:s1:0");
   const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) });
   const client = { ...m.client, channels: { fetch: async id => (id === THREAD ? thread : { id: CH, send: async p => { m.sent.push(p); return { id: "rm1", channel: { id: CH }, embeds: [], attachments: { first: () => null } }; }, messages: { fetch: async () => null } }) } };
   const base = { guildId: G, channel: thread, channelId: THREAD, message: { id: "p1" }, member: { roles: { cache: new Map() } } };
@@ -161,7 +161,7 @@ test("Logbuch: Screenshot posten → Menü → Menge → Prüf-Karte; Bestätige
     assert.match(stranger[0].content, /nur die Person/);
     let modal;
     await handleTaskInteraction({ i: { ...base, customId: "task:pick:s1", user: { id: U }, values: [plant.id], showModal: async x => { modal = x; } }, db, client, config });
-    assert.equal(modal.data.custom_id, `task:pickq:s1:${plant.id}`);
+    assert.equal(modal.data.custom_id, `task:pickq:s1:${plant.id}:0`);
     const updates = [];
     await handleTaskInteraction({ i: { ...base, customId: `task:pickq:s1:${plant.id}`, user: { id: U }, fields: { getTextInputValue: () => "3" }, update: async p => updates.push(p) }, db, client, config });
     assert.match(updates[0].content, /Plantage ×3 Ernte\*\* eingereicht · \$30\.000,00/);
@@ -171,7 +171,8 @@ test("Logbuch: Screenshot posten → Menü → Menge → Prüf-Karte; Bestätige
   assert.equal(log.user_id, U); assert.equal(log.quantity, 3);
   const again = [];
   await handleTaskInteraction({ i: { ...base, customId: `task:pickq:s1:${plant.id}`, user: { id: U }, fields: { getTextInputValue: () => "3" }, update: async p => again.push(p) }, db, client, config });
-  assert.match(again[0].content, /bereits eingereicht/);
+  assert.equal(tasks.list(G, {}).length, 1, "kein zweites Log für dasselbe Bild");
+  assert.equal(again[0].components.length, 0);
   const { decideTask } = await import("../src/task-logs.js");
   await decideTask({ db, client, config, guildId: G, id: log.id, actorId: R, approve: true });
   assert.deepEqual(reactions, ["✅"]);
@@ -192,4 +193,39 @@ test("Logbuch: Text ohne Bild von Mitgliedern wird gelöscht, Team darf schreibe
   const off = make([]);
   await handleLogbookMessage({ db, config: { ...config, LOGBOOK_IMAGES_ONLY: false }, message: off });
   assert.equal(off.deleted, false, "abschaltbar");
+});
+
+test("Logbuch: mehrere Screenshots in einer Nachricht → ein Menü pro Bild, jedes wird einzeln eingereicht", async () => {
+  const { handleLogbookMessage } = await import("../src/task-logs.js");
+  const db = testDb(), FORUM = "60000000000000051", THREAD = "60000000000000052";
+  const config = baseConfig({ CHANNEL_TASK_FORUM: FORUM });
+  const img = n => [`a${n}`, { url: `https://cdn.discordapp.com/${n}.png`, contentType: "image/png", name: `${n}.png`, size: 10 + n, width: 5, height: 5 }];
+  const replies = [];
+  const source = { id: "s2", guildId: G, channelId: THREAD, author: { id: U }, attachments: new Map([img(1), img(2), img(3)]), reply: async p => { replies.push(p); return { id: "p2" }; } };
+  const thread = { id: THREAD, parentId: FORUM, name: "Tony | 1", isThread: () => true, messages: { fetch: async () => source } };
+  source.channel = thread;
+  await handleLogbookMessage({ db, config, message: source });
+  assert.match(replies[0].content, /3 Screenshots erkannt/);
+  assert.deepEqual(replies[0].components.slice(0, 3).map(r => r.components[0].data.custom_id), ["task:pick:s2:0", "task:pick:s2:1", "task:pick:s2:2"]);
+  const invite = typeNamed(db, "Invite – normales").id, updates = [];
+  const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: false });
+  const client = { channels: { fetch: async () => null }, users: { fetch: async () => ({ send: async () => {} }) } };
+  try {
+    await handleTaskInteraction({ i: { guildId: G, channel: thread, channelId: THREAD, message: { id: "p2" }, member: { roles: { cache: new Map() } }, customId: "task:pick:s2:1", user: { id: U }, values: [invite], update: async p => updates.push(p) }, db, client, config });
+  } finally { globalThis.fetch = realFetch; }
+  assert.match(updates[0].content, /Bild 2: ⏳ \*\*🤝 Invite – normales Mitglied\*\* eingereicht/);
+  assert.deepEqual(updates[0].components.map(r => r.components[0].data.custom_id), ["task:pick:s2:0", "task:pick:s2:2"], "nur noch offene Bilder, kein „Kein Log“ mehr");
+  assert.equal(db.prepare("SELECT source_index FROM task_logs").get().source_index, 1);
+});
+
+test("Excel: Monatsabrechnung pro Mitglied und Monat", async () => {
+  const { buildTable } = await import("../src/export.js");
+  const db = testDb(), tasks = service(db), finance = createFinance(db);
+  const invite = typeNamed(db, "Invite – normales").id;
+  for (let n = 0; n < 2; n++) { const l = tasks.submit({ guildId: G, userId: U, typeId: invite, reference: new Date(`2026-10-1${n}T10:00:00Z`) }); tasks.approve({ guildId: G, id: l.id, actorId: R, finance }); }
+  tasks.reject({ guildId: G, id: tasks.submit({ guildId: G, userId: U, typeId: invite, reference: new Date("2026-10-15T10:00:00Z") }).id, actorId: R, reason: "Uhrzeit fehlt" });
+  const t = buildTable("taskmonths", { db, guildId: G, name: id => (id === U ? "Tony" : id) });
+  const row = t.rows.find(r => r[0] === "10/2026");
+  assert.deepEqual(row.slice(1, 7), ["Tony", 2, 2, 50000, 1, 0]);
+  assert.equal(buildTable("tasks", { db, guildId: G, name: id => id }).rows.length, 3);
 });

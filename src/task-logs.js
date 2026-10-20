@@ -104,19 +104,32 @@ async function postReviewCard({ db, client, config, log, attachment }) {
 }
 
 const proofKeyOf = a => (a.width && a.height ? `${a.width}x${a.height}:${a.size}` : null);
-const imageOf = message => [...(message.attachments?.values?.() ?? [])].find(a => /^image\//.test(a.contentType ?? "") || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(a.name ?? ""));
+const isImage = a => /^image\//.test(a.contentType ?? "") || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(a.name ?? "");
+const imagesOf = message => [...(message.attachments?.values?.() ?? [])].filter(isImage);
+const imageOf = message => imagesOf(message)[0];
+const MAX_IMAGES = 4;
 
-/** Auswahlmenü „Welche Aufgabe?“ unter einem Screenshot im Logbuch. */
-export function logbookPrompt(db, config, guildId, messageId) {
+/**
+ * Antwort unter einem Screenshot-Post: pro Bild (max. 4) ein Auswahlmenü „Welche Aufgabe?“, bereits eingereichte
+ * Bilder zeigen ihren Status (⏳/✅/❌). Wird nach jeder Auswahl und Entscheidung neu aufgebaut.
+ */
+export function logbookPrompt(db, config, guildId, messageId, imageCount = 1) {
   const types = service(db, config).listTypes(guildId).slice(0, 25);
-  if (!types.length) return null;
-  return {
-    content: "📸 **Screenshot erkannt!** Welche Aufgabe ist das? Danach prüft das Team und die Belohnung kommt automatisch aufs Konto.",
-    components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`task:pick:${messageId}`).setPlaceholder("Aufgabe auswählen …")
-      .addOptions(types.map(t => ({ label: t.name.slice(0, 100), value: t.id, emoji: t.emoji || undefined, description: `${rewardLabel(t)}${t.daily_limit ? ` · max. ${t.daily_limit}×/Tag` : ""}`.slice(0, 100) })))),
-      new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`task:skip:${messageId}`).setLabel("Kein Log").setStyle(ButtonStyle.Secondary))],
-    allowedMentions: { parse: [] },
-  };
+  const n = Math.max(1, Math.min(MAX_IMAGES, imageCount)), multi = n > 1;
+  const logs = new Map(db.prepare("SELECT l.*,t.name AS type_name,t.emoji AS type_emoji,t.unit AS type_unit,t.per_unit AS type_per_unit FROM task_logs l JOIN task_types t ON t.id=l.type_id WHERE l.source_message_id=?").all(messageId).map(l => [l.source_index ?? 0, l]));
+  if (!types.length && !logs.size) return null;
+  const status = l => l.status === "approved" ? `✅ **${logTitle(l)}** bestätigt${l.reward_cents ? ` · **+${formatMoney(l.reward_cents)}** aufs Konto` : ""}`
+    : l.status === "rejected" ? `❌ **${logTitle(l)}** abgelehnt – ${l.reject_reason ?? "ohne Grund"}`
+    : `⏳ **${logTitle(l)}** eingereicht${l.reward_cents ? ` · ${formatMoney(l.reward_cents)}` : ""} – wartet auf Prüfung.`;
+  const lines = [];
+  if (logs.size < n) lines.push(multi ? `📸 **${imageCount} Screenshots erkannt!** Wähle für jedes Bild die Aufgabe.` : "📸 **Screenshot erkannt!** Welche Aufgabe ist das? Danach prüft das Team und die Belohnung kommt automatisch aufs Konto.");
+  for (let k = 0; k < n; k++) if (logs.has(k)) lines.push(`${multi ? `Bild ${k + 1}: ` : ""}${status(logs.get(k))}`);
+  if (imageCount > MAX_IMAGES) lines.push(`ℹ️ Höchstens ${MAX_IMAGES} Screenshots pro Nachricht – weitere bitte einzeln posten.`);
+  const options = types.map(t => ({ label: t.name.slice(0, 100), value: t.id, emoji: t.emoji || undefined, description: `${rewardLabel(t)}${t.daily_limit ? ` · max. ${t.daily_limit}×/Tag` : ""}`.slice(0, 100) }));
+  const components = [];
+  for (let k = 0; k < n && options.length; k++) if (!logs.has(k)) components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`task:pick:${messageId}:${k}`).setPlaceholder(multi ? `Bild ${k + 1} – Aufgabe auswählen …` : "Aufgabe auswählen …").addOptions(options)));
+  if (!logs.size) components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`task:skip:${messageId}`).setLabel("Kein Log").setStyle(ButtonStyle.Secondary)));
+  return { content: lines.join("\n").slice(0, 2000), components, allowedMentions: { parse: [] } };
 }
 
 /** Nachricht in einem Logbuch-Post: Bild → Auswahlmenü darunter. Gibt true zurück, wenn gefragt wurde. */
@@ -135,24 +148,25 @@ export async function handleLogbookMessage({ db, config, message }) {
     }
     return false;
   }
-  const prompt = logbookPrompt(db, config, message.guildId, message.id);
+  const prompt = logbookPrompt(db, config, message.guildId, message.id, imagesOf(message).length);
   if (!prompt) return false;
   await message.reply(prompt);
   return true;
 }
 
-/** Auswahl im Logbuch: Log anlegen (bei Stückzahl erst Menge abfragen), Antwort zeigt den Status. */
-async function submitFromLogbook({ i, db, client, config, messageId, typeId, quantity = 1 }) {
+/** Auswahl im Logbuch: Log für ein Bild anlegen (bei Stückzahl erst Menge abfragen), Antwort zeigt den Status. */
+async function submitFromLogbook({ i, db, client, config, messageId, index = 0, typeId, quantity = 1 }) {
   const tasks = service(db, config);
   const source = await i.channel?.messages?.fetch(messageId).catch(() => null);
   if (!source) return i.update({ content: "Der Screenshot wurde gelöscht.", components: [] });
-  if (db.prepare("SELECT 1 FROM task_logs WHERE source_message_id=?").get(messageId)) return i.update({ content: "Dieser Screenshot wurde bereits eingereicht.", components: [] });
-  const attachment = imageOf(source);
+  const images = imagesOf(source), attachment = images[index];
+  if (!attachment) return i.reply({ content: "Dieses Bild gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
+  if (db.prepare("SELECT 1 FROM task_logs WHERE source_message_id=? AND COALESCE(source_index,0)=?").get(messageId, index)) return i.update(logbookPrompt(db, config, i.guildId, messageId, images.length) ?? { content: "Dieser Screenshot wurde bereits eingereicht.", components: [] });
   let log;
-  try { log = tasks.submit({ guildId: i.guildId, userId: source.author.id, typeId, quantity, proofKey: attachment ? proofKeyOf(attachment) : null }); }
+  try { log = tasks.submit({ guildId: i.guildId, userId: source.author.id, typeId, quantity, proofKey: proofKeyOf(attachment) }); }
   catch (error) { if (error instanceof TaskError) return i.reply({ content: error.message, flags: MessageFlags.Ephemeral }); throw error; }
-  db.prepare("UPDATE task_logs SET source_channel_id=?,source_message_id=?,prompt_message_id=? WHERE id=?").run(source.channelId ?? i.channelId, messageId, i.message.id, log.id);
-  await i.update({ content: `⏳ **${logTitle(log)}** eingereicht${log.reward_cents ? ` · ${formatMoney(log.reward_cents)}` : ""} – wartet auf Prüfung.`, components: [] });
+  db.prepare("UPDATE task_logs SET source_channel_id=?,source_message_id=?,source_index=?,prompt_message_id=? WHERE id=?").run(source.channelId ?? i.channelId, messageId, index, i.message.id, log.id);
+  await i.update(logbookPrompt(db, config, i.guildId, messageId, images.length));
   await postReviewCard({ db, client, config, log, attachment });
   return null;
 }
@@ -193,9 +207,9 @@ export async function afterTaskDecision({ db, client, config, log, levelBefore =
   if (raw?.source_channel_id) {
     const thread = await client.channels.fetch(raw.source_channel_id).catch(() => null);
     const prompt = raw.prompt_message_id ? await thread?.messages?.fetch(raw.prompt_message_id).catch(() => null) : null;
-    const text = log.status === "approved" ? `✅ **${logTitle(log)}** bestätigt${log.reward_cents ? ` · **+${formatMoney(log.reward_cents)}** aufs Konto` : ""}` : `❌ **${logTitle(log)}** abgelehnt – ${log.reject_reason ?? "ohne Grund"}`;
-    if (prompt) await prompt.edit({ content: text, components: [], allowedMentions: { parse: [] } }).catch(() => {});
     const source = await thread?.messages?.fetch(raw.source_message_id).catch(() => null);
+    const payload = logbookPrompt(db, config, log.guild_id, raw.source_message_id, source ? imagesOf(source).length : 1);
+    if (prompt && payload) await prompt.edit(payload).catch(() => {});
     if (source) await source.react(log.status === "approved" ? "✅" : "❌").catch(() => {});
   }
   if (config.TASK_DM_ENABLED && log.reviewer_id !== log.user_id) {
@@ -234,20 +248,21 @@ export async function handleTaskInteraction({ i, db, client, config }) {
     return i.reply({ embeds: [myTasksView(db, config, i.guildId, i.user.id)], flags: MessageFlags.Ephemeral });
   }
   if (["pick", "pickq", "skip"].includes(action)) {
+    const parts = i.customId.split(":"), index = Number(action === "pickq" ? parts[4] : parts[3]) || 0;
     const source = await i.channel?.messages?.fetch(id).catch(() => null);
     if (source && source.author?.id !== i.user.id && !canReview(i, config)) return reply("Das kann nur die Person auswählen, die den Screenshot gepostet hat.");
     if (action === "skip") return i.update({ content: "Kein Log – alles gut.", components: [] }).then(() => i.message?.delete?.().catch(() => {}));
     const typeId = action === "pick" ? i.values[0] : i.customId.split(":")[3];
     const type = service(db, config).typeById(i.guildId, typeId);
     if (!type?.active) return reply("Diese Aufgabe gibt es nicht mehr.");
-    if (action === "pick" && type.per_unit) return i.showModal(new ModalBuilder().setCustomId(`task:pickq:${id}:${typeId}`).setTitle(`${type.name}`.slice(0, 45)).addComponents(
+    if (action === "pick" && type.per_unit) return i.showModal(new ModalBuilder().setCustomId(`task:pickq:${id}:${typeId}:${index}`).setTitle(`${type.name}`.slice(0, 45)).addComponents(
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("qty").setLabel(`Wie viele? (${type.unit})`.slice(0, 45)).setValue("1").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3))));
     let quantity = 1;
     if (action === "pickq") {
       quantity = Number(String(i.fields.getTextInputValue("qty")).trim());
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) return reply("Bitte eine Zahl von 1 bis 999 eingeben.");
     }
-    return submitFromLogbook({ i, db, client, config, messageId: id, typeId, quantity });
+    return submitFromLogbook({ i, db, client, config, messageId: id, index, typeId, quantity });
   }
   if (!canReview(i, config)) return reply("Aufgaben-Logs prüfen dürfen nur Aufgaben-Prüfer, Finanzen oder die Leitung.");
   const tasks = service(db, config), log = tasks.get(i.guildId, id);
@@ -256,7 +271,19 @@ export async function handleTaskInteraction({ i, db, client, config }) {
   const owner = (config.BOT_OWNER_IDS ?? []).includes(i.user.id);
   if (action === "qty") return i.showModal(new ModalBuilder().setCustomId(`task:qtyset:${id}`).setTitle(`Menge – ${log.type_name}`.slice(0, 45)).addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("qty").setLabel(`Richtige Anzahl (${log.type_unit})`.slice(0, 45)).setValue(String(log.quantity)).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3))));
-  if (action === "no") return i.showModal(new ModalBuilder().setCustomId(`task:noset:${id}`).setTitle("Log ablehnen").addComponents(
+  // Ablehnen: vorgefertigte Gründe zum Anklicken, „Anderer Grund“ öffnet das Textfeld.
+  if (action === "no" && (config.TASK_REJECT_REASONS ?? []).length) return i.reply({ content: `Warum wird **${logTitle(log)}** von <@${log.user_id}> abgelehnt?`, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] },
+    components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`task:noreason:${id}`).setPlaceholder("Grund wählen …")
+      .addOptions([...config.TASK_REJECT_REASONS.slice(0, 24).map((r, n) => ({ label: r.slice(0, 100), value: `r${n}` })), { label: "Anderer Grund …", value: "other", emoji: "✏️" }]))] });
+  if (action === "noreason" && i.values?.[0] !== "other") {
+    const reason = config.TASK_REJECT_REASONS?.[Number(String(i.values?.[0]).slice(1))];
+    if (!reason) return reply("Unbekannter Grund.");
+    try {
+      const done = await decideTask({ db, client, config, guildId: i.guildId, id, actorId: i.user.id, approve: false, reason, owner });
+      return i.update({ content: `❌ Abgelehnt: ${logTitle(done)} von <@${done.user_id}> – ${reason}.`, components: [], allowedMentions: { parse: [] } });
+    } catch (error) { if (error instanceof TaskError) return reply(error.message); throw error; }
+  }
+  if (action === "no" || action === "noreason") return i.showModal(new ModalBuilder().setCustomId(`task:noset:${id}`).setTitle("Log ablehnen").addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("reason").setLabel("Grund (bekommt das Mitglied per DM)").setPlaceholder("z. B. Datum und Uhrzeit nicht sichtbar").setStyle(TextInputStyle.Paragraph).setRequired(true).setMinLength(3).setMaxLength(300))));
   try {
     let quantity = null, reason = "";

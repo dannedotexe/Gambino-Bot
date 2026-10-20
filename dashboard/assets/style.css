@@ -307,3 +307,26 @@ dialog .cselect-list{z-index:1000}
 @media (max-width:700px){.task-queue{grid-template-columns:1fr}.task-hist{grid-template-columns:1fr 1fr}}
 .row .ok,.stat .ok{color:#86efac}
 .subhead-row input{width:min(260px,100%)}.subhead-row input:focus{border-color:var(--line2);outline:none}
+/* Schnell-Prüfmodus */
+.quick{width:min(1200px,calc(100% - 24px));height:min(760px,calc(100vh - 32px));padding:0;border:1px solid var(--line2);border-radius:var(--radius);background:var(--surface);color:var(--text);box-shadow:0 20px 60px #000a}
+.quick::backdrop{background:#000c}
+.quick-wrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;height:100%}
+.quick-shot{position:relative;background:#0b0b0d;display:grid;place-items:center;overflow:hidden}
+.quick-shot img{max-width:100%;max-height:100%;object-fit:contain}
+.quick-shot span{position:absolute;color:var(--faint);font-size:13px}
+.quick-side{display:flex;flex-direction:column;gap:8px;padding:18px;border-left:1px solid var(--line);overflow-y:auto}
+.quick-top{display:flex;justify-content:space-between;align-items:center}
+.quick-side h2{font-size:18px}
+.quick-reward{font-size:22px;font-weight:700;color:#86efac;font-variant-numeric:tabular-nums}
+.quick-actions{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.quick-actions .action{padding:10px 12px;font-size:13px;display:flex;justify-content:space-between;align-items:center}
+kbd{font:11px var(--font);padding:1px 6px;border-radius:4px;border:1px solid var(--line2);color:var(--muted);background:var(--surface2)}
+.quick-panel{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.quick-panel input{background:var(--surface2);border:1px solid var(--line2);color:var(--text);border-radius:var(--radius-sm);padding:8px 10px;width:100%;font:inherit;margin-top:4px}
+.quick-panel label{font-size:12px;color:var(--muted)}
+.quick-reason-list{display:flex;flex-direction:column;gap:4px}
+.reason-chip{display:flex;gap:8px;align-items:center;text-align:left;border:1px solid var(--line2);background:transparent;color:var(--text);border-radius:var(--radius-sm);padding:7px 10px;font-size:12px;cursor:pointer}
+.reason-chip:hover{background:var(--hover)}
+.chip-row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px}.chip-row .reason-chip{padding:5px 9px}
+@media (max-width:800px){.quick{height:calc(100vh - 16px)}.quick-wrap{grid-template-columns:1fr;grid-template-rows:45% 1fr}.quick-side{border-left:0;border-top:1px solid var(--line)}}
+.quick:focus{outline:none}

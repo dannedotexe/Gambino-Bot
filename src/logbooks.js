@@ -1,5 +1,7 @@
-import { ChannelType } from "discord.js";
-import { audit, getSetting } from "./database.js";
+import { ChannelType, EmbedBuilder } from "discord.js";
+import { audit, getSetting, setSetting } from "./database.js";
+import { BRAND_COLOR } from "./presentation.js";
+import { createAbsenceService, localDay } from "./services/absences.js";
 
 /**
  * Logbücher: Bekommt jemand die Familienmitglieder-Rolle, legt der Bot im Logbücher-Forum einen Post
@@ -158,4 +160,59 @@ export async function fixLogbookMentions({ db, client, guildId }) {
     if (ok) fixed++;
   }
   return fixed;
+}
+
+/** Familie verlassen (Rolle weg oder Server verlassen): Logbuch schließen und sperren – nichts wird gelöscht. */
+export async function archiveLogbook({ db, client, guildId, userId, reason = "Familie verlassen" }) {
+  const row = db.prepare("SELECT * FROM logbooks WHERE guild_id=? AND user_id=? AND thread_id IS NOT NULL").get(guildId, userId);
+  if (!row || row.archived_at) return false;
+  const thread = await client.channels.fetch(row.thread_id).catch(() => null);
+  if (!thread?.setArchived) return false;
+  await thread.setLocked?.(true, reason).catch(() => {});
+  const ok = await thread.setArchived(true, reason).then(() => true).catch(() => false);
+  if (ok) { db.prepare("UPDATE logbooks SET archived_at=? WHERE guild_id=? AND user_id=?").run(new Date().toISOString(), guildId, userId); audit(db, guildId, client.user?.id ?? "system", "logbook.archived", userId, { threadId: row.thread_id, reason }); }
+  return ok;
+}
+
+/** Zurück in der Familie: archiviertes Logbuch wieder öffnen. */
+export async function reopenLogbook({ db, client, guildId, userId }) {
+  const row = db.prepare("SELECT * FROM logbooks WHERE guild_id=? AND user_id=? AND thread_id IS NOT NULL AND archived_at IS NOT NULL").get(guildId, userId);
+  if (!row) return false;
+  const thread = await client.channels.fetch(row.thread_id).catch(() => null);
+  if (!thread?.setArchived) return false;
+  const ok = await thread.setArchived(false, "Wieder in der Familie").then(() => true).catch(() => false);
+  if (ok) { await thread.setLocked?.(false, "Wieder in der Familie").catch(() => {}); db.prepare("UPDATE logbooks SET archived_at=NULL WHERE guild_id=? AND user_id=?").run(guildId, userId); audit(db, guildId, client.user?.id ?? "system", "logbook.reopened", userId, { threadId: row.thread_id }); }
+  return ok;
+}
+
+/**
+ * Tägliche Erinnerung: Wer seit LOGBOOK_REMIND_DAYS Tagen nichts geloggt hat, bekommt einmal eine DM mit Link
+ * zum eigenen Logbuch. Abgemeldete und Archivierte nicht; nach dem nächsten Log beginnt die Zählung neu.
+ */
+export async function remindInactiveLogbooks({ db, client, config, reference = new Date() }) {
+  const guildId = config.DISCORD_GUILD_ID, days = config.LOGBOOK_REMIND_DAYS;
+  if (!guildId || !days || !config.CHANNEL_TASK_FORUM) return 0;
+  const today = localDay(reference, config.TIMEZONE);
+  if (getSetting(db, guildId, "LOGBOOK_REMIND_DAY") === today) return 0;
+  setSetting(db, guildId, "LOGBOOK_REMIND_DAY", today);
+  const guild = client.guilds.cache.get(guildId) ?? await client.guilds.fetch(guildId).catch(() => null);
+  if (!guild) return 0;
+  const members = await guild.members.fetch().catch(() => guild.members.cache);
+  const absent = createAbsenceService(db).absentUserIds(guildId, today);
+  const cutoff = reference.getTime() - days * 86_400_000;
+  let sent = 0;
+  for (const row of db.prepare("SELECT * FROM logbooks WHERE guild_id=? AND thread_id IS NOT NULL AND archived_at IS NULL").all(guildId)) {
+    const member = members.get(row.user_id);
+    if (!member || member.user?.bot || !familyOf(config, member.roles.cache) || absent.has(row.user_id)) continue;
+    const last = db.prepare("SELECT MAX(created_at) t FROM task_logs WHERE guild_id=? AND user_id=?").get(guildId, row.user_id).t;
+    const baseline = last ?? row.created_at;
+    if (new Date(baseline).getTime() > cutoff || (row.reminded_at && row.reminded_at > baseline)) continue;
+    db.prepare("UPDATE logbooks SET reminded_at=? WHERE guild_id=? AND user_id=?").run(reference.toISOString(), guildId, row.user_id);
+    const embed = new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  LOGBUCH" }).setTitle("📸 Lange nichts geloggt")
+      .setDescription(`${last ? `Dein letztes Log ist **${Math.floor((reference.getTime() - new Date(last).getTime()) / 86_400_000)} Tage** her.` : "Du hast noch kein Log eingereicht."}\n\nErledigte Aufgaben (Invite, Solar …) einfach als Screenshot in dein Logbuch posten – die Belohnung kommt nach der Prüfung automatisch aufs Familienkonto.\n\n➡️ [Zu deinem Logbuch](https://discord.com/channels/${guildId}/${row.thread_id})`)
+      .setFooter({ text: "GAMBINOS  •  Automatische Erinnerung" }).setTimestamp(reference);
+    if (await member.send({ embeds: [embed] }).then(() => true).catch(() => false)) sent++;
+  }
+  if (sent) audit(db, guildId, client.user?.id ?? "system", "logbook.reminded", null, { sent, days });
+  return sent;
 }

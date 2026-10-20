@@ -17,6 +17,7 @@ import { sendWeeklyReport } from "./weekly-report.js";
 import { runDailySnapshot } from "./role-snapshots.js";
 import { refreshPayoutList } from "./payout-list.js";
 import { refreshTaskBoard } from "./task-logs.js";
+import { remindInactiveLogbooks } from "./logbooks.js";
 import { requestAttendance, requestDueAttendance } from "./attendance.js";
 import { PANEL_SETTING_KEY, STATS_SETTING_KEY, buildPanelPayload, statsEmbed } from "./staff-panel.js";
 
@@ -92,6 +93,8 @@ export function startScheduler({db,client,config,series=null}) {
         await refreshPayoutList({db,client,config}).catch(error=>console.warn("Auszahlungsliste konnte nicht aktualisiert werden:",error.message));
         await refreshTaskBoard({db,client,config}).catch(error=>console.warn("Aufgaben-Board konnte nicht aktualisiert werden:",error.message));
         await runDailySnapshot({db,client,config,reference:now}).catch(error=>console.warn("Rollen-Sicherung fehlgeschlagen:",error.message));
+        // Logbuch-Erinnerungen einmal täglich am Abend (ab 18 Uhr Server-Zeit), wenn die meisten online sind.
+        if(Number(new Intl.DateTimeFormat("en-GB",{hour:"numeric",hourCycle:"h23",timeZone:config.TIMEZONE}).format(now))>=18)await remindInactiveLogbooks({db,client,config,reference:now}).catch(error=>console.warn("Logbuch-Erinnerungen fehlgeschlagen:",error.message));
       }
       client.gambinoSchedulerTick=Date.now();
       await deliverAuditLogs(db,client,config,now);

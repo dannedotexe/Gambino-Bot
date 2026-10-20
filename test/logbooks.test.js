@@ -79,3 +79,33 @@ test("Bestehende Bot-Posts: Markierung wird aus dem Zitat nach unten verschoben"
   assert.equal(await fixLogbookMentions({ db, client, guildId: G }), 1);
   assert.equal(edits[0].content, `> Wichtig\n\n<@${U}>`);
 });
+
+test("Archivieren beim Verlassen, wieder öffnen bei Rückkehr", async () => {
+  const { archiveLogbook, reopenLogbook } = await import("../src/logbooks.js");
+  const db = testDb(), calls = [];
+  db.prepare("INSERT INTO logbooks(guild_id,user_id,thread_id,title,source,created_at) VALUES(?,?,?,?,'created','x')").run(G, U, "t1", "Tony");
+  const thread = { setLocked: async v => calls.push(`lock:${v}`), setArchived: async v => calls.push(`archive:${v}`) };
+  const client = { user: { id: "bot" }, channels: { fetch: async () => thread } };
+  assert.equal(await archiveLogbook({ db, client, guildId: G, userId: U }), true);
+  assert.equal(await archiveLogbook({ db, client, guildId: G, userId: U }), false, "nur einmal");
+  assert.ok(db.prepare("SELECT archived_at FROM logbooks").get().archived_at);
+  assert.equal(await reopenLogbook({ db, client, guildId: G, userId: U }), true);
+  assert.deepEqual(calls, ["lock:true", "archive:true", "archive:false", "lock:false"]);
+  assert.equal(db.prepare("SELECT archived_at FROM logbooks").get().archived_at, null);
+});
+
+test("Erinnerung: einmal nach X Tagen ohne Log, nicht bei Abgemeldeten, neu nach dem nächsten Log", async () => {
+  const { remindInactiveLogbooks } = await import("../src/logbooks.js");
+  const db = testDb(), FAM = "20000000000000005", B = "30000000000000002", dms = [];
+  const mk = id => ({ id, user: { bot: false }, roles: { cache: new Map([[FAM, true]]) }, send: async p => dms.push([id, p]) });
+  const members = new Map([[U, mk(U)], [B, mk(B)]]);
+  const guild = { id: G, members: { fetch: async () => members, cache: members } };
+  const client = { user: { id: "bot" }, guilds: { cache: new Map([[G, guild]]) } };
+  const config = { DISCORD_GUILD_ID: G, CHANNEL_TASK_FORUM: FORUM, ROLE_MEMBERS: [FAM], LOGBOOK_REMIND_DAYS: 7, TIMEZONE: "Europe/Vienna" };
+  for (const id of [U, B]) db.prepare("INSERT INTO logbooks(guild_id,user_id,thread_id,title,source,created_at) VALUES(?,?,?,?,'created',?)").run(G, id, `t${id}`, id, "2026-10-01T10:00:00.000Z");
+  db.prepare("INSERT INTO member_absences(id,guild_id,user_id,starts_on,ends_on,reason,created_by,created_at) VALUES('a1',?,?,?,?,?,?,?)").run(G, B, "2026-10-15", "2026-10-30", "Urlaub", B, "x");
+  assert.equal(await remindInactiveLogbooks({ db, client, config, reference: new Date("2026-10-20T18:00:00Z") }), 1);
+  assert.equal(dms[0][0], U, "Abgemeldete werden nicht erinnert");
+  assert.match(dms[0][1].embeds[0].data.description, new RegExp(`channels/${G}/t${U}`));
+  assert.equal(await remindInactiveLogbooks({ db, client, config, reference: new Date("2026-10-21T18:00:00Z") }), 0, "nicht jeden Tag erneut");
+});

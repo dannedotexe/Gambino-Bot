@@ -276,7 +276,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const board = { week: tasks.leaderboard(guildId, { since: week, limit: 15 }), month: tasks.leaderboard(guildId, { since: month, limit: 15 }), all: tasks.leaderboard(guildId, { limit: 15 }) };
       const strip = l => ({ id: l.id, user_id: l.user_id, type: `${l.type_emoji} ${l.type_name}`, type_id: l.type_id, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, note: l.note, status: l.status, duplicate_of: l.duplicate_of, reviewer_id: l.reviewer_id, reviewed_at: l.reviewed_at, reject_reason: l.reject_reason, created_at: l.created_at, hasProof: Boolean(l.message_id || l.proof_url) });
       const ids = [...pending, ...recent].flatMap(l => [l.user_id, l.reviewer_id]).concat(Object.values(board).flat().map(r => r.userId));
-      return withNames({ summary: tasks.summary(guildId), pending: pending.map(strip), recent: recent.map(strip), types: tasks.listTypes(guildId, { all: true }), board, me: member.id, owner: member.owner }, ids);
+      return withNames({ summary: tasks.summary(guildId), pending: pending.map(strip), recent: recent.map(strip), types: tasks.listTypes(guildId, { all: true }), board, me: member.id, owner: member.owner, rejectReasons: config.TASK_REJECT_REASONS ?? [] }, ids);
     }],
     [/^\/api\/logbooks$/, async member => {
       if (!can(member, "staff") && !can(member, "tasks")) throw new HttpError(403, "Dafür brauchst du eine Staff- oder Aufgaben-Prüfer-Rolle.");
@@ -307,6 +307,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const allowed = definition.group === "sanctionsView" ? can(member, "staff") || can(member, "financeView") || can(member, "moderation") : can(member, definition.group);
       if (!allowed) throw new HttpError(403, "Für diesen Export fehlt dir die Berechtigung.");
       const ids = new Set(db.prepare("SELECT user_id FROM accounts WHERE guild_id=? UNION SELECT user_id FROM sanctions WHERE guild_id=? UNION SELECT actor_id FROM sanctions WHERE guild_id=? UNION SELECT user_id FROM transactions WHERE guild_id=? UNION SELECT actor_id FROM transactions WHERE guild_id=? UNION SELECT user_id FROM member_warnings WHERE guild_id=? UNION SELECT actor_id FROM member_warnings WHERE guild_id=? UNION SELECT user_id FROM member_absences WHERE guild_id=? UNION SELECT created_by FROM member_absences WHERE guild_id=?").all(...Array(9).fill(guildId)).map(r => r.user_id));
+      if (kind === "tasks" || kind === "taskmonths") for (const r of db.prepare("SELECT user_id FROM task_logs WHERE guild_id=? UNION SELECT reviewer_id FROM task_logs WHERE guild_id=? AND reviewer_id IS NOT NULL").all(guildId, guildId)) ids.add(r.user_id);
       if (kind === "events") for (const r of db.prepare("SELECT DISTINCT p.user_id FROM event_participants p JOIN events e ON e.id=p.event_id WHERE e.guild_id=?").all(guildId)) ids.add(r.user_id);
       const names = await resolveNames([...ids]);
       const content = buildExportFile(kind, { db, guildId, timezone: config.TIMEZONE, finance, name: id => (id && names[id]) || (id ? `…${String(id).slice(-5)}` : "") });

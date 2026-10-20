@@ -106,7 +106,7 @@
       </section>
 
       <section id="tab-tasks" class="tab-panel hidden">
-        <div class="section-intro"><div><div class="eyebrow">FAMILIE · AUFGABEN-LOGS</div><h2>Aufgaben prüfen</h2><p>Mitglieder posten den Screenshot einfach in ihr Logbuch im Forum und wählen im Menü die Aufgabe (alternativ <b>/log</b>). Bestätigen bucht die Belohnung sofort aufs Familienkonto – genau einmal. Tipp: Screenshot anklicken zum Vergrößern.</p></div><div class="section-tools"><button class="primary-btn needs-tasktypes" data-action="tasktype-create">+ Aufgabe</button></div></div>
+        <div class="section-intro"><div><div class="eyebrow">FAMILIE · AUFGABEN-LOGS</div><h2>Aufgaben prüfen</h2><p>Mitglieder posten den Screenshot einfach in ihr Logbuch im Forum und wählen im Menü die Aufgabe (alternativ <b>/log</b>). Bestätigen bucht die Belohnung sofort aufs Familienkonto – genau einmal. Tipp: Screenshot anklicken zum Vergrößern.</p></div><div class="section-tools"><button class="primary-btn" data-action="task-quick">⚡ Schnell prüfen</button><a class="action" href="/api/export/taskmonths.xlsx" download title="Pro Monat und Mitglied: Logs, Stück, Belohnung">Excel: Monatsabrechnung</a><a class="action" href="/api/export/tasks.xlsx" download>Excel: Alle Logs</a><button class="secondary needs-tasktypes" data-action="tasktype-create">+ Aufgabe</button></div></div>
         <div id="tasks-stats" class="stats"></div>
         <h3 class="subhead">Wartet auf Prüfung</h3>
         <div id="tasks-pending" class="task-queue"></div>
@@ -171,6 +171,13 @@
       <footer>Alle Aktionen werden protokolliert <span>·</span> Version <b id="app-version">–</b></footer>
     </main>
   </div>
+  <dialog id="quick" class="quick" aria-label="Schnell prüfen" tabindex="-1"><div class="quick-wrap"><div class="quick-shot"><img id="quick-img" alt="Screenshot"><span id="quick-loading">Screenshot lädt …</span></div>
+    <aside class="quick-side"><div class="quick-top"><span id="quick-count" class="badge"></span><button type="button" class="link-btn" data-action="quick-close">Schließen <kbd>Esc</kbd></button></div>
+      <h2 id="quick-title"></h2><div id="quick-reward" class="quick-reward"></div><div id="quick-meta" class="manage-meta"></div><div id="quick-note" class="desc"></div><div id="quick-flag" class="task-flag" hidden>⚠️ Gleicher Screenshot wie ein früheres Log – bitte genau prüfen.</div>
+      <div id="quick-main" class="quick-actions"><button type="button" class="action approve" data-action="quick-approve">✓ Bestätigen <kbd>J</kbd></button><button type="button" class="action" id="quick-qty-btn" data-action="quick-qty">Menge ändern <kbd>M</kbd></button><button type="button" class="action reject" data-action="quick-reject">Ablehnen <kbd>N</kbd></button><button type="button" class="action" data-action="quick-skip">Überspringen <kbd>→</kbd></button></div>
+      <div id="quick-qty" class="quick-panel" hidden><label>Richtige Anzahl<input id="quick-qty-input" type="number" min="1" max="999"></label><div class="quick-actions"><button type="button" class="action approve" data-action="quick-qty-save">Bestätigen <kbd>Enter</kbd></button><button type="button" class="action" data-action="quick-back">Zurück <kbd>Esc</kbd></button></div></div>
+      <div id="quick-reasons" class="quick-panel" hidden><div class="sub-label">Grund (Zahl drücken)</div><div id="quick-reason-list" class="quick-reason-list"></div><label>Eigener Grund<input id="quick-reason-input" maxlength="300" placeholder="z. B. Uhrzeit fehlt"></label><div class="quick-actions"><button type="button" class="action reject" data-action="quick-reject-save">Ablehnen <kbd>Enter</kbd></button><button type="button" class="action" data-action="quick-back">Zurück <kbd>Esc</kbd></button></div></div>
+      <p id="quick-error" class="form-error" role="alert"></p></aside></div></dialog>
   <dialog id="dialog" class="dialog"><form id="dialog-form" method="dialog" novalidate><div id="dialog-eyebrow" class="eyebrow"></div><h2 id="dialog-title"></h2><div id="dialog-intro" class="dialog-intro"></div><div id="dialog-fields" class="event-form"></div><p id="dialog-error" class="form-error" role="alert"></p><div class="dialog-actions"><button value="cancel" class="secondary" id="dialog-cancel">Abbrechen</button><button id="dialog-submit" value="ok" class="primary-btn">OK</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>

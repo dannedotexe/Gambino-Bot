@@ -90,6 +90,78 @@ function taskTypeForm(type = null) {
     submit: "Speichern", onSubmit: v => post("/api/task-types", { ...v, id: type?.id ?? null }) });
 }
 
+// ------------------------------------------------------------------ Schnell-Prüfmodus (J = bestätigen, N = ablehnen, M = Menge, → = überspringen)
+const quick = { list: [], index: 0, panel: null, busy: false };
+function quickOpen() {
+  const { pending, me, owner } = taskState.data ?? {};
+  quick.list = (pending ?? []).filter(l => owner || l.user_id !== me); quick.index = 0;
+  if (!quick.list.length) return notify("Gerade wartet kein Log, das du prüfen darfst.");
+  $("quick").showModal(); $("quick").focus(); quickShow();
+}
+function quickPanel(name) {
+  quick.panel = name;
+  $("quick-main").hidden = Boolean(name); $("quick-qty").hidden = name !== "qty"; $("quick-reasons").hidden = name !== "reasons";
+  if (name === "qty") { $("quick-qty-input").value = quick.list[quick.index].quantity; $("quick-qty-input").select(); }
+  if (name === "reasons") { $("quick-reason-input").value = ""; }
+}
+async function quickShow() {
+  const l = quick.list[quick.index];
+  if (!l) { $("quick").close(); notify("Alles geprüft 🎉"); return refresh(); }
+  quickPanel(null); $("quick-error").textContent = "";
+  $("quick-count").textContent = `${quick.index + 1} von ${quick.list.length}`;
+  $("quick-title").textContent = taskTitle(l);
+  $("quick-reward").textContent = l.reward_cents ? `+${money(l.reward_cents)}` : "ohne Geld";
+  $("quick-meta").innerHTML = `${who(l.user_id)} · ${date(l.created_at)}`;
+  $("quick-note").textContent = l.note ? `„${l.note}“` : "";
+  $("quick-flag").hidden = !l.duplicate_of;
+  $("quick-qty-btn").hidden = !l.perUnit;
+  $("quick-reason-list").innerHTML = (taskState.data.rejectReasons ?? []).slice(0, 9).map((r, n) => `<button type="button" class="reason-chip" data-action="quick-reason" data-reason="${escapeHtml(r)}"><kbd>${n + 1}</kbd>${escapeHtml(r)}</button>`).join("");
+  const img = $("quick-img"); img.removeAttribute("src"); $("quick-loading").textContent = l.hasProof ? "Screenshot lädt …" : "Kein Screenshot";
+  if (!l.hasProof) return;
+  try {
+    const url = taskState.proofs.get(l.id) ?? (await api(`/api/tasks/${l.id}/proof`)).url;
+    taskState.proofs.set(l.id, url);
+    if (quick.list[quick.index] !== l) return;
+    img.src = url; img.onload = () => { $("quick-loading").textContent = ""; };
+  } catch (error) { $("quick-loading").textContent = error.message; }
+  // Nächsten Screenshot schon vorladen.
+  const next = quick.list[quick.index + 1];
+  if (next?.hasProof && !taskState.proofs.has(next.id)) api(`/api/tasks/${next.id}/proof`).then(r => { taskState.proofs.set(next.id, r.url); new Image().src = r.url; }).catch(() => {});
+}
+function quickNext(step) { quick.index = Math.min(quick.list.length, Math.max(0, quick.index + step)); quickShow(); }
+async function quickDecide(action, body) {
+  const l = quick.list[quick.index];
+  if (!l || quick.busy) return;
+  if (action === "reject" && String(body.reason ?? "").trim().length < 3) { $("quick-error").textContent = "Bitte einen Grund wählen oder eingeben."; return; }
+  quick.busy = true;
+  try {
+    const result = await post(`/api/tasks/${l.id}/${action}`, body);
+    notify(result.message);
+    quick.list.splice(quick.index, 1); taskState.data.pending = taskState.data.pending.filter(x => x.id !== l.id);
+    quickShow();
+  } catch (error) { $("quick-error").textContent = error.message; }
+  finally { quick.busy = false; }
+}
+$("quick").addEventListener("close", () => { if (state.tab === "tasks") refresh(); });
+$("quick").addEventListener("keydown", event => {
+  const typing = event.target.matches?.("input,textarea");
+  if (event.key === "Escape") { if (quick.panel) { event.preventDefault(); quickPanel(null); } return; }
+  if (quick.panel === "qty" && event.key === "Enter") { event.preventDefault(); return quickDecide("approve", { quantity: $("quick-qty-input").value }); }
+  if (quick.panel === "reasons") {
+    if (event.key === "Enter") { event.preventDefault(); return quickDecide("reject", { reason: $("quick-reason-input").value }); }
+    const n = Number(event.key);
+    if (!typing && n >= 1 && n <= 9 && taskState.data.rejectReasons?.[n - 1]) { event.preventDefault(); return quickDecide("reject", { reason: taskState.data.rejectReasons[n - 1] }); }
+    return;
+  }
+  if (typing || quick.panel) return;
+  const key = event.key.toLowerCase();
+  if (key === "j") { event.preventDefault(); quickDecide("approve", {}); }
+  else if (key === "n") { event.preventDefault(); quickPanel("reasons"); setTimeout(() => $("quick-reason-input").blur(), 0); }
+  else if (key === "m" && quick.list[quick.index]?.perUnit) { event.preventDefault(); quickPanel("qty"); }
+  else if (event.key === "ArrowRight") { event.preventDefault(); quickNext(1); }
+  else if (event.key === "ArrowLeft") { event.preventDefault(); quickNext(-1); }
+});
+
 /** Logbücher: zeigt, warum keine angelegt werden, und wer noch keins hat. */
 async function loadLogbooks() {
   const d = await api("/api/logbooks");
@@ -116,7 +188,8 @@ Object.assign(actions, {
   },
   "task-reject": ({ id }) => {
     const l = taskState.data.pending.find(x => x.id === id);
-    openForm({ eyebrow: "AUFGABEN-LOG", title: "Log ablehnen", intro: `<p>${escapeHtml(taskTitle(l))} von ${who(l.user_id)}. Der Grund geht per DM an das Mitglied.</p>`, danger: true,
+    const chips = (taskState.data.rejectReasons ?? []).map(r => `<button type="button" class="reason-chip" data-action="task-reason-chip" data-reason="${escapeHtml(r)}">${escapeHtml(r)}</button>`).join("");
+    openForm({ eyebrow: "AUFGABEN-LOG", title: "Log ablehnen", intro: `<p>${escapeHtml(taskTitle(l))} von ${who(l.user_id)}. Der Grund geht per DM an das Mitglied.</p>${chips ? `<div class="chip-row">${chips}</div>` : ""}`, danger: true,
       fields: [{ name: "reason", label: "Grund", type: "textarea", required: true, max: 300, placeholder: "z. B. Datum und Uhrzeit nicht sichtbar" }],
       submit: "Ablehnen", onSubmit: v => post(`/api/tasks/${id}/reject`, v) });
   },
@@ -128,6 +201,17 @@ Object.assign(actions, {
   },
   "logbook-check": () => loadLogbooks(),
   "logbook-create": () => confirmAction("Fehlende Logbücher anlegen?", "Für jedes Familienmitglied ohne Logbuch wird ein Post im Forum erstellt und die Person markiert. Gibt es schon einen Post mit ihrem Namen oder ihrer ID, wird er nur verknüpft.", "Anlegen", () => post("/api/logbooks/create-missing"), false),
+  "task-reason-chip": ({ reason }) => { const box = $("dialog-fields").querySelector("textarea"); if (box) { box.value = reason; box.focus(); } },
+  "task-quick": () => quickOpen(),
+  "quick-close": () => $("quick").close(),
+  "quick-approve": () => quickDecide("approve", {}),
+  "quick-skip": () => quickNext(1),
+  "quick-qty": () => quickPanel("qty"),
+  "quick-reject": () => quickPanel("reasons"),
+  "quick-back": () => quickPanel(null),
+  "quick-qty-save": () => quickDecide("approve", { quantity: $("quick-qty-input").value }),
+  "quick-reason": ({ reason }) => quickDecide("reject", { reason }),
+  "quick-reject-save": () => quickDecide("reject", { reason: $("quick-reason-input").value }),
   "tasktype-create": () => taskTypeForm(),
   "tasktype-edit": ({ id }) => taskTypeForm(taskState.data.types.find(t => t.id === id)),
 });

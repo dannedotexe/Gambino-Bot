@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { ensureLogbook, familyOf, fixLogbookMentions } from "./src/logbooks.js";
+import { archiveLogbook, ensureLogbook, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
@@ -107,8 +107,20 @@ client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
   // Familie = Familienrolle oder eine Rang-Rolle. Unbekannter Vorher-Zustand zählt als „neu“; doppelte Posts verhindert ensureLogbook.
   const had=oldMember?.partial||!oldMember?.roles?.cache?null:familyOf(config,oldMember.roles.cache);
   if(had===true||!familyOf(config,member.roles.cache))return;
+  if(config.LOGBOOK_ARCHIVE)void reopenLogbook({db,client,guildId:member.guild.id,userId:member.id}).catch(()=>{});
   if(had===null&&db.prepare("SELECT 1 FROM logbooks WHERE guild_id=? AND user_id=?").get(member.guild.id,member.id))return;
   void ensureLogbook({db,client,config,member}).then(r=>{if(r.status==="created")console.log(`Logbuch angelegt: ${r.thread.name}`);else if(r.status==="skipped")setSetting(db,member.guild.id,"LOGBOOK_LAST_ERROR",JSON.stringify({at:new Date().toISOString(),message:r.reason}));}).catch(error=>{console.warn("Logbuch konnte nicht angelegt werden:",error.message);setSetting(db,member.guild.id,"LOGBOOK_LAST_ERROR",JSON.stringify({at:new Date().toISOString(),message:error.message}));});
+});
+// Familie verlassen: Logbuch archivieren und sperren (Rolle weg oder Server verlassen).
+client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
+  if(!config.LOGBOOK_ARCHIVE||member.user?.bot||oldMember?.partial||!oldMember?.roles?.cache)return;
+  if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+  if(familyOf(config,oldMember.roles.cache)&&!familyOf(config,member.roles.cache))void archiveLogbook({db,client,guildId:member.guild.id,userId:member.id,reason:"Familienrolle entfernt"}).catch(()=>{});
+});
+client.on(Events.GuildMemberRemove,member=>{
+  if(!config.LOGBOOK_ARCHIVE||member.user?.bot)return;
+  if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+  void archiveLogbook({db,client,guildId:member.guild.id,userId:member.id,reason:"Server verlassen"}).catch(()=>{});
 });
 // Familienrolle verloren oder Server verlassen: Löschanfrage für das Familienkonto (Bestätigung über die Website).
 const closures=createAccountClosureService(db,finance);
