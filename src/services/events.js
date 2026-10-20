@@ -9,7 +9,7 @@ export function createEventService(db) {
     db.prepare(`SELECT user_id,status FROM event_participants WHERE event_id=? AND status IN ${ACTIVE_PARTICIPATION} ORDER BY updated_at,user_id`).all(eventId);
 
   const join = db.transaction(({ guildId, eventId, userId }) => {
-    const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled'").get(eventId, guildId);
+    const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled' AND signup_closed_at IS NULL").get(eventId, guildId);
     if (!event) return { status: "closed" };
     const current = db.prepare("SELECT status FROM event_participants WHERE event_id=? AND user_id=?").get(eventId, userId);
     if (current && ["signed_up", "present"].includes(current.status)) return { status: "already", event };

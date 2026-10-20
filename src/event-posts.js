@@ -11,7 +11,7 @@ import { numberedMentions } from "./presentation.js";
  * Texte sind über die Website anpassbar (Panel-Texte → Events).
  */
 const unix = iso => Math.floor(new Date(iso).getTime() / 1000);
-const STATE = { ended: { prefix: "🏁 Beendet · ", color: 0x7f8c8d }, cancelled: { prefix: "❌ Abgesagt · ", color: 0xe74c3c } };
+const STATE = { running: { prefix: "🔴 Läuft · ", color: 0xe67e22 }, ended: { prefix: "🏁 Beendet · ", color: 0x7f8c8d }, cancelled: { prefix: "❌ Abgesagt · ", color: 0xe74c3c } };
 
 /** Platzhalter in Texten: {name} {zeit} {uhrzeit} {relativ} {treffpunkt} {anmeldung}. */
 export function fillTemplate(template, event, { link = "", reference = new Date() } = {}) {
@@ -108,6 +108,8 @@ export async function deleteEventPosts({ client, posted }) {
  * Aktivitäten werden die Posts auf Wunsch gelöscht (EVENT_SERIES_DELETE_ENDED); Daten bleiben in der Datenbank.
  */
 export async function refreshEventPosts({ db, client, config, event, state = event.status, cardOnly = false }) {
+  // Nach Beginn ist die Anmeldung zu: Karte zeigt „Läuft“ ohne Anmelde-Buttons.
+  if (state === "scheduled" && event.signup_closed_at) state = "running";
   const texts = panelTexts(db, config.DISCORD_GUILD_ID, "events");
   const card = await fetchMessage(client, event.channel_id, event.message_id);
   const announcement = cardOnly ? null : await fetchMessage(client, event.announce_channel_id, event.announce_message_id);
@@ -125,6 +127,20 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
 }
 
 /** Erinnerung als Antwort auf die Event-Karte; erwähnt nur Angemeldete. */
+/**
+ * Event hat begonnen: Anmeldung schließen. Aktivitäten und Staatliche Kontrollen verlieren ihre Karte (die Anwesenheit
+ * läuft über den Event-Check), manuelle Events zeigen „Läuft“. So steht im Anmelde-Channel immer nur das nächste Event.
+ */
+export async function closeStartedSignups({ db, client, config, reference = new Date() }) {
+  // Staatliche Kontrollen starten oft „jetzt“ – dort bleibt die Anmeldung bis zum Ende offen.
+  const rows = db.prepare("SELECT * FROM events WHERE guild_id=? AND status='scheduled' AND signup_closed_at IS NULL AND starts_at<=? AND NOT (location='Staatliche Kontrolle' AND series_id IS NULL) LIMIT 25").all(config.DISCORD_GUILD_ID, reference.toISOString());
+  for (const row of rows) {
+    if (!db.prepare("UPDATE events SET signup_closed_at=? WHERE id=? AND signup_closed_at IS NULL").run(reference.toISOString(), row.id).changes) continue;
+    await refreshEventPosts({ db, client, config, event: { ...row, signup_closed_at: reference.toISOString() }, state: "running" }).catch(() => {});
+  }
+  return rows.length;
+}
+
 export async function sendEventReminder({ db, client, config, event }) {
   const texts = panelTexts(db, config.DISCORD_GUILD_ID, "events");
   const all = participantsOf(db, event.id).slice(0, 50).map(p => p.user_id);

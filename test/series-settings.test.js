@@ -132,3 +132,28 @@ test("nächste Aktivität wird erst angekündigt, wenn die vorherige begonnen ha
   await createSeriesEvents({ db, client, config, series, reference: new Date("2026-10-13T15:36:00Z") }); // 17:36, Cayo läuft
   assert.deepEqual(names(), ["Cayo", "Bizwar"]);
 });
+
+test("Nur eine offene Anmeldung: nächste Aktivität erst, wenn die frühere begonnen hat; danach Karte weg", async () => {
+  const { testDb } = await import("./helpers.js");
+  const { createSeriesService } = await import("../src/services/event-series.js");
+  const { createSeriesEvents } = await import("../src/activity-board.js");
+  const { closeStartedSignups } = await import("../src/event-posts.js");
+  const { loadConfig } = await import("../src/config.js");
+  const { createEventService } = await import("../src/services/events.js");
+  const G = "10000000000000001", db = testDb(), series = createSeriesService(db), sent = [], deleted = [];
+  db.prepare("INSERT INTO event_series(id,guild_id,name,kind,weekdays,times,active,created_by,created_at,updated_at,lead_minutes) VALUES('a',?,'Rangfolge','scheduled','1,2,3,4,5,6,7','20:20',1,'x','x','x',120),('b',?,'Cayo','scheduled','1,2,3,4,5,6,7','20:50',1,'x','x','x',120)").run(G, G);
+  const message = id => ({ id, delete: async () => { deleted.push(id); }, edit: async () => {} });
+  const channel = { id: "60000000000000001", guildId: G, send: async () => { sent.push(1); return { id: `m${sent.length}`, channelId: "60000000000000001" }; }, messages: { fetch: async id => message(id) } };
+  const client = { user: { id: "bot" }, channels: { fetch: async () => channel } };
+  const config = { ...loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: G, TIMEZONE: "Europe/Vienna" }), CHANNEL_EVENT_SIGNUP: "60000000000000001" };
+  const at = iso => new Date(iso);
+  await createSeriesEvents({ db, client, config, series, reference: at("2026-10-20T17:00:00Z") }); // 19:00 Wien
+  assert.deepEqual(db.prepare("SELECT name FROM events ORDER BY starts_at").all().map(r => r.name), ["Rangfolge"], "Cayo wartet");
+  await createSeriesEvents({ db, client, config, series, reference: at("2026-10-20T18:15:00Z") }); // 20:15, Rangfolge noch nicht begonnen
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM events").get().n, 1, "auch kurz davor kein zweites");
+  await closeStartedSignups({ db, client, config, reference: at("2026-10-20T18:21:00Z") });
+  assert.ok(deleted.includes("m1"), "Karte der begonnenen Aktivität gelöscht");
+  assert.equal(createEventService(db).join({ guildId: G, eventId: db.prepare("SELECT id FROM events").get().id, userId: "u" }).status, "closed");
+  await createSeriesEvents({ db, client, config, series, reference: at("2026-10-20T18:21:00Z") });
+  assert.deepEqual(db.prepare("SELECT name FROM events ORDER BY starts_at").all().map(r => r.name), ["Rangfolge", "Cayo"]);
+});
