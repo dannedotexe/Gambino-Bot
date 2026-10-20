@@ -60,6 +60,7 @@ const schema = z.object({
   BOT_COMMANDS_CLEANUP: bool("true"),
   TASK_DM_ENABLED: bool("true"),
   LOGBOOK_AUTO_CREATE: bool("true"),
+  LOGBOOK_IMAGES_ONLY: bool("true"),
   ROLE_SNAPSHOT_KEEP: z.coerce.number().int().min(3).max(90).default(14),
   RANK_ROLES_JSON: jsonValue("[]").pipe(z.array(z.object({ label: z.string().min(1).max(80), roleId: z.string().regex(SNOWFLAKE) })).max(25)),
   EVENT_MIN_PARTICIPANTS: z.coerce.number().int().min(0).max(500).default(0),

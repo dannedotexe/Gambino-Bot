@@ -177,3 +177,19 @@ test("Logbuch: Screenshot posten → Menü → Menge → Prüf-Karte; Bestätige
   assert.deepEqual(reactions, ["✅"]);
   assert.match(promptEdits.at(-1).content, /bestätigt · \*\*\+\$30\.000,00\*\*/);
 });
+
+test("Logbuch: Text ohne Bild von Mitgliedern wird gelöscht, Team darf schreiben", async () => {
+  const { handleLogbookMessage } = await import("../src/task-logs.js");
+  const db = testDb(), FORUM = "60000000000000051", config = baseConfig({ CHANNEL_TASK_FORUM: FORUM });
+  const sent = [];
+  const make = roles => { const msg = { deleted: false, guildId: G, author: { id: U }, member: { roles: { cache: new Map(roles.map(r => [r, true])) } }, attachments: new Map(),
+    channel: { parentId: FORUM, name: "Tony | 1", isThread: () => true, send: async p => { sent.push(p); return { delete: async () => {} }; } }, delete: async () => { msg.deleted = true; } }; return msg; };
+  const member = make([]), reviewer = make([REV]);
+  await handleLogbookMessage({ db, config, message: member });
+  await handleLogbookMessage({ db, config, message: reviewer });
+  assert.equal(member.deleted, true); assert.equal(reviewer.deleted, false);
+  assert.match(sent[0].content, /nur Screenshots/);
+  const off = make([]);
+  await handleLogbookMessage({ db, config: { ...config, LOGBOOK_IMAGES_ONLY: false }, message: off });
+  assert.equal(off.deleted, false, "abschaltbar");
+});

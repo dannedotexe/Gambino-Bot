@@ -122,7 +122,19 @@ export function logbookPrompt(db, config, guildId, messageId) {
 /** Nachricht in einem Logbuch-Post: Bild → Auswahlmenü darunter. Gibt true zurück, wenn gefragt wurde. */
 export async function handleLogbookMessage({ db, config, message }) {
   if (!config.CHANNEL_TASK_FORUM || !message.channel?.isThread?.() || message.channel.parentId !== config.CHANNEL_TASK_FORUM) return false;
-  if (/^\W*vorlage/i.test(message.channel.name ?? "") || !imageOf(message)) return false;
+  if (/^\W*vorlage/i.test(message.channel.name ?? "")) return false;
+  if (!imageOf(message)) {
+    // Nur Bilder: Text von Mitgliedern wird gelöscht (Team darf schreiben), kurzer Hinweis verschwindet wieder.
+    const groups = accessGroups(config), roles = message.member?.roles?.cache;
+    const team = (config.BOT_OWNER_IDS ?? []).includes(message.author?.id) || [...groups.anyStaff, ...groups.tasks].some(id => roles?.has?.(id));
+    if (!config.LOGBOOK_IMAGES_ONLY || team) return false;
+    const deleted = await message.delete().then(() => true).catch(() => false);
+    if (deleted) {
+      const hint = await message.channel.send({ content: `<@${message.author.id}> In dein Logbuch bitte **nur Screenshots** posten – Text wird automatisch gelöscht. Fragen gerne per Ticket.`, allowedMentions: { users: [message.author.id] } }).catch(() => null);
+      if (hint) setTimeout(() => hint.delete().catch(() => {}), 8000).unref?.();
+    }
+    return false;
+  }
   const prompt = logbookPrompt(db, config, message.guildId, message.id);
   if (!prompt) return false;
   await message.reply(prompt);

@@ -32,7 +32,7 @@ export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_PAYOUT_LIST", label: "Auszahlungsliste", audience: "any", expect: ["auszahl", "liste", "konto"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
   { key: "CHANNEL_TASK_REVIEW", label: "Aufgaben-Logs prüfen", audience: "staff", expect: ["aufgabe", "log", "prüf", "task"], perms: ["SendMessages", "EmbedLinks", "AttachFiles"] },
   { key: "CHANNEL_TASK_BOARD", label: "Aufgaben-Board", audience: "public", expect: ["aufgabe", "task", "board", "log"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
-  { key: "CHANNEL_TASK_FORUM", label: "Logbücher (Forum)", type: "forum", audience: "any", expect: ["aufgabe", "log"], perms: ["SendMessages", "SendMessagesInThreads", "ReadMessageHistory"] },
+  { key: "CHANNEL_TASK_FORUM", label: "Logbücher (Forum)", type: "forum", audience: "any", expect: ["aufgabe", "log"], perms: ["SendMessages", "SendMessagesInThreads", "ReadMessageHistory", "AddReactions", "ManageMessages"] },
   { key: "CHANNEL_EVENT_CHECK", label: "Event-Check (Anwesenheit)", audience: "staff", expect: ["check", "anwesen", "event"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_EVENT_LOG", label: "Event-Log", audience: "any", expect: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_GIVEAWAYS", label: "Giveaways", audience: "public", expect: ["giveaway", "gewinn"], perms: ["SendMessages", "EmbedLinks"] },
@@ -43,7 +43,7 @@ export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_AUDIT_LOG", label: "Allgemeines Audit-Log", audience: "staff", expect: ["log", "audit", "protokoll"], avoid: ["sanktion", "ticket", "auszahl", "event"], perms: ["SendMessages", "EmbedLinks"], important: true },
   { key: "CHANNEL_AUTOMOD_LOG", label: "AutoMod-/Raid-Log", audience: "staff", expect: ["log", "mod", "raid", "sicher"], avoid: ["ticket", "auszahl", "event"], perms: ["SendMessages", "EmbedLinks"] },
 ];
-const PERMISSION_LABELS = { ViewChannel: "Kanal ansehen", SendMessages: "Nachrichten senden", EmbedLinks: "Links einbetten", AttachFiles: "Dateien anhängen", ReadMessageHistory: "Nachrichtenverlauf lesen", ManageChannels: "Kanäle verwalten", MentionEveryone: "Erwähnungen (für Teilnehmer-Pings)", ManageMessages: "Nachrichten verwalten", ModerateMembers: "Mitglieder moderieren (Timeout)", ManageRoles: "Rollen verwalten", ManageGuild: "Server verwalten", ManageNicknames: "Spitznamen verwalten" };
+const PERMISSION_LABELS = { AddReactions: "Reaktionen hinzufügen", SendMessagesInThreads: "Nachrichten in Beiträgen senden", ViewChannel: "Kanal ansehen", SendMessages: "Nachrichten senden", EmbedLinks: "Links einbetten", AttachFiles: "Dateien anhängen", ReadMessageHistory: "Nachrichtenverlauf lesen", ManageChannels: "Kanäle verwalten", MentionEveryone: "Erwähnungen (für Teilnehmer-Pings)", ManageMessages: "Nachrichten verwalten", ModerateMembers: "Mitglieder moderieren (Timeout)", ManageRoles: "Rollen verwalten", ManageGuild: "Server verwalten", ManageNicknames: "Spitznamen verwalten" };
 const plainName = name => String(name ?? "").toLocaleLowerCase("de-AT").replace(/^[^a-z0-9äöüß]+/i, "");
 const recommended = key => { const [category, channel] = CHANNEL_BINDINGS[key] ?? []; return category ? `${category}${channel ? `・${channel}` : ""}` : null; };
 

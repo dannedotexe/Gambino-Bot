@@ -99,7 +99,7 @@ export async function renameLogbook({ db, client, guildId, userId, title }) {
   return ok;
 }
 
-const FORUM_PERMS = [["ViewChannel", "Kanal ansehen"], ["SendMessages", "Beiträge erstellen"], ["SendMessagesInThreads", "Nachrichten in Beiträgen senden"], ["ReadMessageHistory", "Nachrichtenverlauf lesen"]];
+const FORUM_PERMS = [["ViewChannel", "Kanal ansehen"], ["SendMessages", "Beiträge erstellen"], ["SendMessagesInThreads", "Nachrichten in Beiträgen senden"], ["ReadMessageHistory", "Nachrichtenverlauf lesen"], ["AddReactions", "Reaktionen hinzufügen"], ["ManageMessages", "Nachrichten verwalten"]];
 export const familyOf = (config, roleIds) => [...new Set([...(config.ROLE_MEMBERS ?? []), ...(config.RANK_ROLES_JSON ?? []).map(r => r.roleId)])].some(id => roleIds.has(id));
 
 /** Warum (nicht) angelegt wird: Forum, Bot-Rechte, Automatik und wer noch kein Logbuch hat. */
