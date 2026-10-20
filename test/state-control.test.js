@@ -31,3 +31,20 @@ test("Staatliche Kontrolle wird als Event mit Anmeldung angekündigt; /staatlich
   await assert.rejects(announceControl({ db, client, config, actorId: "x", family: "D", when: "jetzt" }), ControlError);
   assert.ok(buildCommands().some(c => c.name === "staatliche"));
 });
+
+test("Staatliche Kontrolle endet nach Ablauf automatisch und ihre Posts werden gelöscht", async () => {
+  const { endSeriesEvents } = await import("../src/activity-board.js");
+  const db = testDb(), deleted = [];
+  const message = id => ({ id, delete: async () => { deleted.push(id); }, edit: async () => {} });
+  const channel = { id: "60000000000000001", guildId: "10000000000000001", send: async () => ({ id: "card", channelId: "60000000000000001" }), messages: { fetch: async id => message(id) } };
+  const client = { user: { id: "bot" }, channels: { fetch: async () => channel } };
+  const config = { ...loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: "10000000000000001" }), CHANNEL_EVENT_SIGNUP: "60000000000000001" };
+  const r = await announceControl({ db, client, config, actorId: "30000000000000001", family: "Ballas", when: "jetzt" });
+  const ended = [];
+  await endSeriesEvents({ db, client, config, reference: new Date(Date.now() + 30 * 60_000), onEnded: e => ended.push(e.id) });
+  assert.equal(db.prepare("SELECT status FROM events WHERE id=?").get(r.id).status, "scheduled", "vor Ablauf nicht beendet");
+  await endSeriesEvents({ db, client, config, reference: new Date(Date.now() + (config.EVENT_SERIES_AUTO_END_MINUTES + 1) * 60_000), onEnded: e => ended.push(e.id) });
+  assert.equal(db.prepare("SELECT status FROM events WHERE id=?").get(r.id).status, "ended");
+  assert.deepEqual(ended, [r.id], "Anwesenheits-Abfrage wird angestoßen");
+  assert.ok(deleted.includes("card"), "Event-Karte gelöscht");
+});

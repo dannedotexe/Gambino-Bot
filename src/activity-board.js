@@ -88,7 +88,8 @@ export async function createSeriesEvents({ db, client, config, series, reference
 /** Beendet automatisch erstellte Termine nach Ablauf der Dauer; Anwesenheit bleibt danach dokumentierbar. */
 export async function endSeriesEvents({ db, client, config, reference = new Date(), onEnded = null }) {
   const cutoff = new Date(reference.getTime() - config.EVENT_SERIES_AUTO_END_MINUTES * 60_000).toISOString();
-  const rows = db.prepare("SELECT * FROM events WHERE series_id IS NOT NULL AND status='scheduled' AND starts_at<=? LIMIT 50").all(cutoff);
+  // Auch Staatliche Kontrollen enden automatisch (sie haben keine feste Dauer und werden sonst nie geschlossen).
+  const rows = db.prepare("SELECT * FROM events WHERE (series_id IS NOT NULL OR location='Staatliche Kontrolle') AND status='scheduled' AND starts_at<=? LIMIT 50").all(cutoff);
   for (const row of rows) {
     const changed = db.transaction(() => {
       const updated = db.prepare("UPDATE events SET status='ended' WHERE id=? AND status='scheduled'").run(row.id).changes;

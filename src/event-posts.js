@@ -109,7 +109,8 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
   const texts = panelTexts(db, config.DISCORD_GUILD_ID, "events");
   const card = await fetchMessage(client, event.channel_id, event.message_id);
   const announcement = cardOnly ? null : await fetchMessage(client, event.announce_channel_id, event.announce_message_id);
-  if (event.series_id && state !== "scheduled" && config.EVENT_SERIES_DELETE_ENDED) {
+  // Automatische Aktivitäten und Staatliche Kontrollen: nach dem Ende Posts löschen (Daten bleiben gespeichert).
+  if ((event.series_id || event.location === "Staatliche Kontrolle") && state !== "scheduled" && config.EVENT_SERIES_DELETE_ENDED) {
     await card?.delete?.()?.catch?.(() => {}); await announcement?.delete?.()?.catch?.(() => {});
     return Boolean(card);
   }

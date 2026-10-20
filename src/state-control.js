@@ -7,6 +7,9 @@ import { deleteEventPosts, publishEvent } from "./event-posts.js";
  * Event angekündigt (Anmeldung, Erinnerung, Anwesenheit im Event-Check, Win/Lose).
  */
 export class ControlError extends Error {}
+export const CONTROL_LOCATION = "Staatliche Kontrolle";
+/** Staatliche Kontrollen erkennt man am festen Ort; sie werden wie Aktivitäten nach Ablauf beendet und ihre Posts gelöscht. */
+export const isControlEvent = event => event?.location === CONTROL_LOCATION && !event?.series_id;
 
 /** Wiener Uhrzeit (HH:MM) heute als Date; Eingaben: „jetzt“, „sofort“, „in 20“, „in 20 min“, „16:30“, „16.30“, „16“. */
 export function parseWhen(input, timezone, reference = new Date()) {
@@ -37,7 +40,7 @@ export async function announceControl({ db, client, config, actorId, family, whe
   const event = { id, guild_id: config.DISCORD_GUILD_ID,
     name: (attack ? `🚩 Staatliche Kontrolle – Angriff auf ${enemy}` : `🛡️ Staatliche Kontrolle – Verteidigung gegen ${enemy}`).slice(0, 100),
     description: attack ? `Wir greifen **${enemy}** an! Alle, die können, anmelden und in den Call kommen.` : `**${enemy}** greift uns an! Alle, die können, sofort anmelden und in den Call kommen.`,
-    starts_at: startsAt.toISOString(), location: "Staatliche Kontrolle", host_id: actorId, equipment: "", notes: "", max_participants: null, status: "scheduled" };
+    starts_at: startsAt.toISOString(), location: CONTROL_LOCATION, host_id: actorId, equipment: "", notes: "", max_participants: null, status: "scheduled" };
   const posted = await publishEvent({ db, client, config, event }).catch(error => { throw new ControlError(error.message); });
   try {
     db.transaction(() => {
