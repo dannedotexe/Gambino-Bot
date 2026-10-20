@@ -212,6 +212,13 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS task_logs_user ON task_logs(guild_id,user_id,created_at);
     `),
   },
+  {
+    version: 18,
+    name: "logbooks",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS logbooks (guild_id TEXT NOT NULL, user_id TEXT NOT NULL, thread_id TEXT, title TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'created', created_at TEXT NOT NULL, PRIMARY KEY(guild_id,user_id));
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

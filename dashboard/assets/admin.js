@@ -23,6 +23,7 @@ function control(def) {
     case "roles": return pickList(settingsState.roles, v, "roles");
     case "channels": return pickList(settingsState.channels, v, "channels");
     case "channel": return select(settingsState.channels, v ?? "");
+    case "forum": return select(settingsState.forums ?? [], v ?? "");
     case "category": return select(settingsState.categories, v ?? "", "— keine Kategorie —", "📁 ");
     case "number": return `<input class="setting-input" type="number" min="${def.min}" max="${def.max}" value="${escapeHtml(v ?? "")}">`;
     case "money": return `<input class="setting-input" inputmode="decimal" placeholder="leer = kein Mindestbetrag" value="${v == null ? "" : escapeHtml(String(v / 100).replace(".", ","))}">`;
@@ -66,7 +67,7 @@ function renderSettings() {
 
 loaders.settings = async () => {
   const [data, roles, channels, textData] = await Promise.all([api("/api/settings"), api("/api/roles"), api("/api/channels"), api("/api/texts").catch(() => ({ panels: [] }))]);
-  Object.assign(settingsState, { settings: data.settings, roles: roles.roles, channels: channels.channels, categories: channels.categories ?? [] });
+  Object.assign(settingsState, { settings: data.settings, roles: roles.roles, channels: channels.channels, categories: channels.categories ?? [], forums: channels.forums ?? [] });
   textsState.panels = textData.panels;
   renderSettings(); renderTexts();
 };

@@ -32,6 +32,7 @@ export const CHANNEL_FUNCTIONS = [
   { key: "CHANNEL_PAYOUT_LIST", label: "Auszahlungsliste", audience: "any", expect: ["auszahl", "liste", "konto"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
   { key: "CHANNEL_TASK_REVIEW", label: "Aufgaben-Logs prüfen", audience: "staff", expect: ["aufgabe", "log", "prüf", "task"], perms: ["SendMessages", "EmbedLinks", "AttachFiles"] },
   { key: "CHANNEL_TASK_BOARD", label: "Aufgaben-Board", audience: "public", expect: ["aufgabe", "task", "board", "log"], perms: ["SendMessages", "EmbedLinks", "ReadMessageHistory"] },
+  { key: "CHANNEL_TASK_FORUM", label: "Logbücher (Forum)", type: "forum", audience: "any", expect: ["aufgabe", "log"], perms: ["SendMessages", "SendMessagesInThreads", "ReadMessageHistory"] },
   { key: "CHANNEL_EVENT_CHECK", label: "Event-Check (Anwesenheit)", audience: "staff", expect: ["check", "anwesen", "event"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_EVENT_LOG", label: "Event-Log", audience: "any", expect: ["log"], perms: ["SendMessages", "EmbedLinks"] },
   { key: "CHANNEL_GIVEAWAYS", label: "Giveaways", audience: "public", expect: ["giveaway", "gewinn"], perms: ["SendMessages", "EmbedLinks"] },
@@ -67,7 +68,8 @@ export async function checkChannels({ guild, config }) {
     used.set(id, [...(used.get(id) ?? []), fn.label]);
     const isCategory = channel.type === ChannelType.GuildCategory;
     if (fn.type === "category" && !isCategory) add("error", "Hier muss eine Kategorie ausgewählt sein, kein Text-Channel.");
-    if (fn.type !== "category" && (isCategory || !channel.isTextBased?.())) add("error", "Hier muss ein Text-Channel ausgewählt sein.");
+    if (fn.type === "forum" && channel.type !== ChannelType.GuildForum) add("error", "Hier muss ein Forum-Channel ausgewählt sein.");
+    if (!["category", "forum"].includes(fn.type) && (isCategory || !channel.isTextBased?.())) add("error", "Hier muss ein Text-Channel ausgewählt sein.");
     const botPerms = channel.permissionsFor?.(me);
     const missing = ["ViewChannel", ...(isCategory ? [] : ["ReadMessageHistory"]), ...fn.perms].filter(flag => !botPerms?.has(P[flag]));
     if (missing.length) add(missing.includes("ViewChannel") || missing.includes("SendMessages") || missing.includes("ManageChannels") ? "error" : "warn", `Bot fehlt: ${missing.map(flag => PERMISSION_LABELS[flag] ?? flag).join(", ")}.`);

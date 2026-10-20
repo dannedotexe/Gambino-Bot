@@ -3,6 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
+import { ensureLogbook } from "./src/logbooks.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
 import { createSettingsService } from "./src/services/settings.js";
@@ -40,6 +41,8 @@ client.once(Events.ClientReady,ready=>{
   console.log(`Gambino Bot bereit als ${ready.user.tag} (Version ${currentVersion()}).`);
   startScheduler({db,client,config,series});
   void adoptLeadershipDefaults();
+  // Alle Mitglieder in den Cache laden, damit Rollenwechsel (z. B. neue Familienrolle) zuverlässig erkannt werden.
+  if(config.DISCORD_GUILD_ID)void ready.guilds.fetch(config.DISCORD_GUILD_ID).then(g=>g.members.fetch()).catch(error=>console.warn("Mitglieder konnten nicht geladen werden:",error.message));
   void migrateNicknameFormat({db,client,config}).then(r=>{if(r)console.log(`Namensformat umgestellt: ${r.renamed} umbenannt, ${r.skipped} übersprungen, ${r.failed} fehlgeschlagen.`);}).catch(error=>console.warn("Namensformat konnte nicht umgestellt werden:",error.message));
 });
 // Von der Leitung genannte IDs einmalig übernehmen, falls noch nichts eingestellt ist. Gesetzt wird nur, was
@@ -56,6 +59,8 @@ async function adoptLeadershipDefaults(){
   if(!getSetting(db,guild.id,"ADOPTED_ROLE_MEMBERS")&&!(config.ROLE_MEMBERS??[]).includes(ADOPT_HINTS.ROLE_MEMBERS)){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_MEMBERS).catch(()=>null);if(role&&adopt("ROLE_MEMBERS",[...(config.ROLE_MEMBERS??[]),role.id],`Familienmitglieder-Rolle (${role.name})`))setSetting(db,guild.id,"ADOPTED_ROLE_MEMBERS",new Date().toISOString());}
   if(!config.CHANNEL_BOT_COMMANDS&&!getSetting(db,guild.id,"ADOPTED_CHANNEL_BOT_COMMANDS")){const channel=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_BOT_COMMANDS).catch(()=>null);if(channel?.isTextBased?.()&&adopt("CHANNEL_BOT_COMMANDS",channel.id,`Befehls-Channel (#${channel.name})`))setSetting(db,guild.id,"ADOPTED_CHANNEL_BOT_COMMANDS",new Date().toISOString());}
   if(!config.CHANNEL_EVENT_CHECK){const channel=await guild.channels.fetch(ADOPT_HINTS.CHANNEL_EVENT_CHECK).catch(()=>null);if(channel?.isTextBased?.())adopt("CHANNEL_EVENT_CHECK",channel.id,`Event-Check-Channel (#${channel.name})`);}
+  // Logbücher-Forum („aufgaben-logs“) übernehmen, wenn es genau ein passendes Forum gibt.
+  if(!config.CHANNEL_TASK_FORUM&&!getSetting(db,guild.id,"ADOPTED_CHANNEL_TASK_FORUM")){const forums=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.type===15&&/aufgaben-?logs?/i.test(ch.name));if(forums.length===1&&adopt("CHANNEL_TASK_FORUM",forums[0].id,`Logbücher-Forum (#${forums[0].name})`))setSetting(db,guild.id,"ADOPTED_CHANNEL_TASK_FORUM",new Date().toISOString());}
   // Turf Leader dürfen Events (z. B. Staatliche Kontrolle) ankündigen: einmalig ins Event-Team übernehmen, bestehende Einträge bleiben.
   if(!getSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS")){const roles=[...(await guild.roles.fetch().catch(()=>new Map())).values()].filter(r=>/turf\s*leader/i.test(r.name)&&!r.managed);if(roles.length===1){const ids=[...new Set([...(config.ROLE_EVENT_TEAM??[]),roles[0].id])];if(ids.length===(config.ROLE_EVENT_TEAM??[]).length||adopt("ROLE_EVENT_TEAM",ids,`Event-Team ergänzt um ${roles[0].name}`))setSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS",new Date().toISOString());}}
   if(!config.ROLE_VERIFIED?.length){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_VERIFIED).catch(()=>null);if(role)adopt("ROLE_VERIFIED",[role.id],`Verifiziert-Rolle (${role.name})`);}
@@ -91,6 +96,14 @@ client.on(Events.GuildMemberUpdate,(_old,member)=>{
     if(!(config.ROLE_MEMBERS??[]).some(id=>member.roles.cache.has(id)))return;
     finance.openAccount({guildId:member.guild.id,userId:member.id,actorId:client.user?.id??"system",note:"Familienmitglieder-Rolle erhalten"});
   }catch(error){console.error("Familienkonto konnte nicht automatisch angelegt werden:",error.message);}
+});
+// Familienrolle neu erhalten: Logbuch im Forum anlegen (nur beim Wechsel von „ohne“ zu „mit“ Rolle).
+client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
+  if(!config.LOGBOOK_AUTO_CREATE||!config.CHANNEL_TASK_FORUM||member.user?.bot)return;
+  if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+  const had=oldMember?.partial?null:(config.ROLE_MEMBERS??[]).some(id=>oldMember.roles.cache.has(id));
+  if(had!==false||!(config.ROLE_MEMBERS??[]).some(id=>member.roles.cache.has(id)))return;
+  void ensureLogbook({db,client,config,member}).then(r=>{if(r.status==="created")console.log(`Logbuch angelegt: ${r.thread.name}`);}).catch(error=>console.warn("Logbuch konnte nicht angelegt werden:",error.message));
 });
 // Familienrolle verloren oder Server verlassen: Löschanfrage für das Familienkonto (Bestätigung über die Website).
 const closures=createAccountClosureService(db,finance);

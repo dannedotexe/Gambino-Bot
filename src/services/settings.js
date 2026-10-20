@@ -54,6 +54,7 @@ export const SETTINGS = [
   { key: "CHANNEL_PAYOUT_LIST", group: "Channels", label: "Auszahlungsliste (immer aktuell)", type: "channel", help: "Der Bot hält hier eine Nachricht aktuell: wer wie viel bekommt (netto, Sanktionsabzug, Mindestbetrag). Achtung: Wer den Channel sieht, sieht alle Guthaben." },
   { key: "CHANNEL_TASK_REVIEW", group: "Channels", label: "Aufgaben-Logs prüfen (Staff)", type: "channel", help: "Jedes eingereichte Aufgaben-Log (/log) erscheint hier mit Screenshot und Buttons Bestätigen / Menge ändern / Ablehnen. Leer = Audit-Log." },
   { key: "CHANNEL_TASK_BOARD", group: "Channels", label: "Aufgaben-Board (öffentlich)", type: "channel", help: "Eine Nachricht, die der Bot aktuell hält: alle Aufgaben mit Belohnung, Top-Farmer der Woche und wie man loggt. Empfohlen: normaler Text-Channel (kein Forum)." },
+  { key: "CHANNEL_TASK_FORUM", group: "Channels", label: "Logbücher (Forum)", type: "forum", help: "Forum, in dem jedes neue Familienmitglied automatisch sein Logbuch bekommt (Titel „Vorname Nachname | ID“, Text aus dem Post „Vorlage …“, Person wird markiert). Empfohlen: Familie・aufgaben-logs." },
   { key: "CHANNEL_FINANCE_LOG", group: "Channels", label: "Auszahlungs-/Finanz-Log (Staff)", type: "channel", help: "Gutschriften, Auszahlungen, Korrekturen. Empfohlen: STAFF・auszahlungen. Leer = Audit-Log." },
   { key: "CHANNEL_STATS", group: "Channels", label: "Statistik", type: "channel", help: "Automatische Statistik ohne Finanzdaten. Empfohlen: STAFF・server-statistik." },
   { key: "CHANNEL_AUDIT_LOG", group: "Channels", label: "Allgemeines Audit-Log (Staff)", type: "channel", help: "Alle übrigen Aktionen (Tickets, Anträge, Einstellungen …). Empfohlen: eigener Channel STAFF・bot-logs." },
@@ -63,6 +64,7 @@ export const SETTINGS = [
   { key: "TICKET_COOLDOWN_SECONDS", group: "Tickets", label: "Wartezeit zwischen Tickets (Sekunden)", type: "number", min: 1, max: 86400 },
   { key: "TICKET_TRANSCRIPT_LIMIT", group: "Tickets", label: "Nachrichten im Transkript", type: "number", min: 100, max: 1000 },
   { key: "ACCOUNT_AUTO_OPEN_FOR_MEMBERS", group: "Familienkonto", label: "Konto automatisch für neue Familienmitglieder", type: "bool", help: "Familienkonto (0 $) wird angelegt, sobald eine Familienbewerbung angenommen wird oder jemand die Familienmitglieder-Rolle bekommt. Die Verifizierung allein legt kein Konto an." },
+  { key: "LOGBOOK_AUTO_CREATE", group: "Familienkonto", label: "Logbuch automatisch anlegen", type: "bool", help: "Bekommt jemand die Familienmitglieder-Rolle, legt der Bot im Logbücher-Forum einen Post für die Person an. Gibt es schon einen Post mit ihrem Namen bzw. ihrer ID, wird keiner doppelt angelegt." },
   { key: "TASK_DM_ENABLED", group: "Familienkonto", label: "Aufgaben-Logs: Ergebnis per DM", type: "bool", help: "Wer ein Log einreicht, bekommt nach der Prüfung eine private Nachricht mit Belohnung, Serie und Wochenplatz bzw. dem Ablehnungsgrund." },
   { key: "PAYOUT_MINIMUM_CENTS", group: "Familienkonto", label: "Auszahlungs-Mindestbetrag ($)", type: "money", help: "Optional. Erst ab diesem Guthaben kann ausgezahlt werden (Website und Discord sperren kleinere Auszahlungen). Mitglieder sehen im Kontostand und in „Mein Bereich“, wie viel noch fehlt. Leer = jeder Betrag ist auszahlbar." },
   { key: "SANCTION_LIST_SHOW_AMOUNTS", group: "Sanktionsliste & Wochenbericht", label: "Beträge in der öffentlichen Sanktionsliste zeigen", type: "bool" },
@@ -130,7 +132,7 @@ export function toRaw(definition, value) {
       if (!ids.every(id => SNOWFLAKE.test(id))) throw new Error(`${definition.label}: ungültige ID.`);
       return ids.join(",");
     }
-    case "channel": case "category": { const id = String(value ?? "").trim(); if (id && !SNOWFLAKE.test(id)) throw new Error(`${definition.label}: ungültige ID.`); return id; }
+    case "channel": case "category": case "forum": { const id = String(value ?? "").trim(); if (id && !SNOWFLAKE.test(id)) throw new Error(`${definition.label}: ungültige ID.`); return id; }
     case "number": { const n = Number(value); if (!Number.isInteger(n) || n < definition.min || n > definition.max) throw new Error(`${definition.label}: ganze Zahl von ${definition.min} bis ${definition.max}.`); return String(n); }
     case "money": {
       const text = String(value ?? "").trim().replace(/^\$/, "");

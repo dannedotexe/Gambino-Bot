@@ -330,8 +330,9 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const all = [...(await g.channels.fetch()).values()].filter(Boolean);
       const text = all.filter(ch => ch.isTextBased?.() && !ch.isThread?.() && (!me || ch.permissionsFor?.(me)?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]) !== false));
       const categories = all.filter(ch => ch.type === 4);
+      const forums = all.filter(ch => ch.type === 15);
       const sort = list => list.sort((a, b) => (a.rawPosition ?? 0) - (b.rawPosition ?? 0));
-      return { channels: sort(text).map(ch => ({ id: ch.id, name: ch.name, parent: ch.parent?.name ?? "" })), categories: sort(categories).map(ch => ({ id: ch.id, name: ch.name })) };
+      return { channels: sort(text).map(ch => ({ id: ch.id, name: ch.name, parent: ch.parent?.name ?? "" })), categories: sort(categories).map(ch => ({ id: ch.id, name: ch.name })), forums: sort(forums).map(ch => ({ id: ch.id, name: ch.name, parent: ch.parent?.name ?? "" })) };
     }],
     [/^\/api\/applications$/, async (member, url) => {
       need(member, "reviewers", "Reviewer- oder Leitungsrolle");
