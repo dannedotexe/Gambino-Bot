@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { audit, getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
+import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
@@ -33,7 +33,7 @@ const settings=config.DISCORD_GUILD_ID?createSettingsService({db,config,env:{...
 if(settings){const {rejected}=settings.apply();for(const item of rejected)console.warn(`Gespeicherte Einstellung ignoriert (ungültig): ${item}`);}
 const series=createSeriesService(db);
 if(config.DISCORD_GUILD_ID){const seeded=series.seedDefaults(config.DISCORD_GUILD_ID);if(seeded)console.log(`${seeded} Standard-Aktivitäten angelegt (inaktiv). Aktivieren über Website oder /aktivitaeten.`);}
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel]});
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel,Partials.Message]});
 const finance=createFinance(db);
 const handlers=createHandler({db,finance,config,client,settings,series});
 const dashboard=createDashboard({db,client,config,settings,series});
@@ -180,6 +180,14 @@ client.on(Events.GuildMemberAdd,member=>{void sendWelcome({db,client,config,memb
 // Aktivität: nur Zeitpunkt und Anzahl der Nachrichten, nie Inhalte (für Inaktivitäts-Check und Mitgliederprofil).
 const activity=createActivityService(db);
 // Screenshot im eigenen Logbuch: Bot fragt per Auswahlmenü, welche Aufgabe es ist (kein /log nötig).
+// „Vorlage …“-Post bearbeitet: Text gleich in alle Logbücher übernehmen (kurz warten, falls mehrfach hintereinander bearbeitet).
+const templateTimers=new Map();
+client.on(Events.MessageUpdate,(_,message)=>{
+  if(!message.guildId||(config.DISCORD_GUILD_ID&&message.guildId!==config.DISCORD_GUILD_ID))return;
+  const kind=templateKindOf(config,message);if(!kind)return;
+  clearTimeout(templateTimers.get(kind));
+  templateTimers.set(kind,setTimeout(()=>{templateTimers.delete(kind);void syncLogbookTemplates({db,client,config,guildId:message.guildId,kind}).then(n=>{if(n)console.log(`${LOGBOOK_FORUMS[kind].label}: Vorlage geändert – Text in ${n} Posts aktualisiert.`);}).catch(error=>console.warn("Vorlage konnte nicht übernommen werden:",error.message));},5000));
+});
 client.on(Events.MessageCreate,message=>{
   if(!message.guildId||message.author?.bot||message.webhookId)return;
   if(config.DISCORD_GUILD_ID&&message.guildId!==config.DISCORD_GUILD_ID)return;

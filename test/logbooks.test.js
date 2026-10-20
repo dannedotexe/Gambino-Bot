@@ -158,3 +158,14 @@ test("Forum neu aufsetzen: alle Posts außer Vorlage löschen, Verknüpfungen le
   assert.match(created[0].message.content, /Event Logs/);
   assert.equal(db.prepare("SELECT thread_id FROM event_logbooks").get().thread_id, "n1");
 });
+
+test("Bearbeitete Vorlage wird erkannt (nur Startnachricht des „Vorlage …“-Posts im Logbuch-Forum)", async () => {
+  const { templateKindOf } = await import("../src/logbooks.js");
+  const config = { CHANNEL_TASK_FORUM: "f1", CHANNEL_EVENT_FORUM: "f2" };
+  const msg = (id, name, parentId) => ({ id, channel: { id: "t1", name, parentId, isThread: () => true } });
+  assert.equal(templateKindOf(config, msg("t1", "Vorlage + Info", "f1")), "tasks");
+  assert.equal(templateKindOf(config, msg("t1", "📋 Vorlage", "f2")), "events");
+  assert.equal(templateKindOf(config, msg("x9", "Vorlage + Info", "f1")), null, "Antwort im Vorlage-Post zählt nicht");
+  assert.equal(templateKindOf(config, msg("t1", "Tony | 1", "f1")), null);
+  assert.equal(templateKindOf(config, msg("t1", "Vorlage", "anderes")), null);
+});

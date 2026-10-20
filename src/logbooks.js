@@ -77,7 +77,8 @@ async function forumThreads(forum) {
 /** Text aus dem Post „Vorlage …“ im Forum; ohne Vorlage der Standardtext. */
 async function templateFrom(threads, fallback = DEFAULT_LOGBOOK_TEMPLATE) {
   const thread = threads.find(t => /^\W*vorlage/i.test(t.name));
-  const starter = thread ? await Promise.resolve(thread.fetchStarterMessage?.()).catch(() => null) : null;
+  // force: immer frisch von Discord holen – eine gerade bearbeitete Vorlage soll sofort zählen.
+  const starter = thread ? await Promise.resolve(thread.fetchStarterMessage?.({ force: true })).catch(() => null) : null;
   return starter?.content?.trim() || fallback;
 }
 
@@ -262,25 +263,36 @@ export async function remindInactiveLogbooks({ db, client, config, reference = n
  * Vorlage geändert (neuer Standardtext oder Post „Vorlage …“ bearbeitet): Startnachrichten der vom Bot angelegten
  * Logbücher auf den neuen Text bringen – mit eigenem Titel und Markierung, ohne erneuten Ping. Läuft nur bei Änderung.
  */
+const syncing = new Set();
 export async function syncLogbookTemplates({ db, client, config, guildId, kind = "tasks", pauseMs = 1200 }) {
   const f = forumOf(kind);
-  if (!config[f.key]) return 0;
+  if (!config[f.key] || syncing.has(kind)) return 0;
+  syncing.add(kind);
+  try { return await syncTemplates({ db, client, config, guildId, kind, f, pauseMs }); } finally { syncing.delete(kind); }
+}
+
+async function syncTemplates({ db, client, config, guildId, kind, f, pauseMs }) {
   const forum = await client.channels.fetch(config[f.key]).catch(() => null);
   if (!forum || forum.type !== ChannelType.GuildForum) return 0;
   const template = await templateFrom(await forumThreads(forum), f.template);
   const hash = createHash("sha256").update(template).digest("hex"), key = `LOGBOOK_TEMPLATE_${kind.toUpperCase()}`;
   const previous = getSetting(db, guildId, key);
-  setSetting(db, guildId, key, hash);
-  if (!previous || previous === hash) return 0; // erster Lauf: nur merken, nichts umschreiben
-  let updated = 0;
+  if (!previous) { setSetting(db, guildId, key, hash); return 0; } // erster Lauf: nur merken, nichts umschreiben
+  if (previous === hash) return 0;
+  let updated = 0, failed = 0;
   for (const row of db.prepare(`SELECT user_id,thread_id,title FROM ${f.table} WHERE guild_id=? AND source='created' AND thread_id IS NOT NULL AND archived_at IS NULL`).all(guildId)) {
     const thread = await client.channels.fetch(row.thread_id).catch(() => null);
-    const starter = await thread?.fetchStarterMessage?.().catch(() => null);
-    if (!starter || starter.author?.id !== client.user?.id) continue;
+    const starter = await thread?.fetchStarterMessage?.({ force: true }).catch(() => null);
+    if (!thread) continue;
+    if (!starter) { failed++; continue; }
+    if (starter.author?.id !== client.user?.id) continue;
     const content = buildLogbookContent(template, row.title, row.user_id);
     if (starter.content === content) continue;
     if (await starter.edit({ content, allowedMentions: { parse: [] } }).then(() => true).catch(() => false)) { updated++; await new Promise(r => setTimeout(r, pauseMs)); }
+    else failed++;
   }
+  // Erst merken, wenn alle Posts durch sind – sonst beim nächsten Lauf die übrigen nachziehen.
+  if (!failed) setSetting(db, guildId, key, hash);
   if (updated) audit(db, guildId, client.user?.id ?? "system", "logbook.template_synced", null, { kind, updated });
   return updated;
 }
@@ -319,4 +331,11 @@ export async function resetLogbookForum({ db, client, config, guild, actorId, ki
   audit(db, guild.id, actorId, "logbook.reset", null, { kind, deleted, failed });
   const created = await createMissingLogbooks({ db, client, config, guild, actorId, kind, pauseMs });
   return { deleted, failedDeletes: failed, ...created };
+}
+
+/** Bearbeitete Nachricht = Startnachricht eines „Vorlage …“-Posts in einem Logbuch-Forum? Dann die Art (tasks/events). */
+export function templateKindOf(config, message) {
+  const thread = message.channel;
+  if (!thread?.isThread?.() || message.id !== thread.id || !/^\W*vorlage/i.test(thread.name ?? "")) return null;
+  return Object.entries(LOGBOOK_FORUMS).find(([, f]) => config[f.key] && config[f.key] === thread.parentId)?.[0] ?? null;
 }
