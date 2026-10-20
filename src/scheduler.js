@@ -8,7 +8,8 @@ import { createSeriesEvents, endSeriesEvents, refreshActivityBoard } from "./act
 import { ensurePanels, postEventResult } from "./panels.js";
 import { cleanupReminders, closeStartedSignups, refreshEventPosts, sendEventReminder } from "./event-posts.js";
 import { panelTexts } from "./services/texts.js";
-import { syncAbsenceRoles } from "./absence-posts.js";
+import { cleanupShortAbsencePosts, syncAbsenceRoles } from "./absence-posts.js";
+import { createShortAbsenceService } from "./services/short-absences.js";
 import { runDailyInactivity } from "./inactivity.js";
 import { sendDueAnnouncements } from "./announcements.js";
 import { closeDuePolls } from "./polls.js";
@@ -57,6 +58,8 @@ export function startScheduler({db,client,config,series=null}) {
       }
       const announce=db.prepare("SELECT g.* FROM giveaways g LEFT JOIN giveaway_announcements a ON a.giveaway_id=g.id WHERE g.status='ended' AND a.giveaway_id IS NULL ORDER BY g.ended_at LIMIT 20").all();
       for(const giveaway of announce)await announceGiveaway(db,client,giveaway).catch(error=>console.warn(`Giveaway-Ergebnis ${giveaway.id} noch nicht zugestellt:`,error.message));
+      // Abgelaufene „Kurz weg“-Meldungen entfernen.
+      if(config.DISCORD_GUILD_ID)await cleanupShortAbsencePosts({client,config,service:createShortAbsenceService(db),reference:now}).catch(()=>{});
       // Begonnene Events: Anmeldung schließen (vor dem Ankündigen des nächsten Termins).
       await closeStartedSignups({db,client,config,reference:now}).catch(error=>console.warn("Anmeldungen konnten nicht geschlossen werden:",error.message));
       if(series){

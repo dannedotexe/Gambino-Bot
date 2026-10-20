@@ -93,10 +93,11 @@ export const PANEL_TEXTS = {
       color: { label: "Farbe", type: "color", default: "#d4af37" },
       author: { label: "Kopfzeile", max: 256, default: "GAMBINOS  •  ABMELDUNGEN" },
       title: { label: "Titel", max: 256, default: "🚫  Abmeldung bei der Familie" },
-      description: { label: "Beschreibung", max: 4000, multiline: true, default: "Du bist im Urlaub, krank oder brauchst eine Pause? Melde dich hier kurz ab.\n\n**Abmelden:** Zeitraum und Grund angeben (z. B. `heute` bis `20.10.`).\n**Wieder da:** beendet deine Abmeldung vorzeitig.\n\nWährend einer Abmeldung zählst du nicht als inaktiv, und Fehlen bei Events gilt als entschuldigt." },
+      description: { label: "Beschreibung", max: 4000, multiline: true, default: "Du bist im Urlaub, krank oder brauchst eine Pause? Melde dich hier kurz ab.\n\n**Abmelden:** Zeitraum und Grund angeben (z. B. `heute` bis `20.10.`).\n**Kurz weg:** nur für ein paar Minuten oder Stunden (z. B. `30 min`, `2h` oder `bis 21:30`).\n**Wieder da:** beendet deine Abmeldung bzw. „Kurz weg“ vorzeitig.\n\nWährend einer Abmeldung zählst du nicht als inaktiv, und Fehlen bei Events gilt als entschuldigt." },
       footer: { label: "Fußzeile", max: 2048, default: "GAMBINOS  •  Den Grund sieht nur das Team" },
       buttonAbsent: { label: "Button: Abmelden", max: 80, required: true, default: "🚫  Abmelden" },
       buttonBack: { label: "Button: Wieder da", max: 80, required: true, default: "✅  Wieder da" },
+      buttonShort: { label: "Button: Kurz weg", max: 80, required: true, default: "⏱️  Kurz weg" },
     },
   },
   sanctionList: {

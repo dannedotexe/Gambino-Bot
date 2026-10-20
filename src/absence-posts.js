@@ -43,3 +43,30 @@ export async function syncAbsenceRoles({ db, client, config, reference = new Dat
   }
   return { added, removed };
 }
+
+const shortClock = (iso, timezone) => new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date(iso));
+/** „Kurz weg“-Meldung im Abmeldungs-Channel; sie wird gelöscht, sobald die Person zurück ist oder die Zeit abläuft. */
+export async function postShortAbsence({ client, config, row, service }) {
+  if (!config.CHANNEL_ABSENCES) return false;
+  const channel = await client.channels.fetch(config.CHANNEL_ABSENCES).catch(() => null);
+  if (!channel?.send) return false;
+  const until = Math.floor(new Date(row.ends_at).getTime() / 1000);
+  const embed = new EmbedBuilder().setColor(0xf39c12).setFooter({ text: "GAMBINOS  •  Kurz weg" })
+    .setDescription(`⏱️ <@${row.user_id}> ist **kurz weg** bis **${shortClock(row.ends_at, config.TIMEZONE)}** (<t:${until}:R>)${config.ABSENCE_SHOW_REASON && row.reason ? `\n**Grund:** ${row.reason}` : ""}`);
+  const sent = await channel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
+  if (sent) service.setMessage(row.id, channel.id, sent.id);
+  return Boolean(sent);
+}
+
+/** Meldungen beendeter oder abgelaufener „Kurz weg“-Einträge entfernen (hält den Channel sauber). */
+export async function cleanupShortAbsencePosts({ client, config, service, reference = new Date() }) {
+  let removed = 0;
+  for (const row of service.withStaleMessage(config.DISCORD_GUILD_ID, reference)) {
+    const channel = await client.channels.fetch(row.channel_id).catch(() => null);
+    const message = await channel?.messages?.fetch(row.message_id).catch(() => null);
+    await message?.delete?.().catch(() => {});
+    service.clearMessage(row.id);
+    removed++;
+  }
+  return removed;
+}

@@ -24,6 +24,8 @@ async function loadMine() {
   ].join("");
   renderMyTasks(d.tasks);
   $("my-absence-label").textContent = d.absences.open ? "Abmeldung beenden" : "Abmelden";
+  const short = d.shortAbsence;
+  $("my-short-label").textContent = short ? `Zurück (kurz weg bis ${new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit", timeZone: state.timezone }).format(new Date(short.ends_at))})` : "⏱️ Kurz weg";
   $("my-transactions").innerHTML = a.transactions.map(t => myRow(`${txLabels[t.type] ?? t.type} · ${t.type === "payout" ? `${money(t.net_cents)} ausgezahlt${t.deduction_cents ? ` (Abzug ${money(t.deduction_cents)})` : ""}` : `${["payout", "correction_debit"].includes(t.type) ? "−" : "+"}${money(t.amount_cents)}`}`, `${date(t.created_at)} · ${escapeHtml(t.reason)}`)).join("") || empty("Noch keine Buchungen.");
   $("my-discipline").innerHTML = [
     ...d.sanctions.map(s => myRow(`Sanktion ${money(s.amount_cents)} · ${statusLabels[s.status] ?? s.status}`, `${escapeHtml(s.reason)} · offen ${money(s.remaining_cents)} · ${date(s.created_at)}`)),
@@ -67,6 +69,12 @@ $("my-board-period").addEventListener("change", renderMyBoard);
 
 loaders.mine = loadMine;
 Object.assign(actions, {
+  "my-short": () => {
+    if (state.cache.mine?.shortAbsence) return post("/api/my/short-absence/end").then(r => { notify(r.message); return refresh(); });
+    openForm({ eyebrow: "KURZ WEG", title: "Kurz weg", intro: "<p>Für ein paar Minuten oder Stunden – Events in dieser Zeit zählen nicht als No-Show. Für ganze Tage bitte „Abmelden“.</p>",
+      fields: [{ name: "until", label: "Wie lange?", required: true, max: 20, placeholder: "30 min, 2h, 1,5 h oder bis 21:30" }, { name: "reason", label: "Grund", hint: "(optional, sieht nur das Team)", max: 200 }],
+      submit: "Kurz weg melden", onSubmit: v => post("/api/my/short-absence", v) });
+  },
   "my-absence": () => {
     const open = state.cache.mine?.absences.open;
     if (open) return confirmAction("Abmeldung beenden?", `Du bist bis ${myDay(open.ends_on)} abgemeldet. Bist du früher zurück?`, "Ich bin zurück", () => post("/api/my/absence/end"), false);

@@ -22,6 +22,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { currentVersion, lastUpdate } from "./version.js";
 import { AbsenceError, createAbsenceService, localDay, parseDay } from "./services/absences.js";
+import { createShortAbsenceService, parseShortUntil } from "./services/short-absences.js";
+import { cleanupShortAbsencePosts, postShortAbsence } from "./absence-posts.js";
 import { createActivityService } from "./services/activity.js";
 import { createModerationLog } from "./services/moderation-log.js";
 import { postAbsence } from "./absence-posts.js";
@@ -82,6 +84,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const finance = createFinance(db), closures = createAccountClosureService(db, finance), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
   const tasks = createTaskService(db, { timezone: () => config.TIMEZONE });
+  const shortAbsences = createShortAbsenceService(db);
   let logbookRun = null;
   const names = new Map();
 
@@ -165,6 +168,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
           earned: db.prepare("SELECT COALESCE(SUM(amount_cents),0) n FROM transactions WHERE guild_id=? AND user_id=? AND idempotency_key LIKE 'event-win:%'").get(guildId, userId).n, kills: killsOf(db, guildId, userId), noShows: noShowsOf(db, config, guildId, userId).length, noShowLimit: config.NOSHOW_THRESHOLD || null, noShowWindow: config.NOSHOW_WINDOW_DAYS },
         rank: { current: rank?.label ?? null, history: rankHistory.forUser(guildId, userId, 15).map(r => ({ from: r.from_label, to: r.to_label, kind: r.kind, created_at: r.created_at })) },
         tasks: { profile: tasks.profile(guildId, userId), recent: tasks.list(guildId, { userId, limit: 15 }).map(l => ({ type: `${l.type_emoji} ${l.type_name}`, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, status: l.status, reject_reason: l.reject_reason, created_at: l.created_at })) },
+        shortAbsence: shortAbsences.activeFor(guildId, userId),
         absences: { open: absences.openFor(guildId, userId, day), list: absences.forUser(guildId, userId, 10).map(a => ({ id: a.id, starts_on: a.starts_on, ends_on: a.ends_on, reason: a.reason, ended_at: a.ended_at })), maxDays: config.ABSENCE_MAX_DAYS },
         leaderboard,
       }, [userId, ...Object.values(leaderboard).flat().map(r => r.userId)]);
@@ -200,9 +204,10 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const report = inactivityFor({ db, config, guildId, members });
       const board = period => activity.leaderboard(guildId, { period, timezone: config.TIMEZONE, limit: 10 });
       const leaderboard = { week: board("week"), month: board("month"), all: board("all") };
-      const ids = [...current, ...upcoming, ...recent].flatMap(a => [a.user_id, a.created_by, a.ended_by]).concat(report.map(r => r.userId), Object.values(leaderboard).flat().map(r => r.userId));
+      const short = shortAbsences.active(guildId);
+      const ids = [...current, ...upcoming, ...recent, ...short].flatMap(a => [a.user_id, a.created_by, a.ended_by]).concat(report.map(r => r.userId), Object.values(leaderboard).flat().map(r => r.userId));
       return withNames({
-        today: day, current, upcoming, recent, leaderboard,
+        today: day, current, upcoming, recent, leaderboard, short,
         inactive: report.filter(r => r.inactive), population: members.length, absentCount: report.filter(r => r.absent).length,
         settings: { days: config.INACTIVITY_DAYS, dm: config.INACTIVITY_DM_ENABLED, alert: config.INACTIVITY_ALERT_ENABLED, maxDays: config.ABSENCE_MAX_DAYS, membersRole: Boolean(config.ROLE_MEMBERS?.length), trackingSince: activity.trackingSince(guildId) },
       }, ids);
@@ -559,6 +564,20 @@ export function createDashboardApi({ db, client, config, settings = null, series
         .catch(error => console.warn("Forum konnte nicht neu aufgesetzt werden:", error.message))
         .finally(() => { logbookRun = null; });
       return { message: `${LOGBOOK_FORUMS[kind].label}: Alle Posts werden gelöscht und für ${status.family} Familienmitglieder neu angelegt – dauert ein paar Minuten.` };
+    }],
+    // „Kurz weg“ für die angemeldete Person selbst.
+    [/^\/api\/my\/short-absence$/, async (member, body) => {
+      const until = parseShortUntil(body.until, config.TIMEZONE);
+      const { row } = shortAbsences.create({ guildId, userId: member.id, until, reason: text(body.reason, { max: 200, label: "Grund" }) });
+      await cleanupShortAbsencePosts({ client, config, service: shortAbsences }).catch(() => {});
+      await postShortAbsence({ client, config, row, service: shortAbsences }).catch(() => {});
+      return { message: `Du bist kurz weg bis ${new Intl.DateTimeFormat("de-AT", { hour: "2-digit", minute: "2-digit", timeZone: config.TIMEZONE }).format(until)} Uhr.` };
+    }],
+    [/^\/api\/my\/short-absence\/end$/, async member => {
+      const row = shortAbsences.end({ guildId, userId: member.id });
+      if (!row) throw new HttpError(409, "Du bist gerade nicht als „kurz weg“ eingetragen.");
+      await cleanupShortAbsencePosts({ client, config, service: shortAbsences }).catch(() => {});
+      return { message: "Willkommen zurück!" };
     }],
     [/^\/api\/task-types$/, async (member, body) => {
       need(member, "finance", "Finanz- oder Leitungsrolle");

@@ -23,6 +23,7 @@ import { handleAttendanceInteraction, requestAttendance } from "./attendance.js"
 import { handleTaskInteraction, myTasksView, rewardLabel, submitTaskLog } from "./task-logs.js";
 import { createTaskService } from "./services/tasks.js";
 import { LOGBOOK_FORUMS, activeLogbookKinds, ensureLogbook, renameLogbook } from "./logbooks.js";
+import { createShortAbsenceService, parseShortUntil } from "./services/short-absences.js";
 import { killLeaderboard, killsOf } from "./services/calendar.js";
 import { handleEventProofInteraction } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
@@ -36,7 +37,7 @@ import { deliverWarning, deliverySummary } from "./warn-actions.js";
 import { AbsenceError, createAbsenceService, formatDay, localDay, parseDay } from "./services/absences.js";
 import { createActivityService } from "./services/activity.js";
 import { buildLeaderboard } from "./leaderboard.js";
-import { postAbsence } from "./absence-posts.js";
+import { cleanupShortAbsencePosts, postAbsence, postShortAbsence } from "./absence-posts.js";
 import { BAN_DELETE_CHOICES, MOD_PERMISSIONS, TIMEOUT_CHOICES, formatMinutes, hierarchyProblem, performModeration } from "./member-moderation.js";
 import { MOD_ACTIONS } from "./services/moderation-log.js";
 import { cancelEvent } from "./event-checks.js";
@@ -122,6 +123,7 @@ export function buildVerificationPanelPayload(texts=defaultsFor("verification"))
 export function buildAbsencePanelPayload(texts=defaultsFor("absence")) {
   return {embeds:[textEmbed(texts)],components:[new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("absence:open").setLabel(texts.buttonAbsent).setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId("absence:short").setLabel(texts.buttonShort||"⏱️  Kurz weg").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("absence:back").setLabel(texts.buttonBack).setStyle(ButtonStyle.Success),
   )]};
 }
@@ -250,7 +252,8 @@ export function buildCommands() {
     .addStringOption(o=>o.setName("wann").setDescription("jetzt, in 20 (Minuten) oder 16:30").setRequired(false).setMaxLength(20));
   const absence = new SlashCommandBuilder().setName("abwesend").setDescription("Abmeldung bei der Familie (Urlaub, Pause)")
     .addSubcommand(s=>s.setName("melden").setDescription("Für einen Zeitraum abmelden").addStringOption(o=>o.setName("von").setDescription("Beginn, z. B. heute, morgen, Freitag oder 20.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("bis").setDescription("Ende, z. B. 27.10., Sonntag, 3 Tage oder 1 Woche").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Grund – sieht nur das Team").setRequired(true).setMinLength(2).setMaxLength(300)))
-    .addSubcommand(s=>s.setName("beenden").setDescription("Eigene Abmeldung vorzeitig beenden (wieder da)"))
+    .addSubcommand(s=>s.setName("kurz").setDescription("Kurz weg (Minuten/Stunden), z. B. 30 min, 2h oder bis 21:30").addStringOption(o=>o.setName("dauer").setDescription("z. B. 30 min, 2h, 1,5 h oder bis 21:30").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Optional – sieht nur das Team").setMaxLength(200)))
+    .addSubcommand(s=>s.setName("beenden").setDescription("Eigene Abmeldung oder „Kurz weg“ beenden (wieder da)"))
     .addSubcommand(s=>s.setName("liste").setDescription("Wer gerade abgemeldet ist (Staff)"));
   const leaderboard = new SlashCommandBuilder().setName("rangliste").setDescription("Aktivste Mitglieder nach Event-Teilnahmen")
     .addStringOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices({name:"Diese Woche",value:"week"},{name:"Dieser Monat",value:"month"},{name:"Gesamt",value:"all"}));
@@ -304,7 +307,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   // Live berechnet: Rollenänderungen über Website/Discord gelten sofort.
   const groups=new Proxy({}, { get: (_, key) => accessGroups(config)[key] });
   const polls=createPollService(db);
-  const verifications=createVerificationService(db),warningService=createWarningService(db),absences=createAbsenceService(db),activity=createActivityService(db);
+  const verifications=createVerificationService(db),warningService=createWarningService(db),absences=createAbsenceService(db),shortAbsences=createShortAbsenceService(db),activity=createActivityService(db);
   const pendingModeration=new Map();
   const events=createEventService(db),giveaways=createGiveawayService(db),tickets=createTicketService(db),applications=createApplicationService(db);
   const isOwner=i=>config.BOT_OWNER_IDS?.includes(i.user?.id)??false;
@@ -538,7 +541,25 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
     await postAbsence({client,config,row});
     return row;
   }
+  /** „Kurz weg“: Minuten/Stunden statt ganzer Tage. */
+  function openShortAbsenceModal(i){
+    return i.showModal(new ModalBuilder().setCustomId("absence:shortsubmit").setTitle("Kurz weg").addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("until").setLabel("Wie lange?").setPlaceholder("z. B. 30 min, 2h, 1,5 h oder bis 21:30").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("reason").setLabel("Grund (optional, sieht nur das Team)").setPlaceholder("z. B. Essen, Arzt, Arbeit").setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(200))));
+  }
+  async function createShortAbsence(i,{until,reason=""}){
+    let end;
+    try{end=parseShortUntil(until,config.TIMEZONE);}catch(error){if(error instanceof AbsenceError)return answer(i,{content:error.message,ephemeral:true});throw error;}
+    const {row}=shortAbsences.create({guildId:i.guildId,userId:i.user.id,until:end,reason});
+    await cleanupShortAbsencePosts({client:i.client??client,config,service:shortAbsences}).catch(()=>{});
+    await postShortAbsence({client:i.client??client,config,row,service:shortAbsences}).catch(()=>{});
+    const t=Math.floor(end.getTime()/1000);
+    return answer(i,{content:`⏱️ Du bist **kurz weg** bis <t:${t}:t> (<t:${t}:R>). Events in dieser Zeit zählen nicht als No-Show. Früher zurück? **Wieder da** drücken.`,ephemeral:true});
+  }
   async function endOwnAbsence(i){
+    // Zuerst „Kurz weg“ beenden, falls aktiv.
+    const short=shortAbsences.end({guildId:i.guildId,userId:i.user.id});
+    if(short){await cleanupShortAbsencePosts({client:i.client??client,config,service:shortAbsences}).catch(()=>{});return answer(i,{content:"✅ Willkommen zurück! „Kurz weg“ ist beendet.",ephemeral:true});}
     const open=absences.openFor(i.guildId,i.user.id,today());
     if(!open)return answer(i,{content:"Du hast gerade keine offene Abmeldung.",ephemeral:true});
     const row=absences.end({guildId:i.guildId,absenceId:open.id,actorId:i.user.id});
@@ -549,6 +570,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
   async function absenceCommand(i,sub,g,u){
     if(sub==="melden")return createAbsence(i,{from:i.options.getString("von"),until:i.options.getString("bis"),reason:i.options.getString("grund")});
     if(sub==="beenden")return endOwnAbsence(i);
+    if(sub==="kurz")return createShortAbsence(i,{until:i.options.getString("dauer"),reason:i.options.getString("grund")??""});
     if(sub==="liste"){
       const denied=guard(i,"anyStaff","Staff-Rolle");if(denied)return respond(i,denied);
       const now=absences.current(g,today()),next=absences.upcoming(g,today(),10);
@@ -1128,6 +1150,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       }
       if(kind==="poll")return pollButton(i,action,id,extra);
       if(kind==="absence"&&action==="open"){const gate=memberGate(i);if(gate)return answer(i,{content:"Abmeldungen gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});return openAbsenceModal(i);}
+      if(kind==="absence"&&action==="short"){const gate=memberGate(i);if(gate)return answer(i,{content:"Abmeldungen gibt es nur für Mitglieder der Gambinos-Familie.",ephemeral:true});return openShortAbsenceModal(i);}
       if(kind==="absence"&&action==="back")return endOwnAbsence(i);
       if(kind==="mod"&&action==="confirm")return confirmModeration(i,id);
       if(kind==="account"){
@@ -1348,6 +1371,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         await postApplicationNote(i.guild,result.application,i.user.id,note.trim());
         return answer(i,{content:"Notiz wurde gespeichert. Sie ist nur für das Team sichtbar.",ephemeral:true});
       }
+      if(i.customId==="absence:shortsubmit")return await createShortAbsence(i,{until:i.fields.getTextInputValue("until"),reason:(()=>{try{return i.fields.getTextInputValue("reason");}catch{return "";}})()});
       if(i.customId==="absence:submit")return await createAbsence(i,{from:i.fields.getTextInputValue("from"),until:i.fields.getTextInputValue("until"),reason:i.fields.getTextInputValue("reason")});
       if(i.customId==="verify:submit")return await submitVerification(i);
       if(i.customId==="verify:rename-submit")return await submitVerification(i,{rename:true});

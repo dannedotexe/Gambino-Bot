@@ -152,6 +152,9 @@ export function createAbsenceService(db) {
 
   /** War die Person zu diesem Zeitpunkt abgemeldet? (für entschuldigtes Fehlen bei Events) */
   function wasAbsent(guildId, userId, at, timezone) {
+    // „Kurz weg“ (Minuten/Stunden) zählt ebenfalls als entschuldigt.
+    const iso = new Date(at).toISOString();
+    if (db.prepare("SELECT 1 FROM short_absences WHERE guild_id=? AND user_id=? AND starts_at<=? AND COALESCE(ended_at,ends_at)>=?").get(guildId, userId, iso, iso)) return true;
     const day = localDay(new Date(at), timezone);
     return Boolean(db.prepare("SELECT 1 FROM member_absences WHERE guild_id=? AND user_id=? AND starts_on<=? AND ends_on>=? AND (ended_at IS NULL OR ended_at>?)").get(guildId, userId, day, day, new Date(at).toISOString()));
   }
