@@ -16,6 +16,7 @@ async function loadTasks() {
     myStat("Aktive Aufgaben", escapeHtml(data.types.filter(t => t.active).length)),
   ].join("");
   renderTaskQueue(); renderTaskBoard(); renderTaskTypes(); renderTaskHistory();
+  loadLogbooks().catch(error => { $("logbook-info").textContent = error.message; });
   if ((state.badges?.tasks ?? 0) !== s.pending) { state.badges = { ...state.badges, tasks: s.pending }; renderTabs(); }
 }
 
@@ -89,6 +90,20 @@ function taskTypeForm(type = null) {
     submit: "Speichern", onSubmit: v => post("/api/task-types", { ...v, id: type?.id ?? null }) });
 }
 
+/** Logbücher: zeigt, warum keine angelegt werden, und wer noch keins hat. */
+async function loadLogbooks() {
+  const d = await api("/api/logbooks");
+  $("logbook-info").textContent = d.forum ? `Forum #${d.forum.name} · ${d.withLogbook} von ${d.family} Familienmitgliedern haben ein Logbuch${d.running ? " · wird gerade angelegt …" : ""}` : "Kein Forum eingestellt.";
+  const create = document.querySelector('[data-action="logbook-create"]');
+  if (create) { create.textContent = d.missing.length ? `Fehlende anlegen (${d.missing.length})` : "Alle haben eins"; create.disabled = !d.missing.length || Boolean(d.running) || !d.forum; }
+  $("logbook-status").innerHTML = [
+    ...d.problems.map(p => myRow(`⚠️ ${escapeHtml(p)}`, "Das verhindert, dass Logbücher angelegt werden.")),
+    ...(d.lastError ? [myRow(`Letzter Fehler: ${escapeHtml(d.lastError.message)}`, date(d.lastError.at))] : []),
+    ...(d.problems.length ? [] : [myRow("✅ Alles bereit", "Wer neu die Familienrolle bekommt, erhält automatisch sein Logbuch. Bestehende Mitglieder ohne Logbuch: Button „Fehlende anlegen“.")]),
+    ...(d.missing.length ? [myRow(`Ohne Logbuch (${d.missing.length})`, d.missing.slice(0, 40).map(m => escapeHtml(m.name)).join(", ") + (d.missing.length > 40 ? " …" : ""))] : []),
+  ].join("");
+}
+
 $("tasks-board-period").addEventListener("change", () => taskState.data && renderTaskBoard());
 loaders.tasks = loadTasks;
 Object.assign(actions, {
@@ -111,6 +126,8 @@ Object.assign(actions, {
     const l = taskState.data.pending.find(x => x.id === id);
     openInfo(l ? taskTitle(l) : "Screenshot", `<img class="lightbox-img" src="${escapeHtml(url)}" alt="Screenshot"><p class="subtle"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">In neuem Tab öffnen</a></p>`, "BEWEIS", true);
   },
+  "logbook-check": () => loadLogbooks(),
+  "logbook-create": () => confirmAction("Fehlende Logbücher anlegen?", "Für jedes Familienmitglied ohne Logbuch wird ein Post im Forum erstellt und die Person markiert. Gibt es schon einen Post mit ihrem Namen oder ihrer ID, wird er nur verknüpft.", "Anlegen", () => post("/api/logbooks/create-missing"), false),
   "tasktype-create": () => taskTypeForm(),
   "tasktype-edit": ({ id }) => taskTypeForm(taskState.data.types.find(t => t.id === id)),
 });

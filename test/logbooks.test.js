@@ -49,3 +49,24 @@ test("Bestehender Post mit gleicher ID wird übernommen statt doppelt angelegt; 
   assert.equal(m2.created[0].t.name, "Tony Soprano | 123456");
   assert.equal((await ensureLogbook({ db: testDb(), client: m.client, config: { DISCORD_GUILD_ID: G }, member: member() })).status, "skipped", "ohne Forum passiert nichts");
 });
+
+test("Status nennt fehlende Bot-Rechte; „Fehlende anlegen“ legt für alle Familienmitglieder ohne Logbuch an", async () => {
+  const { createMissingLogbooks, logbookStatus } = await import("../src/logbooks.js");
+  const db = testDb(), m = forumMock([{ id: "t9", name: "Paulie Walnuts | 222222", parentId: FORUM }]);
+  const FAM = "20000000000000005", A = "30000000000000011", B = "30000000000000012", C = "30000000000000013";
+  const mk = (id, name, roles) => ({ id, displayName: name, user: { bot: false }, guild: { id: G }, roles: { cache: new Map(roles.map(r => [r, true])) } });
+  const members = new Map([[A, mk(A, "Tony Soprano | 111111", [FAM])], [B, mk(B, "Paulie Walnuts | 222222", [FAM])], [C, mk(C, "Gast", [])]]);
+  let allowed = false;
+  m.forum.permissionsFor = () => ({ has: () => allowed });
+  const guild = { id: G, members: { me: { id: "bot" }, fetch: async () => members, cache: members } };
+  const config = { DISCORD_GUILD_ID: G, CHANNEL_TASK_FORUM: FORUM, ROLE_MEMBERS: [FAM], LOGBOOK_AUTO_CREATE: true };
+  let status = await logbookStatus({ db, client: m.client, config, guild });
+  assert.match(status.problems[0], /Beiträge erstellen/);
+  assert.equal(status.family, 2); assert.equal(status.missing.length, 2);
+  allowed = true;
+  status = await logbookStatus({ db, client: m.client, config, guild });
+  assert.deepEqual(status.problems, []);
+  const r = await createMissingLogbooks({ db, client: m.client, config, guild, actorId: "x", pauseMs: 0 });
+  assert.deepEqual([r.created, r.linked, r.failed], [1, 1, 0], "Tony neu, Paulie verknüpft, Gast ignoriert");
+  assert.equal((await logbookStatus({ db, client: m.client, config, guild })).missing.length, 0);
+});

@@ -1,5 +1,5 @@
 import { ChannelType } from "discord.js";
-import { audit } from "./database.js";
+import { audit, getSetting } from "./database.js";
 
 /**
  * Logbücher: Bekommt jemand die Familienmitglieder-Rolle, legt der Bot im Logbücher-Forum einen Post
@@ -97,4 +97,50 @@ export async function renameLogbook({ db, client, guildId, userId, title }) {
   const ok = await thread.setName(title.slice(0, 100), "Name nach Verifizierung").then(() => true).catch(() => false);
   if (ok) db.prepare("UPDATE logbooks SET title=? WHERE guild_id=? AND user_id=?").run(title, guildId, userId);
   return ok;
+}
+
+const FORUM_PERMS = [["ViewChannel", "Kanal ansehen"], ["SendMessages", "Beiträge erstellen"], ["SendMessagesInThreads", "Nachrichten in Beiträgen senden"], ["ReadMessageHistory", "Nachrichtenverlauf lesen"]];
+export const familyOf = (config, roleIds) => [...new Set([...(config.ROLE_MEMBERS ?? []), ...(config.RANK_ROLES_JSON ?? []).map(r => r.roleId)])].some(id => roleIds.has(id));
+
+/** Warum (nicht) angelegt wird: Forum, Bot-Rechte, Automatik und wer noch kein Logbuch hat. */
+export async function logbookStatus({ db, client, config, guild }) {
+  const problems = [];
+  const forum = config.CHANNEL_TASK_FORUM ? await client.channels.fetch(config.CHANNEL_TASK_FORUM).catch(() => null) : null;
+  if (!config.CHANNEL_TASK_FORUM) problems.push("Kein Logbücher-Forum eingestellt (Einstellungen → Channels → „Logbücher (Forum)“).");
+  else if (!forum) problems.push("Das eingestellte Logbücher-Forum gibt es nicht oder der Bot sieht es nicht.");
+  else if (forum.type !== ChannelType.GuildForum) problems.push(`#${forum.name} ist kein Forum-Channel.`);
+  if (forum?.type === ChannelType.GuildForum && guild.members.me) {
+    const perms = forum.permissionsFor?.(guild.members.me);
+    const missing = FORUM_PERMS.filter(([flag]) => perms && !perms.has(flag)).map(([, label]) => label);
+    if (missing.length) problems.push(`Dem Bot fehlen im Forum die Rechte: ${missing.join(", ")}.`);
+  }
+  if (!config.LOGBOOK_AUTO_CREATE) problems.push("Automatik ist ausgeschaltet (Einstellungen → „Logbuch automatisch anlegen“).");
+  if (!(config.ROLE_MEMBERS ?? []).length) problems.push("Keine Familienmitglieder-Rolle eingestellt.");
+  const all = await guild.members.fetch().catch(() => guild.members.cache);
+  const family = [...all.values()].filter(m => !m.user?.bot && familyOf(config, m.roles.cache));
+  const known = new Set(db.prepare("SELECT user_id FROM logbooks WHERE guild_id=? AND thread_id IS NOT NULL").all(guild.id).map(r => r.user_id));
+  const missing = family.filter(m => !known.has(m.id));
+  return { forum: forum ? { id: forum.id, name: forum.name } : null, problems, family: family.length, withLogbook: family.length - missing.length, missing: missing.map(m => ({ id: m.id, name: logbookTitle(db, guild.id, m) })), lastError: (() => { try { return JSON.parse(getSetting(db, guild.id, "LOGBOOK_LAST_ERROR") ?? "null"); } catch { return null; } })() };
+}
+
+/**
+ * Legt für alle Familienmitglieder ohne Logbuch eines an – bestehende Posts mit Name/ID werden nur verknüpft.
+ * Nacheinander mit Pause, damit Discord nicht drosselt.
+ */
+export async function createMissingLogbooks({ db, client, config, guild, actorId, pauseMs = 1500 }) {
+  const status = await logbookStatus({ db, client, config, guild });
+  const result = { created: 0, linked: 0, failed: 0, errors: [] };
+  if (!status.forum) return { ...result, errors: status.problems };
+  const all = await guild.members.fetch().catch(() => guild.members.cache);
+  for (const { id } of status.missing) {
+    const member = all.get(id);
+    if (!member) continue;
+    try {
+      const r = await ensureLogbook({ db, client, config, member, actorId });
+      if (r.status === "created") { result.created++; await new Promise(resolve => setTimeout(resolve, pauseMs)); }
+      else if (r.status === "existing") result.linked++;
+      else { result.failed++; result.errors.push(r.reason); }
+    } catch (error) { result.failed++; result.errors.push(`${logbookTitle(db, guild.id, member)}: ${error.message}`); }
+  }
+  return result;
 }

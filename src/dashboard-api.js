@@ -38,6 +38,7 @@ import { PollError, createPollService, publishPoll, refreshPollMessage, announce
 import { EXPORTS, buildExportFile } from "./export.js";
 import { TaskError, createTaskService, weekStart } from "./services/tasks.js";
 import { decideTask, refreshTaskBoard } from "./task-logs.js";
+import { createMissingLogbooks, logbookStatus } from "./logbooks.js";
 import { noShowsOf, removeNoShow } from "./event-checks.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
@@ -79,6 +80,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
   const finance = createFinance(db), closures = createAccountClosureService(db, finance), events = createEventService(db), giveaways = createGiveawayService(db);
   const tickets = createTicketService(db), applications = createApplicationService(db);
   const tasks = createTaskService(db, { timezone: () => config.TIMEZONE });
+  let logbookRun = null;
   const names = new Map();
 
   const guild = async () => client.guilds.cache.get(guildId) ?? client.guilds.fetch(guildId);
@@ -275,6 +277,10 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const strip = l => ({ id: l.id, user_id: l.user_id, type: `${l.type_emoji} ${l.type_name}`, type_id: l.type_id, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, note: l.note, status: l.status, duplicate_of: l.duplicate_of, reviewer_id: l.reviewer_id, reviewed_at: l.reviewed_at, reject_reason: l.reject_reason, created_at: l.created_at, hasProof: Boolean(l.message_id || l.proof_url) });
       const ids = [...pending, ...recent].flatMap(l => [l.user_id, l.reviewer_id]).concat(Object.values(board).flat().map(r => r.userId));
       return withNames({ summary: tasks.summary(guildId), pending: pending.map(strip), recent: recent.map(strip), types: tasks.listTypes(guildId, { all: true }), board, me: member.id, owner: member.owner }, ids);
+    }],
+    [/^\/api\/logbooks$/, async member => {
+      if (!can(member, "staff") && !can(member, "tasks")) throw new HttpError(403, "Dafür brauchst du eine Staff- oder Aufgaben-Prüfer-Rolle.");
+      return { ...(await logbookStatus({ db, client, config, guild: await guild() })), running: logbookRun };
     }],
     [/^\/api\/tasks\/([\w-]+)\/proof$/, async (member, url, [, id]) => {
       need(member, "tasks", "Aufgaben-Prüfer-, Finanz- oder Leitungsrolle");
@@ -475,6 +481,20 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const quantity = body.quantity === "" || body.quantity == null ? null : Number(body.quantity);
       const log = await decideTask({ db, client, config, guildId, id, actorId: member.id, approve: action === "approve", quantity, reason: body.reason, owner: member.owner });
       return { message: log.status === "approved" ? `Bestätigt${log.reward_cents ? ` – ${formatMoney(log.reward_cents)} gutgeschrieben` : ""}.` : "Abgelehnt. Das Mitglied wird informiert." };
+    }],
+    [/^\/api\/logbooks\/create-missing$/, async member => {
+      need(member, "staff", "Staff- oder Leitungsrolle");
+      if (logbookRun) throw new HttpError(409, "Die Logbücher werden gerade schon angelegt.");
+      const g = await guild(), status = await logbookStatus({ db, client, config, guild: g });
+      if (!status.forum) throw new HttpError(400, status.problems[0] ?? "Kein Logbücher-Forum.");
+      if (!status.missing.length) return { message: "Alle Familienmitglieder haben schon ein Logbuch." };
+      logbookRun = { startedAt: nowIso(), total: status.missing.length };
+      // Läuft im Hintergrund (mit Pausen gegen Discord-Drosselung); das Ergebnis steht danach im Protokoll.
+      void createMissingLogbooks({ db, client, config, guild: g, actorId: member.id })
+        .then(r => audit(db, guildId, member.id, "logbook.bulk", null, { created: r.created, linked: r.linked, failed: r.failed, errors: r.errors.slice(0, 5) }))
+        .catch(error => console.warn("Logbücher konnten nicht angelegt werden:", error.message))
+        .finally(() => { logbookRun = null; });
+      return { message: `${status.missing.length} Logbücher werden angelegt – dauert ca. ${Math.ceil(status.missing.length * 1.7 / 60)} Min. Bestehende Posts mit gleichem Namen/ID werden nur verknüpft.` };
     }],
     [/^\/api\/task-types$/, async (member, body) => {
       need(member, "finance", "Finanz- oder Leitungsrolle");

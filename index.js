@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { ensureLogbook } from "./src/logbooks.js";
+import { ensureLogbook, familyOf } from "./src/logbooks.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
 import { createSettingsService } from "./src/services/settings.js";
@@ -102,9 +102,11 @@ client.on(Events.GuildMemberUpdate,(_old,member)=>{
 client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
   if(!config.LOGBOOK_AUTO_CREATE||!config.CHANNEL_TASK_FORUM||member.user?.bot)return;
   if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
-  const had=oldMember?.partial?null:(config.ROLE_MEMBERS??[]).some(id=>oldMember.roles.cache.has(id));
-  if(had!==false||!(config.ROLE_MEMBERS??[]).some(id=>member.roles.cache.has(id)))return;
-  void ensureLogbook({db,client,config,member}).then(r=>{if(r.status==="created")console.log(`Logbuch angelegt: ${r.thread.name}`);}).catch(error=>console.warn("Logbuch konnte nicht angelegt werden:",error.message));
+  // Familie = Familienrolle oder eine Rang-Rolle. Unbekannter Vorher-Zustand zählt als „neu“; doppelte Posts verhindert ensureLogbook.
+  const had=oldMember?.partial||!oldMember?.roles?.cache?null:familyOf(config,oldMember.roles.cache);
+  if(had===true||!familyOf(config,member.roles.cache))return;
+  if(had===null&&db.prepare("SELECT 1 FROM logbooks WHERE guild_id=? AND user_id=?").get(member.guild.id,member.id))return;
+  void ensureLogbook({db,client,config,member}).then(r=>{if(r.status==="created")console.log(`Logbuch angelegt: ${r.thread.name}`);else if(r.status==="skipped")setSetting(db,member.guild.id,"LOGBOOK_LAST_ERROR",JSON.stringify({at:new Date().toISOString(),message:r.reason}));}).catch(error=>{console.warn("Logbuch konnte nicht angelegt werden:",error.message);setSetting(db,member.guild.id,"LOGBOOK_LAST_ERROR",JSON.stringify({at:new Date().toISOString(),message:error.message}));});
 });
 // Familienrolle verloren oder Server verlassen: Löschanfrage für das Familienkonto (Bestätigung über die Website).
 const closures=createAccountClosureService(db,finance);
