@@ -18,11 +18,10 @@ function forumMock(threads = []) {
 }
 const member = (name = "Tony Soprano | 123456") => ({ id: U, displayName: name, user: { bot: false }, guild: { id: G } });
 
-test("Vorlage: eigener Titel in der Titel-Zeile, Erwähnung ganz unten im Wichtig-Block", () => {
+test("Vorlage: eigener Titel in der Titel-Zeile, Erwähnung ganz unten außerhalb des Zitats", () => {
   const text = buildLogbookContent(TEMPLATE, "Tony Soprano | 123456", U);
   assert.match(text, /\*\*Titel des eigenem Logbuch:\*\* `Tony Soprano \| 123456`/);
-  assert.ok(text.endsWith(`\n> <@${U}>`));
-  assert.ok(buildLogbookContent("Hallo", "X", U).endsWith(`\n<@${U}>`), "ohne Zitat: Erwähnung als eigene Zeile");
+  assert.ok(text.endsWith(`ungültig**.\n\n<@${U}>`), "nicht im Zitat-Strich");
 });
 
 test("Logbuch wird mit Vorlage aus dem Forum angelegt – genau einmal, Person wird markiert", async () => {
@@ -34,7 +33,7 @@ test("Logbuch wird mit Vorlage aus dem Forum angelegt – genau einmal, Person w
   const { opts } = m.created[0];
   assert.equal(opts.name, "Tony Soprano | 123456", "Titel aus der Verifizierung");
   assert.match(opts.message.content, /`Tony Soprano \| 123456`/);
-  assert.ok(opts.message.content.endsWith(`> <@${U}>`));
+  assert.ok(opts.message.content.endsWith(`\n\n<@${U}>`));
   assert.deepEqual(opts.message.allowedMentions, { users: [U] });
   assert.equal((await ensureLogbook({ db, client: m.client, config, member: member() })).status, "existing");
 });
@@ -69,4 +68,14 @@ test("Status nennt fehlende Bot-Rechte; „Fehlende anlegen“ legt für alle Fa
   const r = await createMissingLogbooks({ db, client: m.client, config, guild, actorId: "x", pauseMs: 0 });
   assert.deepEqual([r.created, r.linked, r.failed], [1, 1, 0], "Tony neu, Paulie verknüpft, Gast ignoriert");
   assert.equal((await logbookStatus({ db, client: m.client, config, guild })).missing.length, 0);
+});
+
+test("Bestehende Bot-Posts: Markierung wird aus dem Zitat nach unten verschoben", async () => {
+  const { fixLogbookMentions } = await import("../src/logbooks.js");
+  const db = testDb(), edits = [];
+  db.prepare("INSERT INTO logbooks(guild_id,user_id,thread_id,title,source,created_at) VALUES(?,?,?,?,'created','x')").run(G, U, "t1", "Tony");
+  const starter = { author: { id: "bot" }, editable: true, content: `> Wichtig\n> <@${U}>`, edit: async p => edits.push(p) };
+  const client = { user: { id: "bot" }, channels: { fetch: async () => ({ fetchStarterMessage: async () => starter }) } };
+  assert.equal(await fixLogbookMentions({ db, client, guildId: G }), 1);
+  assert.equal(edits[0].content, `> Wichtig\n\n<@${U}>`);
 });

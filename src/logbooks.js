@@ -4,7 +4,7 @@ import { audit, getSetting } from "./database.js";
 /**
  * Logbücher: Bekommt jemand die Familienmitglieder-Rolle, legt der Bot im Logbücher-Forum einen Post
  * „Vorname Nachname | ID“ an. Text = Startnachricht des Posts „Vorlage …“ (sonst Standardtext), ganz unten wird
- * die Person markiert, damit ihr der Post angezeigt wird. Bestehende Posts mit Namen bzw. ID werden übernommen, nie doppelt.
+ * die Person markiert (unter dem Wichtig-Block, außerhalb des Zitats), damit ihr der Post angezeigt wird. Bestehende Posts mit Namen bzw. ID werden übernommen, nie doppelt.
  */
 export const DEFAULT_LOGBOOK_TEMPLATE = [
   "📋 **Aufgaben Logs:**",
@@ -29,12 +29,12 @@ export function logbookTitle(db, guildId, member) {
   return String(verified || member.displayName || member.user?.username || member.id).slice(0, 100);
 }
 
-/** Vorlage für die Person: eigener Titel in der Titel-Zeile, Erwähnung ganz unten (im Wichtig-Block, falls zitiert). */
+/** Vorlage für die Person: eigener Titel in der Titel-Zeile, Erwähnung ganz unten außerhalb des Zitats. */
 export function buildLogbookContent(template, title, userId) {
   const lines = String(template || DEFAULT_LOGBOOK_TEMPLATE).replace(/\s+$/, "").split("\n")
     .map(line => (/titel/i.test(line) && /`[^`]*`/.test(line) ? line.replace(/`[^`]*`/, `\`${title.replace(/`/g, "'")}\``) : line));
-  const last = lines.at(-1) ?? "";
-  lines.push(`${/^>\s?/.test(last) ? "> " : ""}<@${userId}>`);
+  // Erwähnung als eigene Zeile unter dem Wichtig-Block, außerhalb des Zitat-Strichs.
+  lines.push("", `<@${userId}>`);
   return lines.join("\n").slice(0, 2000);
 }
 
@@ -143,4 +143,19 @@ export async function createMissingLogbooks({ db, client, config, guild, actorId
     } catch (error) { result.failed++; result.errors.push(`${logbookTitle(db, guild.id, member)}: ${error.message}`); }
   }
   return result;
+}
+
+/** Einmalig: In bereits vom Bot angelegten Posts die Erwähnung aus dem Zitat-Strich nach unten holen. */
+export async function fixLogbookMentions({ db, client, guildId }) {
+  let fixed = 0;
+  for (const row of db.prepare("SELECT user_id,thread_id FROM logbooks WHERE guild_id=? AND source='created' AND thread_id IS NOT NULL").all(guildId)) {
+    const thread = await client.channels.fetch(row.thread_id).catch(() => null);
+    const starter = await thread?.fetchStarterMessage?.().catch(() => null);
+    const quoted = `\n> <@${row.user_id}>`;
+    if (!starter?.editable && starter?.author?.id !== client.user?.id) continue;
+    if (!starter?.content?.endsWith(quoted)) continue;
+    const ok = await starter.edit({ content: `${starter.content.slice(0, -quoted.length)}\n\n<@${row.user_id}>`, allowedMentions: { parse: [] } }).then(() => true).catch(() => false);
+    if (ok) fixed++;
+  }
+  return fixed;
 }

@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { ensureLogbook, familyOf } from "./src/logbooks.js";
+import { ensureLogbook, familyOf, fixLogbookMentions } from "./src/logbooks.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
 import { createSettingsService } from "./src/services/settings.js";
@@ -41,6 +41,7 @@ client.once(Events.ClientReady,ready=>{
   console.log(`Gambino Bot bereit als ${ready.user.tag} (Version ${currentVersion()}).`);
   startScheduler({db,client,config,series});
   void adoptLeadershipDefaults();
+  if(config.DISCORD_GUILD_ID&&!getSetting(db,config.DISCORD_GUILD_ID,"LOGBOOK_MENTION_FIXED"))void fixLogbookMentions({db,client:ready,guildId:config.DISCORD_GUILD_ID}).then(n=>{setSetting(db,config.DISCORD_GUILD_ID,"LOGBOOK_MENTION_FIXED",new Date().toISOString());if(n)console.log(`Logbücher: Markierung in ${n} Posts nach unten verschoben.`);}).catch(error=>console.warn("Logbuch-Markierung nicht korrigiert:",error.message));
   // Alle Mitglieder in den Cache laden, damit Rollenwechsel (z. B. neue Familienrolle) zuverlässig erkannt werden.
   if(config.DISCORD_GUILD_ID)void ready.guilds.fetch(config.DISCORD_GUILD_ID).then(g=>g.members.fetch()).catch(error=>console.warn("Mitglieder konnten nicht geladen werden:",error.message));
   void migrateNicknameFormat({db,client,config}).then(r=>{if(r)console.log(`Namensformat umgestellt: ${r.renamed} umbenannt, ${r.skipped} übersprungen, ${r.failed} fehlgeschlagen.`);}).catch(error=>console.warn("Namensformat konnte nicht umgestellt werden:",error.message));
