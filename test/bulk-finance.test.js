@@ -57,3 +57,17 @@ test("Sammelauszahlung: Vorschau ab Mindestbetrag, jede Auszahlung genau einmal,
   assert.equal(dms.length, 1);
   assert.equal((await post(api, staff, "/api/payouts/bulk", { requestId: randomUUID(), items })).status, 403, "nur Finanzen");
 });
+
+test("Sammelbuchung: gleiche Gutschrift für alle Ausgewählten, einmalig, nur Finanzen", async () => {
+  const { db, finance, api, present } = setup();
+  const requestId = randomUUID(), body = { requestId, userIds: [A, B], amount: "25000", reason: "Event Bankraub" };
+  assert.equal((await post(api, staff, "/api/credits/bulk", body)).status, 403);
+  const ok = await post(api, fin, "/api/credits/bulk", body);
+  assert.match(ok.body.message, /2 Gutschriften à \$25\.000,00 verbucht \(gesamt \$50\.000,00\)/);
+  assert.equal(finance.previewPayout(G, A).gross, 2_500_000);
+  await post(api, fin, "/api/credits/bulk", body);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM transactions WHERE type='credit'").get().n, 2, "kein Doppelklick-Duplikat");
+  present.delete(C);
+  assert.equal((await post(api, fin, "/api/credits/bulk", { ...body, requestId: randomUUID(), userIds: [A, C] })).status, 400);
+  assert.equal(finance.previewPayout(G, A).gross, 2_500_000, "nichts gebucht, wenn jemand fehlt");
+});

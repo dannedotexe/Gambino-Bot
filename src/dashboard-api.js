@@ -207,7 +207,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
     }],
     // Familienliste für Sammel-Aktionen (Sammelsanktion): Name und Kontostand.
     [/^\/api\/family-roster$/, async member => {
-      need(member, "staff", "Staff-Rolle");
+      if (!can(member, "staff") && !can(member, "finance")) throw new HttpError(403, "Dafür brauchst du die Staff- oder Finanzrolle.");
       const g = await guild();
       const list = await familyMembers({ db, guild: g, config });
       const ids = list.map(m => m.id), names = await resolveNames(ids);
@@ -691,6 +691,25 @@ export function createDashboardApi({ db, client, config, settings = null, series
         return list;
       })();
       return { message: `${created.length} Sanktionen à ${formatMoney(cents)} vorgemerkt (gesamt ${formatMoney(cents * created.length)}). Sie werden bei der nächsten Auszahlung verrechnet.` };
+    }],
+    // Sammelbuchung: gleiche Gutschrift für mehrere Mitglieder – alles oder nichts, jede Buchung genau einmal.
+    [/^\/api\/credits\/bulk$/, async (member, body) => {
+      need(member, "finance", "Finanzrolle");
+      const request = requestId(body.requestId);
+      const ids = [...new Set((Array.isArray(body.userIds) ? body.userIds : []).map(String))];
+      if (!ids.length) throw new HttpError(400, "Bitte mindestens ein Mitglied auswählen.");
+      if (ids.length > 100) throw new HttpError(400, "Höchstens 100 Mitglieder auf einmal.");
+      ids.forEach(id => snowflake(id));
+      const cents = money(body.amount), reason = text(body.reason, { min: 3, max: 300, label: "Buchungsgrund" });
+      if (db.prepare("SELECT 1 FROM audit_logs WHERE guild_id=? AND action='finance.bulk_credit' AND target_id=?").get(guildId, request)) return { message: "Diese Sammelbuchung wurde bereits verbucht; es wurde nichts doppelt gebucht." };
+      const g = await guild(), present = await g.members.fetch({ user: ids }).catch(() => null);
+      const missing = ids.filter(id => !present?.get?.(id) || present.get(id).user?.bot);
+      if (missing.length) throw new HttpError(400, `${missing.length} ausgewählte Person(en) sind nicht (mehr) auf dem Server. Bitte Auswahl prüfen.`);
+      db.transaction(() => {
+        for (const userId of ids) finance.credit({ guildId, userId, actorId: member.id, cents, reason, key: `web-bulk-credit:${request}:${userId}` });
+        audit(db, guildId, member.id, "finance.bulk_credit", request, { count: ids.length, cents, reason, userIds: ids });
+      })();
+      return { message: `${ids.length} Gutschriften à ${formatMoney(cents)} verbucht (gesamt ${formatMoney(cents * ids.length)}).` };
     }],
     // Sammelauszahlung, Schritt 2: jede Auszahlung einzeln und genau einmal (Schlüssel je Anfrage + Mitglied).
     // Hat sich ein Konto seit der Vorschau geändert, wird es übersprungen und gemeldet.
