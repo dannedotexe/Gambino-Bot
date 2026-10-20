@@ -36,28 +36,6 @@ test("Sammelsanktion: für alle Ausgewählten, einmalig pro Anfrage, alles oder 
   assert.equal(db.prepare("SELECT COUNT(*) n FROM sanctions").get().n, 2, "nichts eingetragen, wenn jemand fehlt");
 });
 
-test("Sammelauszahlung: Vorschau ab Mindestbetrag, jede Auszahlung genau einmal, geänderte Konten übersprungen", async () => {
-  const { finance, api, dms } = setup({ PAYOUT_MINIMUM_CENTS: "100000" });
-  finance.credit({ guildId: G, userId: A, actorId: "x", cents: 500_000, reason: "Event", key: "a" });
-  finance.credit({ guildId: G, userId: B, actorId: "x", cents: 300_000, reason: "Event", key: "b" });
-  finance.credit({ guildId: G, userId: C, actorId: "x", cents: 50_000, reason: "Event", key: "c" });
-  finance.sanction({ guildId: G, userId: A, actorId: "x", cents: 100_000, reason: "Zu spät" });
-  const preview = await api.get(fin, new URL("/api/payouts/bulk-preview", "https://x"));
-  assert.deepEqual(preview.body.items.map(i => [i.userId, i.net, i.deduction]), [[A, 400_000, 100_000], [B, 300_000, 0]], "C unter Mindestbetrag");
-  finance.credit({ guildId: G, userId: B, actorId: "x", cents: 1_000, reason: "Nachtrag", key: "b2" });
-  const items = preview.body.items.map(i => ({ userId: i.userId, expectedGross: i.gross, expectedDeduction: i.deduction }));
-  const res = await post(api, fin, "/api/payouts/bulk", { requestId: preview.body.requestId, items });
-  assert.equal(res.status, 200);
-  assert.equal(res.body.done.length, 1); assert.equal(res.body.skipped.length, 1);
-  assert.match(res.body.skipped[0].reason, /geändert/);
-  assert.equal(finance.previewPayout(G, A).gross, 0);
-  assert.equal(finance.previewPayout(G, B).gross, 301_000, "B unverändert");
-  const again = await post(api, fin, "/api/payouts/bulk", { requestId: preview.body.requestId, items: items.slice(0, 1) });
-  assert.equal(again.body.done[0].fresh, false, "zweiter Klick bucht nichts doppelt");
-  assert.equal(dms.length, 1);
-  assert.equal((await post(api, staff, "/api/payouts/bulk", { requestId: randomUUID(), items })).status, 403, "nur Finanzen");
-});
-
 test("Sammelbuchung: gleiche Gutschrift für alle Ausgewählten, einmalig, nur Finanzen", async () => {
   const { db, finance, api, present } = setup();
   const requestId = randomUUID(), body = { requestId, userIds: [A, B], amount: "25000", reason: "Event Bankraub" };

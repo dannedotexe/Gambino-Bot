@@ -336,7 +336,7 @@ kbd{font:11px var(--font);padding:1px 6px;border-radius:4px;border:1px solid var
 .tabbar,.appearance-btn-label{display:none!important}
 .logbook-forums{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-top:10px}.logbook-forum{padding:12px;border:1px solid var(--line);border-radius:var(--radius-sm)}.logbook-forum h3{font-size:14px}
 
-/* Mehrfachauswahl (Sammelsanktion, Sammelauszahlung) */
+/* Mehrfachauswahl (Sammelsanktion, Sammelbuchung) */
 .check[hidden]{display:none!important}
 .multi-pick{display:block}.multi-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 .multi-tools .multi-filter{flex:1 1 200px;min-width:0}
