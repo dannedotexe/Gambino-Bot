@@ -4,6 +4,7 @@ import { getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
 import { ensureLogbook, familyOf, fixLogbookMentions } from "./src/logbooks.js";
+import { handleLogbookMessage } from "./src/task-logs.js";
 import { startScheduler } from "./src/scheduler.js";
 import { startModeration } from "./src/moderation.js";
 import { createSettingsService } from "./src/services/settings.js";
@@ -133,6 +134,12 @@ client.on(Events.GuildMemberRemove,member=>{
 client.on(Events.GuildMemberAdd,member=>{void sendWelcome({db,client,config,member}).catch(error=>console.warn("Begrüßung fehlgeschlagen:",error.message));});
 // Aktivität: nur Zeitpunkt und Anzahl der Nachrichten, nie Inhalte (für Inaktivitäts-Check und Mitgliederprofil).
 const activity=createActivityService(db);
+// Screenshot im eigenen Logbuch: Bot fragt per Auswahlmenü, welche Aufgabe es ist (kein /log nötig).
+client.on(Events.MessageCreate,message=>{
+  if(!message.guildId||message.author?.bot||message.webhookId)return;
+  if(config.DISCORD_GUILD_ID&&message.guildId!==config.DISCORD_GUILD_ID)return;
+  void handleLogbookMessage({db,config,message}).catch(error=>console.warn("Logbuch-Screenshot nicht verarbeitet:",error.message));
+});
 client.on(Events.MessageCreate,message=>{
   try{
     if(!message.guildId||message.author?.bot||message.webhookId)return;

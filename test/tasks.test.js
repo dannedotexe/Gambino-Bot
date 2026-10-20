@@ -136,3 +136,44 @@ test("Website: Rechte, Bestätigen, Aufgabe mit „25k“ anlegen, Mein Bereich"
   assert.equal(mine.body.tasks.profile.total.logs, 1);
   assert.equal(mine.body.tasks.recent[0].status, "approved");
 });
+
+test("Logbuch: Screenshot posten → Menü → Menge → Prüf-Karte; Bestätigen setzt ✅ im Logbuch", async () => {
+  const { handleLogbookMessage } = await import("../src/task-logs.js");
+  const db = testDb(), m = discordMocks(), FORUM = "60000000000000051", THREAD = "60000000000000052";
+  const config = baseConfig({ CHANNEL_TASK_REVIEW: CH, CHANNEL_TASK_FORUM: FORUM });
+  const tasks = service(db), plant = typeNamed(db, "Plantage");
+  tasks.saveType(G, R, { id: plant.id, name: "Plantage", emoji: "🌿", unit: "Ernte", rewardCents: 1_000_000, perUnit: true });
+  const replies = [], reactions = [], promptEdits = [];
+  const prompt = { id: "p1", edit: async p => promptEdits.push(p) };
+  const source = { id: "s1", guildId: G, channelId: THREAD, author: { id: U, bot: false }, attachments: new Map([["a", { url: "https://cdn.discordapp.com/s.png", contentType: "image/png", name: "s.png", size: 9, width: 5, height: 5 }]]),
+    reply: async p => { replies.push(p); return prompt; }, react: async e => reactions.push(e) };
+  const thread = { id: THREAD, parentId: FORUM, name: "Tony Soprano | 111111", isThread: () => true, messages: { fetch: async id => (id === "s1" ? source : prompt) } };
+  source.channel = thread;
+  assert.equal(await handleLogbookMessage({ db, config, message: { ...source, channel: { ...thread, name: "Vorlage + Info:" } } }), false, "Vorlage wird ignoriert");
+  assert.equal(await handleLogbookMessage({ db, config, message: source }), true);
+  assert.match(replies[0].components[0].components[0].data.custom_id, /^task:pick:s1$/);
+  const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) });
+  const client = { ...m.client, channels: { fetch: async id => (id === THREAD ? thread : { id: CH, send: async p => { m.sent.push(p); return { id: "rm1", channel: { id: CH }, embeds: [], attachments: { first: () => null } }; }, messages: { fetch: async () => null } }) } };
+  const base = { guildId: G, channel: thread, channelId: THREAD, message: { id: "p1" }, member: { roles: { cache: new Map() } } };
+  try {
+    const stranger = [];
+    await handleTaskInteraction({ i: { ...base, customId: "task:pick:s1", user: { id: R }, values: [plant.id], reply: async p => stranger.push(p) }, db, client, config });
+    assert.match(stranger[0].content, /nur die Person/);
+    let modal;
+    await handleTaskInteraction({ i: { ...base, customId: "task:pick:s1", user: { id: U }, values: [plant.id], showModal: async x => { modal = x; } }, db, client, config });
+    assert.equal(modal.data.custom_id, `task:pickq:s1:${plant.id}`);
+    const updates = [];
+    await handleTaskInteraction({ i: { ...base, customId: `task:pickq:s1:${plant.id}`, user: { id: U }, fields: { getTextInputValue: () => "3" }, update: async p => updates.push(p) }, db, client, config });
+    assert.match(updates[0].content, /Plantage ×3 Ernte\*\* eingereicht · \$30\.000,00/);
+  } finally { globalThis.fetch = realFetch; }
+  assert.equal(m.sent.length, 1, "Prüf-Karte gepostet");
+  const log = tasks.list(G, { status: "pending" })[0];
+  assert.equal(log.user_id, U); assert.equal(log.quantity, 3);
+  const again = [];
+  await handleTaskInteraction({ i: { ...base, customId: `task:pickq:s1:${plant.id}`, user: { id: U }, fields: { getTextInputValue: () => "3" }, update: async p => again.push(p) }, db, client, config });
+  assert.match(again[0].content, /bereits eingereicht/);
+  const { decideTask } = await import("../src/task-logs.js");
+  await decideTask({ db, client, config, guildId: G, id: log.id, actorId: R, approve: true });
+  assert.deepEqual(reactions, ["✅"]);
+  assert.match(promptEdits.at(-1).content, /bestätigt · \*\*\+\$30\.000,00\*\*/);
+});

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
+import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { accessGroups } from "./config.js";
 import { getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
@@ -89,6 +89,62 @@ const reviewChannelOf = async (client, config) => {
   return id ? client.channels.fetch(id).catch(() => null) : null;
 };
 
+/** Prüf-Karte mit dauerhaft angehängtem Screenshot in den Prüf-Channel posten. */
+async function postReviewCard({ db, client, config, log, attachment }) {
+  const tasks = service(db, config), profile = tasks.profile(log.guild_id, log.user_id);
+  const proof = await downloadProof(attachment);
+  const channel = await reviewChannelOf(client, config);
+  let posted = null;
+  if (channel?.send) {
+    posted = await channel.send({ embeds: [taskReviewCard(log, { profile, duplicate: log.duplicate, imageName: proof?.name, imageUrl: proof ? null : attachment.url })], components: taskReviewButtons(log),
+      files: proof ? [new AttachmentBuilder(proof.buffer, { name: proof.name })] : [], allowedMentions: { parse: [] } }).catch(error => { console.warn("Aufgaben-Log konnte nicht gepostet werden:", error.message); return null; });
+  }
+  if (posted) tasks.attachMessage(log.id, { channelId: posted.channel?.id ?? channel.id, messageId: posted.id, proofUrl: posted.embeds?.[0]?.image?.url ?? posted.attachments?.first?.()?.url ?? null });
+  return { profile, posted };
+}
+
+const proofKeyOf = a => (a.width && a.height ? `${a.width}x${a.height}:${a.size}` : null);
+const imageOf = message => [...(message.attachments?.values?.() ?? [])].find(a => /^image\//.test(a.contentType ?? "") || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(a.name ?? ""));
+
+/** Auswahlmenü „Welche Aufgabe?“ unter einem Screenshot im Logbuch. */
+export function logbookPrompt(db, config, guildId, messageId) {
+  const types = service(db, config).listTypes(guildId).slice(0, 25);
+  if (!types.length) return null;
+  return {
+    content: "📸 **Screenshot erkannt!** Welche Aufgabe ist das? Danach prüft das Team und die Belohnung kommt automatisch aufs Konto.",
+    components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`task:pick:${messageId}`).setPlaceholder("Aufgabe auswählen …")
+      .addOptions(types.map(t => ({ label: t.name.slice(0, 100), value: t.id, emoji: t.emoji || undefined, description: `${rewardLabel(t)}${t.daily_limit ? ` · max. ${t.daily_limit}×/Tag` : ""}`.slice(0, 100) })))),
+      new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`task:skip:${messageId}`).setLabel("Kein Log").setStyle(ButtonStyle.Secondary))],
+    allowedMentions: { parse: [] },
+  };
+}
+
+/** Nachricht in einem Logbuch-Post: Bild → Auswahlmenü darunter. Gibt true zurück, wenn gefragt wurde. */
+export async function handleLogbookMessage({ db, config, message }) {
+  if (!config.CHANNEL_TASK_FORUM || !message.channel?.isThread?.() || message.channel.parentId !== config.CHANNEL_TASK_FORUM) return false;
+  if (/^\W*vorlage/i.test(message.channel.name ?? "") || !imageOf(message)) return false;
+  const prompt = logbookPrompt(db, config, message.guildId, message.id);
+  if (!prompt) return false;
+  await message.reply(prompt);
+  return true;
+}
+
+/** Auswahl im Logbuch: Log anlegen (bei Stückzahl erst Menge abfragen), Antwort zeigt den Status. */
+async function submitFromLogbook({ i, db, client, config, messageId, typeId, quantity = 1 }) {
+  const tasks = service(db, config);
+  const source = await i.channel?.messages?.fetch(messageId).catch(() => null);
+  if (!source) return i.update({ content: "Der Screenshot wurde gelöscht.", components: [] });
+  if (db.prepare("SELECT 1 FROM task_logs WHERE source_message_id=?").get(messageId)) return i.update({ content: "Dieser Screenshot wurde bereits eingereicht.", components: [] });
+  const attachment = imageOf(source);
+  let log;
+  try { log = tasks.submit({ guildId: i.guildId, userId: source.author.id, typeId, quantity, proofKey: attachment ? proofKeyOf(attachment) : null }); }
+  catch (error) { if (error instanceof TaskError) return i.reply({ content: error.message, flags: MessageFlags.Ephemeral }); throw error; }
+  db.prepare("UPDATE task_logs SET source_channel_id=?,source_message_id=?,prompt_message_id=? WHERE id=?").run(source.channelId ?? i.channelId, messageId, i.message.id, log.id);
+  await i.update({ content: `⏳ **${logTitle(log)}** eingereicht${log.reward_cents ? ` · ${formatMoney(log.reward_cents)}` : ""} – wartet auf Prüfung.`, components: [] });
+  await postReviewCard({ db, client, config, log, attachment });
+  return null;
+}
+
 /** /log: Einreichung prüfen, speichern und als Prüf-Karte posten. */
 export async function submitTaskLog({ i, db, client, config }) {
   const tasks = service(db, config), guildId = i.guildId;
@@ -98,20 +154,12 @@ export async function submitTaskLog({ i, db, client, config }) {
   let log;
   try {
     log = tasks.submit({ guildId, userId: i.user.id, typeId: i.options.getString("aufgabe"), quantity: i.options.getInteger("menge") ?? 1, note: i.options.getString("notiz") ?? "",
-      proofKey: attachment.width && attachment.height ? `${attachment.width}x${attachment.height}:${attachment.size}` : null });
+      proofKey: proofKeyOf(attachment) });
   } catch (error) {
     if (error instanceof TaskError) return i.editReply({ content: error.message });
     throw error;
   }
-  const profile = tasks.profile(guildId, i.user.id);
-  const proof = await downloadProof(attachment);
-  const channel = await reviewChannelOf(client, config);
-  let posted = null;
-  if (channel?.send) {
-    posted = await channel.send({ embeds: [taskReviewCard(log, { profile, duplicate: log.duplicate, imageName: proof?.name, imageUrl: proof ? null : attachment.url })], components: taskReviewButtons(log),
-      files: proof ? [new AttachmentBuilder(proof.buffer, { name: proof.name })] : [], allowedMentions: { parse: [] } }).catch(error => { console.warn("Aufgaben-Log konnte nicht gepostet werden:", error.message); return null; });
-  }
-  if (posted) tasks.attachMessage(log.id, { channelId: posted.channel?.id ?? channel.id, messageId: posted.id, proofUrl: posted.embeds?.[0]?.image?.url ?? posted.attachments?.first?.()?.url ?? null });
+  const { profile, posted } = await postReviewCard({ db, client, config, log, attachment });
   return i.editReply({ embeds: [new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  AUFGABEN-LOG" }).setTitle(`📨 ${logTitle(log)} eingereicht`)
     .setDescription(`${log.reward_cents ? `Nach der Prüfung bekommst du **${formatMoney(log.reward_cents)}** aufs Familienkonto.` : "Wird nach der Prüfung gezählt."}${config.TASK_DM_ENABLED ? " Du bekommst eine DM, sobald das Team entschieden hat." : ""}`)
     .addFields({ name: "Deine Stufe", value: levelLine(profile.level), inline: false }, { name: "🔥 Serie", value: `${profile.streak} Tage`, inline: true }, { name: "Diese Woche", value: `${nLogs(profile.week.logs)} · ${formatMoney(profile.week.earned)}`, inline: true })
@@ -127,6 +175,16 @@ export async function afterTaskDecision({ db, client, config, log, levelBefore =
     // Angehängter Screenshot bleibt beim Bearbeiten erhalten; das Embed verweist weiter darauf.
     const file = message?.attachments?.first?.()?.name ?? null;
     if (message) await message.edit({ embeds: [taskReviewCard(log, { imageName: file, imageUrl: file ? null : message.embeds?.[0]?.image?.url ?? null })], components: [] }).catch(() => {});
+  }
+  // Im Logbuch: Antwort unter dem Screenshot aktualisieren und Reaktion setzen.
+  const raw = db.prepare("SELECT source_channel_id,source_message_id,prompt_message_id FROM task_logs WHERE id=?").get(log.id);
+  if (raw?.source_channel_id) {
+    const thread = await client.channels.fetch(raw.source_channel_id).catch(() => null);
+    const prompt = raw.prompt_message_id ? await thread?.messages?.fetch(raw.prompt_message_id).catch(() => null) : null;
+    const text = log.status === "approved" ? `✅ **${logTitle(log)}** bestätigt${log.reward_cents ? ` · **+${formatMoney(log.reward_cents)}** aufs Konto` : ""}` : `❌ **${logTitle(log)}** abgelehnt – ${log.reject_reason ?? "ohne Grund"}`;
+    if (prompt) await prompt.edit({ content: text, components: [], allowedMentions: { parse: [] } }).catch(() => {});
+    const source = await thread?.messages?.fetch(raw.source_message_id).catch(() => null);
+    if (source) await source.react(log.status === "approved" ? "✅" : "❌").catch(() => {});
   }
   if (config.TASK_DM_ENABLED && log.reviewer_id !== log.user_id) {
     const p = tasks.profile(log.guild_id, log.user_id);
@@ -163,6 +221,22 @@ export async function handleTaskInteraction({ i, db, client, config }) {
     if (!isMember(i, config)) return reply("Das ist nur für Familienmitglieder.");
     return i.reply({ embeds: [myTasksView(db, config, i.guildId, i.user.id)], flags: MessageFlags.Ephemeral });
   }
+  if (["pick", "pickq", "skip"].includes(action)) {
+    const source = await i.channel?.messages?.fetch(id).catch(() => null);
+    if (source && source.author?.id !== i.user.id && !canReview(i, config)) return reply("Das kann nur die Person auswählen, die den Screenshot gepostet hat.");
+    if (action === "skip") return i.update({ content: "Kein Log – alles gut.", components: [] }).then(() => i.message?.delete?.().catch(() => {}));
+    const typeId = action === "pick" ? i.values[0] : i.customId.split(":")[3];
+    const type = service(db, config).typeById(i.guildId, typeId);
+    if (!type?.active) return reply("Diese Aufgabe gibt es nicht mehr.");
+    if (action === "pick" && type.per_unit) return i.showModal(new ModalBuilder().setCustomId(`task:pickq:${id}:${typeId}`).setTitle(`${type.name}`.slice(0, 45)).addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("qty").setLabel(`Wie viele? (${type.unit})`.slice(0, 45)).setValue("1").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3))));
+    let quantity = 1;
+    if (action === "pickq") {
+      quantity = Number(String(i.fields.getTextInputValue("qty")).trim());
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) return reply("Bitte eine Zahl von 1 bis 999 eingeben.");
+    }
+    return submitFromLogbook({ i, db, client, config, messageId: id, typeId, quantity });
+  }
   if (!canReview(i, config)) return reply("Aufgaben-Logs prüfen dürfen nur Aufgaben-Prüfer, Finanzen oder die Leitung.");
   const tasks = service(db, config), log = tasks.get(i.guildId, id);
   if (!log) return reply("Dieses Log gibt es nicht mehr.");
@@ -198,7 +272,7 @@ export function buildTaskBoard(db, config, guildId, reference = new Date()) {
     .setDescription(types.map(t => `${t.emoji} **${t.name}** · ${rewardLabel(t)}${t.daily_limit ? ` · max. ${t.daily_limit}×/Tag` : ""}`).join("\n").slice(0, 3500) || "Noch keine Aufgaben eingerichtet.")
     .addFields(
       { name: "🏆 Top-Farmer diese Woche", value: top.map((r, n) => `${MEDALS[n] ?? `**${n + 1}.**`} <@${r.userId}> · ${nLogs(r.logs)} · ${formatMoney(r.earned)}`).join("\n") || "Noch niemand – sei die/der Erste!" },
-      { name: "So loggst du", value: `\`/log\`${commands} → Aufgabe wählen, **Screenshot** anhängen (ganzer Bildschirm mit Datum & Uhrzeit), bei Bedarf Menge angeben. Das Team prüft – die Belohnung landet automatisch auf deinem Familienkonto.` },
+      { name: "So loggst du", value: `${config.CHANNEL_TASK_FORUM ? `Einfach den **Screenshot** in dein Logbuch in <#${config.CHANNEL_TASK_FORUM}> posten (ganzer Bildschirm mit Datum & Uhrzeit) und im Menü die Aufgabe wählen.` : `\`/log\`${commands} → Aufgabe wählen, **Screenshot** anhängen (ganzer Bildschirm mit Datum & Uhrzeit).`} Das Team prüft – die Belohnung landet automatisch auf deinem Familienkonto.` },
     )
     .setFooter({ text: `Diese Woche: ${sum.weekApproved} Logs · ${formatMoney(sum.weekPaid)} ausgezahlt · aktualisiert sich automatisch` });
   const buttons = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("task:me").setLabel("Meine Aufgaben").setEmoji("📊").setStyle(ButtonStyle.Primary));

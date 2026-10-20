@@ -237,6 +237,9 @@ const COLUMNS = [
   ["event_series", "min_participants", "INTEGER"],
   ["member_warnings", "revoked_by", "TEXT"],
   ["member_warnings", "revoke_reason", "TEXT"],
+  ["task_logs", "source_channel_id", "TEXT"],
+  ["task_logs", "source_message_id", "TEXT"],
+  ["task_logs", "prompt_message_id", "TEXT"],
 ];
 
 export function initializeSchema(db) {

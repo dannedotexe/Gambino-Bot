@@ -375,7 +375,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="ping") return respond(i,`Pong! ${client.ws.ping} ms`);
       if (i.commandName==="help") return answer(i,{...fieldsEmbed("📚 Gambinos Bot – Befehle",[
         {name:"💰 Konto & Sanktionen",value:"`/konto` Guthaben, Gutschriften, Auszahlungen, Korrekturen und Historie\n`/sanktion` Sanktionen und Verwarnungen eintragen, ansehen, korrigieren oder aufheben"},
-        {name:"📋 Aufgaben",value:"`/log` erledigte Aufgabe (Invite, Plantage …) mit Screenshot einreichen – Belohnung nach Prüfung aufs Konto\n`/aufgaben` deine Stufe, Serie und Verdienst"},
+        {name:"📋 Aufgaben",value:"Screenshot einfach in dein Logbuch posten und die Aufgabe im Menü wählen (oder `/log`) – Belohnung nach Prüfung aufs Konto\n`/aufgaben` deine Stufe, Serie und Verdienst"},
         {name:"🚫 Abmeldung & Aktivität",value:"`/abwesend melden | beenden | liste` Urlaub oder Pause eintragen\n`/rangliste` aktivste Mitglieder nach Event-Teilnahmen"},
         {name:"🛡️ Moderation",value:"`/timeout` `/untimeout` (Moderation) · `/kick` (Staff) · `/ban` `/unban` (Leitung) – mit Grund, DM und Eintrag in der Mitgliederhistorie"},
         {name:"📝 Verwarnungen",value:"`/warn` Mitglied verwarnen (DM, ohne Geldabzug)\n`/warnings` eigene bzw. fremde Verwarnungen ansehen\n`/unwarn` Verwarnung zurücknehmen"},
