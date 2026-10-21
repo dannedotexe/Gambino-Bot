@@ -61,6 +61,7 @@ const schema = z.object({
   TASK_DM_ENABLED: bool("true"),
   LOGBOOK_AUTO_CREATE: bool("true"),
   LOGBOOK_IMAGES_ONLY: bool("true"),
+  FAMILY_ROLE_FROM_RANK: bool("true"),
   LOGBOOK_ARCHIVE: bool("true"),
   LOGBOOK_REMIND_DAYS: z.coerce.number().int().min(0).max(90).default(7),
   TASK_REJECT_REASONS: z.string().default("Datum/Uhrzeit nicht sichtbar,Nicht der ganze Bildschirm,Event-Log (nicht erlaubt),Doppelt eingereicht,Falsche Aufgabe gewählt,Screenshot nicht lesbar").transform(csv),

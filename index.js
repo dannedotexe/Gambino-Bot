@@ -6,6 +6,7 @@ import { buildCommands, createHandler, handleComponent } from "./src/commands.js
 import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { startScheduler } from "./src/scheduler.js";
+import { ensureFamilyRole, syncFamilyRoles } from "./src/family-role.js";
 import { startModeration } from "./src/moderation.js";
 import { createSettingsService } from "./src/services/settings.js";
 import { createSeriesService } from "./src/services/event-series.js";
@@ -44,7 +45,7 @@ client.once(Events.ClientReady,ready=>{
   void adoptLeadershipDefaults();
   if(config.DISCORD_GUILD_ID&&!getSetting(db,config.DISCORD_GUILD_ID,"LOGBOOK_MENTION_FIXED"))void fixLogbookMentions({db,client:ready,guildId:config.DISCORD_GUILD_ID}).then(n=>{setSetting(db,config.DISCORD_GUILD_ID,"LOGBOOK_MENTION_FIXED",new Date().toISOString());if(n)console.log(`Logbücher: Markierung in ${n} Posts nach unten verschoben.`);}).catch(error=>console.warn("Logbuch-Markierung nicht korrigiert:",error.message));
   // Alle Mitglieder in den Cache laden, damit Rollenwechsel (z. B. neue Familienrolle) zuverlässig erkannt werden.
-  if(config.DISCORD_GUILD_ID)void ready.guilds.fetch(config.DISCORD_GUILD_ID).then(g=>g.members.fetch()).catch(error=>console.warn("Mitglieder konnten nicht geladen werden:",error.message));
+  if(config.DISCORD_GUILD_ID)void ready.guilds.fetch(config.DISCORD_GUILD_ID).then(g=>g.members.fetch().then(()=>syncFamilyRoles({config,guild:g})).then(r=>{if(r?.added||r?.failed)console.log(`Familienrolle nachgezogen: ${r.added} vergeben, ${r.failed} fehlgeschlagen.`);})).catch(error=>console.warn("Mitglieder konnten nicht geladen werden:",error.message));
   void migrateNicknameFormat({db,client,config}).then(r=>{if(r)console.log(`Namensformat umgestellt: ${r.renamed} umbenannt, ${r.skipped} übersprungen, ${r.failed} fehlgeschlagen.`);}).catch(error=>console.warn("Namensformat konnte nicht umgestellt werden:",error.message));
 });
 // Von der Leitung genannte IDs einmalig übernehmen, falls noch nichts eingestellt ist. Gesetzt wird nur, was
@@ -116,6 +117,11 @@ client.on(Events.InteractionCreate,async interaction=>{
   }
 });
 // Neue Familienmitglieder (Mitglieder-Rolle erhalten) bekommen automatisch ein Familienkonto.
+// Rang-Rolle erhalten → Familienrolle dazu (danach greifen Logbücher, Konto usw. über das normale Rollen-Event).
+client.on(Events.GuildMemberUpdate,(_old,member)=>{
+  if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+  void ensureFamilyRole({config,member}).then(added=>{if(added)console.log(`Familienrolle vergeben: ${member.displayName??member.id} (Rang-Rolle)`);}).catch(error=>console.warn("Familienrolle konnte nicht vergeben werden:",error.message));
+});
 client.on(Events.GuildMemberUpdate,(oldMember,newMember)=>{void trackRankChange({db,config,oldMember,newMember}).catch(error=>console.warn("Rangänderung nicht protokolliert:",error.message));});
 client.on(Events.GuildMemberUpdate,(_old,member)=>{
   try{
