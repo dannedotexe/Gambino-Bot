@@ -9,9 +9,9 @@ import { accessGroups, loadConfig } from "../src/config.js";
 const G = "10000000000000001", TZ = "Europe/Vienna";
 const env = { DISCORD_TOKEN: "test-only", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: G, ROLE_LEADERS: "20000000000000001" };
 
-test("alle 13 Standard-Aktivitäten werden einmalig und inaktiv angelegt", () => {
+test("alle 14 Standard-Aktivitäten werden einmalig und inaktiv angelegt", () => {
   const db = testDb(), series = createSeriesService(db);
-  assert.equal(series.seedDefaults(G), 13);
+  assert.equal(series.seedDefaults(G), 14);
   assert.equal(series.seedDefaults(G), 0, "kein zweites Anlegen");
   const list = series.list(G);
   assert.equal(list.length, DEFAULT_SERIES.length);
@@ -156,4 +156,15 @@ test("Nur eine offene Anmeldung: nächste Aktivität erst, wenn die frühere beg
   assert.equal(createEventService(db).join({ guildId: G, eventId: db.prepare("SELECT id FROM events").get().id, userId: "u" }).status, "closed");
   await createSeriesEvents({ db, client, config, series, reference: at("2026-10-20T18:21:00Z") });
   assert.deepEqual(db.prepare("SELECT name FROM events ORDER BY starts_at").all().map(r => r.name), ["Rangfolge", "Cayo"]);
+});
+
+test("Bestehender Server: „Der Kampf um die Werft“ wird einmalig aktiv ergänzt (alle 3 Std. ab 01:10, ohne Limit)", () => {
+  const db = testDb(), series = createSeriesService(db);
+  db.prepare("INSERT INTO guild_settings(guild_id,key,value,updated_at) VALUES(?,?,?,?)").run(G, "EVENT_SERIES_SEEDED", "x", "x");
+  assert.equal(series.addDefaultOnce(G, "Der Kampf um die Werft", { active: true, key: "SERIES_WERFT_ADDED" }), true);
+  const row = db.prepare("SELECT * FROM event_series WHERE name='Der Kampf um die Werft'").get();
+  assert.equal(row.active, 1); assert.equal(row.max_participants, null); assert.equal(row.location, "Hafen von Los Santos");
+  assert.equal(row.times, "01:10,04:10,07:10,10:10,13:10,16:10,19:10,22:10");
+  db.prepare("DELETE FROM event_series").run();
+  assert.equal(series.addDefaultOnce(G, "Der Kampf um die Werft", { active: true, key: "SERIES_WERFT_ADDED" }), false, "gelöscht bleibt gelöscht");
 });

@@ -35,6 +35,8 @@ const settings=config.DISCORD_GUILD_ID?createSettingsService({db,config,env:{...
 if(settings){const {rejected}=settings.apply();for(const item of rejected)console.warn(`Gespeicherte Einstellung ignoriert (ungültig): ${item}`);}
 const series=createSeriesService(db);
 if(config.DISCORD_GUILD_ID){const seeded=series.seedDefaults(config.DISCORD_GUILD_ID);if(seeded)console.log(`${seeded} Standard-Aktivitäten angelegt (inaktiv). Aktivieren über Website oder /aktivitaeten.`);}
+// Auf Wunsch der Leitung (21.10.2026): „Der Kampf um die Werft“ alle 3 Std. um xx:10 (ab 01:10), direkt aktiv.
+if(config.DISCORD_GUILD_ID&&series.addDefaultOnce(config.DISCORD_GUILD_ID,"Der Kampf um die Werft",{active:true,key:"SERIES_WERFT_ADDED"}))console.log("Aktivität „Der Kampf um die Werft“ angelegt (aktiv).");
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel,Partials.Message]});
 const finance=createFinance(db);
 const handlers=createHandler({db,finance,config,client,settings,series});

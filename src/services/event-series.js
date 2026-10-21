@@ -19,6 +19,8 @@ export const DEFAULT_SERIES = [
   { name: "Gießerei", weekdays: ALL_DAYS, times: ["14:20"] },
   { name: "Bizwar", weekdays: ALL_DAYS, times: ["19:05", "01:05"] },
   { name: "Kampf um die Rangfolge", weekdays: ALL_DAYS, times: ["20:50"] },
+  { name: "Der Kampf um die Werft", weekdays: ALL_DAYS, times: ["01:10", "04:10", "07:10", "10:10", "13:10", "16:10", "19:10", "22:10"], location: "Hafen von Los Santos",
+    description: "Schlacht um den Hafen – Belohnung: Munition & Waffen für das Familienlager.\n⚠️ **Alle Teilnehmer müssen POV aufnehmen und 48 Stunden aufbewahren** (sonst 30 Tage Sperre)." },
 ];
 
 const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -120,6 +122,25 @@ export function createSeriesService(db) {
     return created;
   }
 
+  /**
+   * Später hinzugekommene Standard-Aktivität einmalig ergänzen (nur wenn es keine mit dem Namen gibt).
+   * active: auf Wunsch der Leitung direkt eingeschaltet.
+   */
+  function addDefaultOnce(guildId, name, { active = false, key, actorId = "system" } = {}) {
+    if (!guildId || !getSetting(db, guildId, "EVENT_SERIES_SEEDED") || getSetting(db, guildId, key)) return false;
+    const item = DEFAULT_SERIES.find(x => x.name === name);
+    return db.transaction(() => {
+      setSetting(db, guildId, key, now());
+      if (!item || db.prepare("SELECT 1 FROM event_series WHERE guild_id=? AND lower(name)=lower(?)").get(guildId, name)) return false;
+      const data = validateSeries({ kind: "scheduled", ...item });
+      const order = db.prepare("SELECT COALESCE(MAX(sort_order),0)+1 n FROM event_series WHERE guild_id=?").get(guildId).n;
+      db.prepare("INSERT INTO event_series(id,guild_id,name,kind,weekdays,times,availability,description,location,lead_minutes,max_participants,active,sort_order,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .run(randomUUID(), guildId, data.name, data.kind, data.weekdays, data.times, data.availability, data.description, data.location, data.lead_minutes, data.max_participants, active ? 1 : 0, order, actorId, now(), now());
+      audit(db, guildId, actorId, "event.series_created", null, { name: data.name, schedule: describeSchedule(data), source: "standard" });
+      return true;
+    })();
+  }
+
   const create = db.transaction(({ guildId, actorId, input }) => {
     const data = validateSeries(input);
     if (db.prepare("SELECT 1 FROM event_series WHERE guild_id=? AND name=?").get(guildId, data.name)) throw new Error("Eine Aktivität mit diesem Namen existiert bereits.");
@@ -173,5 +194,5 @@ export function createSeriesService(db) {
     return due;
   }
 
-  return { list, get, seedDefaults, create, update, setActive, remove, dueOccurrences };
+  return { list, get, seedDefaults, addDefaultOnce, create, update, setActive, remove, dueOccurrences };
 }

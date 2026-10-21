@@ -42,7 +42,7 @@ test("Reset löscht Testdaten, behält Einstellungen, Vorlagen und (standardmä�
   for (const table of ["accounts", "transactions", "sanctions", "payout_allocations", "member_warnings", "giveaways", "giveaway_entries"]) assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0, table);
   assert.equal(finance.balance(G, U), 0);
   assert.equal(getSetting(db, G, "CHANNEL_TICKET_LOG"), "40000000000000001", "Einstellungen bleiben");
-  assert.equal(db.prepare("SELECT COUNT(*) n FROM event_series").get().n, 13, "Aktivitäten-Vorlagen bleiben");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM event_series").get().n, 14, "Aktivitäten-Vorlagen bleiben");
   assert.equal(db.prepare("SELECT COUNT(*) n FROM member_verifications").get().n, 1);
   assert.deepEqual(db.prepare("SELECT action FROM audit_logs").all().map(r => r.action), ["admin.data_reset"], "nur der Reset selbst ist protokolliert");
   // Schutz der Buchungen ist danach wieder aktiv.
