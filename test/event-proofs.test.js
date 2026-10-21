@@ -11,15 +11,20 @@ const addEvent = (db, id, startsAt, extra = {}) => db.prepare("INSERT INTO event
   .run(id, G, extra.name ?? id, "", startsAt, "HQ", "h", extra.status ?? "scheduled", "x", extra.closed ?? null);
 const message = (id, replies) => ({ id, guildId: G, channelId: "t1", author: { id: U }, attachments: new Map([["a", { contentType: "image/png", name: "a.png" }], ["b", { contentType: "image/png", name: "b.png" }]]), reply: async p => { replies.push(p); return { id: `r-${id}` }; } });
 
-test("Passende Events: kurz hintereinander möglich, angemeldete zuerst, abgeschlossene nicht", () => {
+test("Passende Events: alle von heute (auch frühere), angemeldete zuerst, morgen und abgeschlossene nicht", () => {
   const db = testDb();
   addEvent(db, "rang", "2026-10-20T18:20:00Z", { name: "Kampf um die Rangfolge" });
   addEvent(db, "cayo", "2026-10-20T18:50:00Z", { name: "Cayo Perico" });
   addEvent(db, "soon", "2026-10-20T19:30:00Z");
-  addEvent(db, "far", "2026-10-20T23:00:00Z");
+  addEvent(db, "morning", "2026-10-20T08:00:00Z");
+  addEvent(db, "evening", "2026-10-20T21:30:00Z");
+  addEvent(db, "tomorrow", "2026-10-20T23:00:00Z", { name: "01:00 Wiener Zeit = morgen" });
+  addEvent(db, "yesterday", "2026-10-19T19:00:00Z");
   addEvent(db, "done", "2026-10-20T18:00:00Z", { closed: "x" });
   db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES('rang',?,'signed_up','x')").run(U);
-  assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: ref }).map(e => e.id), ["rang", "cayo", "soon"]);
+  assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: ref }).map(e => e.id), ["rang", "cayo", "soon", "evening", "morning"]);
+  // Kurz nach Mitternacht: das Event von gestern Abend ist noch wählbar.
+  assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: new Date("2026-10-20T23:30:00Z") }).map(e => e.id).sort(), ["cayo", "evening", "rang", "soon", "tomorrow"]);
 });
 
 test("Bild: bei mehreren Events fragen, Person wählt, Team darf korrigieren, Fremde nicht", async () => {
