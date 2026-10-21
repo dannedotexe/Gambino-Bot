@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { EmbedBuilder } from "discord.js";
 import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR } from "./presentation.js";
-import { publishEvent, refreshEventPosts } from "./event-posts.js";
+import { overlapsOf, publishEvent, refreshEventPosts } from "./event-posts.js";
 import { describeSchedule, nextOccurrence } from "./services/event-series.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 
@@ -60,9 +60,12 @@ export async function createSeriesEvents({ db, client, config, series, reference
   let created = 0;
   // Der Reihe nach ankündigen: Solange ein früheres Event noch nicht begonnen hat, wartet das nächste – auch wenn es
   // nur wenige Minuten später ist. Beginnt das frühere, wird seine Anmeldung geschlossen und das nächste erscheint.
+  // Ausnahme: Beginnt das frühere Event höchstens EVENT_OVERLAP_MINUTES vorher, laufen beide gleichzeitig – dann werden
+  // beide zusammen angekündigt und man entscheidet sich für eines (Anmeldung beim einen meldet beim anderen ab).
+  const overlap = (config.EVENT_OVERLAP_MINUTES ?? 0) * 60_000;
   const earlierPending = db.prepare("SELECT 1 FROM events WHERE guild_id=? AND status='scheduled' AND signup_closed_at IS NULL AND starts_at>? AND starts_at<? LIMIT 1");
   for (const { series: item, startsAt } of due.sort((a, b) => a.startsAt - b.startsAt)) {
-    if (earlierPending.get(guildId, reference.toISOString(), startsAt.toISOString())) continue;
+    if (earlierPending.get(guildId, reference.toISOString(), new Date(startsAt.getTime() - overlap + (overlap ? 1 : 0)).toISOString())) continue;
     const id = randomUUID(), createdAt = new Date().toISOString();
     const event = { id, guild_id: guildId, name: item.name, description: item.description || "", starts_at: startsAt.toISOString(), location: item.location, host_id: client.user.id, equipment: "", notes: "", max_participants: item.max_participants, min_participants: item.min_participants ?? null, series_id: item.id, status: "scheduled" };
     // Reservierung über den Unique-Index (series_id, starts_at): parallele Ticks oder Neustarts erzeugen kein Duplikat.
@@ -77,6 +80,11 @@ export async function createSeriesEvents({ db, client, config, series, reference
         audit(db, guildId, client.user.id, "event.created", id, { name: event.name, startsAt: event.starts_at, channelId: posted.channelId, seriesId: item.id });
       })();
       created++;
+      // Gleichzeitige Events: deren Karten bekommen den Hinweis auf das neue Event.
+      for (const other of overlapsOf(db, event, config.EVENT_OVERLAP_MINUTES)) {
+        const row = db.prepare("SELECT * FROM events WHERE id=?").get(other.id);
+        if (row) await refreshEventPosts({ db, client, config, event: row, cardOnly: true }).catch(() => {});
+      }
     } catch (error) {
       // Ankündigung fehlgeschlagen: Reservierung zurücknehmen, damit der nächste Lauf es erneut versucht.
       db.prepare("DELETE FROM events WHERE id=? AND message_id IS NULL").run(id);

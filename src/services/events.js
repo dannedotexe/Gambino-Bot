@@ -8,7 +8,11 @@ export function createEventService(db) {
   const participants = eventId =>
     db.prepare(`SELECT user_id,status FROM event_participants WHERE event_id=? AND status IN ${ACTIVE_PARTICIPATION} ORDER BY updated_at,user_id`).all(eventId);
 
-  const join = db.transaction(({ guildId, eventId, userId }) => {
+  /**
+   * Anmelden. overlapMinutes > 0: bei gleichzeitigen Events (Beginn so nah beieinander) wird man dort abgemeldet –
+   * man kann nur bei einem dabei sein. switched = [{ event, promoted }] der verlassenen Events.
+   */
+  const join = db.transaction(({ guildId, eventId, userId, overlapMinutes = 0 }) => {
     const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled' AND signup_closed_at IS NULL").get(eventId, guildId);
     if (!event) return { status: "closed" };
     const current = db.prepare("SELECT status FROM event_participants WHERE event_id=? AND user_id=?").get(eventId, userId);
@@ -22,7 +26,22 @@ export function createEventService(db) {
     }
     db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,'signed_up',?) ON CONFLICT(event_id,user_id) DO UPDATE SET status='signed_up',updated_at=excluded.updated_at").run(eventId, userId, now());
     audit(db, guildId, userId, "event.participation", userId, { eventId, status: "signed_up" });
-    return { status: "joined", event };
+    const switched = [];
+    if (overlapMinutes > 0) {
+      const others = db.prepare(`SELECT e.* FROM events e JOIN event_participants p ON p.event_id=e.id WHERE e.guild_id=? AND e.id<>? AND e.status='scheduled' AND e.signup_closed_at IS NULL
+        AND p.user_id=? AND p.status IN ${ACTIVE_PARTICIPATION} AND ABS(strftime('%s',e.starts_at)-strftime('%s',?))<?`).all(guildId, eventId, userId, event.starts_at, overlapMinutes * 60);
+      for (const other of others) {
+        db.prepare(`UPDATE event_participants SET status='left',updated_at=? WHERE event_id=? AND user_id=? AND status IN ${ACTIVE_PARTICIPATION}`).run(now(), other.id, userId);
+        audit(db, guildId, userId, "event.participation", userId, { eventId: other.id, status: "left", reason: `gewechselt zu ${event.name}` });
+        switched.push({ event: other, promoted: promote(other) });
+      }
+      // Auch von Wartelisten gleichzeitiger Events herunter.
+      for (const other of db.prepare(`SELECT e.* FROM events e JOIN event_waitlist w ON w.event_id=e.id WHERE w.user_id=? AND e.guild_id=? AND e.id<>? AND e.status='scheduled' AND ABS(strftime('%s',e.starts_at)-strftime('%s',?))<?`).all(userId, guildId, eventId, event.starts_at, overlapMinutes * 60)) {
+        db.prepare("DELETE FROM event_waitlist WHERE event_id=? AND user_id=?").run(other.id, userId);
+        switched.push({ event: other, promoted: [], waitlist: true });
+      }
+    }
+    return { status: "joined", event, switched };
   });
 
   const leave = db.transaction(({ guildId, eventId, userId }) => {

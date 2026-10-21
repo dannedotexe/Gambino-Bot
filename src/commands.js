@@ -1204,17 +1204,20 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       }
       if(kind==="event"&&(action==="join"||action==="leave")){
         if(action==="join"){const gate=memberGate(i);if(gate)return answer(i,{content:gate,ephemeral:true});}
-        const result=action==="join"?events.join({guildId:g,eventId:id,userId:u}):events.leave({guildId:g,eventId:id,userId:u});
+        const result=action==="join"?events.join({guildId:g,eventId:id,userId:u,overlapMinutes:config.EVENT_OVERLAP_MINUTES??0}):events.leave({guildId:g,eventId:id,userId:u});
         if(result.status==="closed")return answer(i,{content:"Dieses Event ist nicht mehr offen.",ephemeral:true});
         if(["joined","left","waitlisted","left_waitlist"].includes(result.status))await refreshEventPosts({db,client,config,event:result.event,cardOnly:true});
         // Nachgerückte von der Warteliste per DM informieren.
-        for(const userId of result.promoted??[])void (i.client??client).users.fetch(userId).then(user=>user.send({embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  EVENTS"}).setTitle("🎉 Du bist nachgerückt!").setDescription(`Für **${result.event.name}** (<t:${unix(result.event.starts_at)}:F>) ist ein Platz frei geworden – du stehst jetzt auf der Teilnehmerliste.\nKannst du doch nicht? Dann bitte über die Event-Karte abmelden.`).setTimestamp()]})).catch(()=>{});
+        // Gleichzeitiges Event: dort abgemeldet → Karte aktualisieren, Nachgerückte von dort informieren.
+        for(const s of result.switched??[]){await refreshEventPosts({db,client,config,event:s.event,cardOnly:true}).catch(()=>{});result.promoted=[...(result.promoted??[]),...s.promoted.map(userId=>({userId,event:s.event}))];}
+        for(const entry of result.promoted??[]){const userId=entry.userId??entry,ev=entry.event??result.event;void (i.client??client).users.fetch(userId).then(user=>user.send({embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  EVENTS"}).setTitle("🎉 Du bist nachgerückt!").setDescription(`Für **${ev.name}** (<t:${unix(ev.starts_at)}:F>) ist ein Platz frei geworden – du stehst jetzt auf der Teilnehmerliste.\nKannst du doch nicht? Dann bitte über die Event-Karte abmelden.`).setTimestamp()]})).catch(()=>{});
+        }
         const titles={joined:"✅ Anmeldung bestätigt",already:"ℹ️ Bereits angemeldet",left:"↩️ Abmeldung bestätigt",not_joined:"ℹ️ Keine aktive Anmeldung",waitlisted:"⏳ Auf der Warteliste",already_waiting:"⏳ Schon auf der Warteliste",left_waitlist:"↩️ Von der Warteliste entfernt"};
         const texts={joined:"Du stehst jetzt auf der Teilnehmerliste.",already:"Deine Anmeldung ist bereits gespeichert.",left:"Du wurdest von der Teilnehmerliste entfernt.",not_joined:"Du warst für dieses Event nicht angemeldet.",waitlisted:`Das Event ist voll – du bist **Platz ${result.position}** auf der Warteliste. Wird ein Platz frei, rückst du automatisch nach und bekommst eine DM.`,already_waiting:`Du bist **Platz ${result.position}** auf der Warteliste.`,left_waitlist:"Du stehst nicht mehr auf der Warteliste."};
         return answer(i,{...fieldsEmbed(titles[result.status],[
           {name:"Event",value:`**${result.event.name}**`,inline:true},
           {name:"Beginn",value:`<t:${unix(result.event.starts_at)}:F>`,inline:true},
-        ],texts[result.status]),ephemeral:true});
+        ],`${texts[result.status]}${result.switched?.length?`\n\n↩️ Bei **${result.switched.map(s=>s.event.name).join("**, **")}** (gleiche Zeit) wurdest du dafür abgemeldet.`:""}`),ephemeral:true});
       }
       return answer(i,{content:"Diese Schaltfläche ist nicht mehr aktiv.",ephemeral:true});
     } catch(e){if(!(e instanceof FinanceError))console.error("Button action failed:",e);return replyError(i,e);}

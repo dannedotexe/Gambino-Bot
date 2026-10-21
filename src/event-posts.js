@@ -26,9 +26,12 @@ export function fillTemplate(template, event, { link = "", reference = new Date(
 
 const participantsOf = (db, eventId) => db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(eventId);
 const waitlistOf = (db, eventId) => db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY created_at,user_id").all(eventId).map(r => r.user_id);
+/** Andere offene Events, die so nah beginnen, dass man nur bei einem dabei sein kann. */
+export const overlapsOf = (db, event, minutes) => !minutes ? [] : db.prepare("SELECT id,name,starts_at,channel_id,message_id,guild_id FROM events WHERE guild_id=? AND id<>? AND status='scheduled' AND signup_closed_at IS NULL AND ABS(strftime('%s',starts_at)-strftime('%s',?))<? ORDER BY starts_at")
+  .all(event.guild_id, event.id, event.starts_at, minutes * 60);
 const seriesOf = (db, event) => (event.series_id ? db.prepare("SELECT * FROM event_series WHERE id=?").get(event.series_id) : null);
 
-export function eventCardPayload({ event, participants = [], texts = defaultsFor("events"), state = event.status, series = null, botId = null, waitlist = [] }) {
+export function eventCardPayload({ event, participants = [], texts = defaultsFor("events"), state = event.status, series = null, botId = null, waitlist = [], overlaps = [] }) {
   const look = STATE[state];
   const embed = new EmbedBuilder().setColor(look?.color ?? colorNumber(texts.color || "#d4af37"))
     .setTitle(`${look?.prefix ?? "📅 "}${event.name}`.slice(0, 256)).setTimestamp();
@@ -41,6 +44,7 @@ export function eventCardPayload({ event, participants = [], texts = defaultsFor
   if (event.notes && event.notes !== "Automatisch aus dem Aktivitätenplan erstellt.") fields.push({ name: "ℹ️ Hinweise", value: event.notes.slice(0, 1024), inline: false });
   const list = numberedMentions(participants.map(p => p.user_id), { empty: texts.emptyParticipants || "—" });
   fields.push({ name: `🙋 ${texts.participantsLabel || "Teilnehmende"} (${participants.length}${event.max_participants ? `/${event.max_participants}` : ""}${event.min_participants ? ` · mind. ${event.min_participants}` : ""})`, value: list.slice(0, 1024), inline: false });
+  if (overlaps.length && !look) fields.push({ name: "⚠️ Gleichzeitig", value: `${overlaps.map(o => `**${o.name}** <t:${unix(o.starts_at)}:t>`).join(", ")}\nDu kannst nur bei einem dabei sein – wer sich hier anmeldet, wird dort automatisch abgemeldet.`.slice(0, 1024), inline: false });
   if (waitlist.length && state === "scheduled") fields.push({ name: `⏳ Warteliste (${waitlist.length})`, value: numberedMentions(waitlist).slice(0, 1024), inline: false });
   embed.addFields(fields);
   const footer = series ? `${texts.seriesFooter || "Wiederkehrende Aktivität"} · ${describeSchedule(series)}` : texts.footer;
@@ -82,7 +86,7 @@ export async function publishEvent({ db, client, config, event, fallbackChannel 
   if (typeof signup?.send !== "function") throw new Error("Kein erreichbarer Event-Channel eingestellt (Einstellungen → Channels → Event-Anmeldung / Event-Ankündigungen).");
   const pingRoles = config.EVENT_PING_ROLES ?? [];
   const announceSeparately = config.CHANNEL_EVENT_ANNOUNCEMENTS && config.CHANNEL_EVENT_ANNOUNCEMENTS !== signup.id;
-  const card = eventCardPayload({ event, texts, series: seriesOf(db, event), botId: client.user?.id });
+  const card = eventCardPayload({ event, texts, series: seriesOf(db, event), botId: client.user?.id, overlaps: overlapsOf(db, event, config.EVENT_OVERLAP_MINUTES) });
   if (!announceSeparately && pingRoles.length) Object.assign(card, { content: pingRoles.map(id => `<@&${id}>`).join(" "), allowedMentions: { roles: pingRoles } });
   const message = await signup.send(card);
   let announcement = null;
@@ -119,7 +123,7 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
     await card?.delete?.()?.catch?.(() => {}); await announcement?.delete?.()?.catch?.(() => {});
     return Boolean(card);
   }
-  if (card) await card.edit({ ...eventCardPayload({ event, participants: participantsOf(db, event.id), texts, state, series: seriesOf(db, event), botId: client.user?.id, waitlist: waitlistOf(db, event.id) }), content: state === "scheduled" ? card.content || null : null, allowedMentions: { parse: [] } }).catch(() => {});
+  if (card) await card.edit({ ...eventCardPayload({ event, participants: participantsOf(db, event.id), texts, state, series: seriesOf(db, event), botId: client.user?.id, waitlist: waitlistOf(db, event.id), overlaps: overlapsOf(db, event, config.EVENT_OVERLAP_MINUTES) }), content: state === "scheduled" ? card.content || null : null, allowedMentions: { parse: [] } }).catch(() => {});
   if (announcement) {
     const link = card ? messageLink(card.guildId ?? config.DISCORD_GUILD_ID, card.channelId, card.id) : "";
     await announcement.edit({ ...announcementPayload({ event, texts, link, state }), content: state === "scheduled" ? announcement.content || null : null, allowedMentions: { parse: [] } }).catch(() => {});

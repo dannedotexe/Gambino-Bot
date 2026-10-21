@@ -168,3 +168,16 @@ test("Bestehender Server: „Der Kampf um die Werft“ wird einmalig aktiv ergä
   db.prepare("DELETE FROM event_series").run();
   assert.equal(series.addDefaultOnce(G, "Der Kampf um die Werft", { active: true, key: "SERIES_WERFT_ADDED" }), false, "gelöscht bleibt gelöscht");
 });
+
+test("Gleichzeitige Aktivitäten (≤ 30 Min.) werden zusammen angekündigt, spätere warten weiter", async () => {
+  const db = testDb(), series = createSeriesService(db), sent = [];
+  const channel = { id: "60000000000000001", guildId: G, send: async p => { sent.push(p); return { id: `m${sent.length}`, channelId: "60000000000000001", embeds: [] }; }, messages: { fetch: async () => null } };
+  const client = { user: { id: "bot" }, channels: { fetch: async () => channel } };
+  const config = { ...loadConfig(env), CHANNEL_EVENT_SIGNUP: "60000000000000001", EVENT_OVERLAP_MINUTES: 30 };
+  for (const [name, time] of [["Bizwar", "19:05"], ["Werft", "19:10"], ["Rangfolge", "20:50"]]) series.create({ guildId: G, actorId: "x", input: { name, kind: "scheduled", weekdays: [1, 2, 3, 4, 5, 6, 7], times: [time], active: true, leadMinutes: 240 } });
+  await createSeriesEvents({ db, client, config, series, reference: new Date("2026-10-21T15:30:00Z") }); // 17:30 Wien
+  const names = db.prepare("SELECT name FROM events ORDER BY starts_at").all().map(r => r.name);
+  assert.deepEqual(names, ["Bizwar", "Werft"], "Rangfolge wartet, bis die beiden begonnen haben");
+  const werftCard = sent.find(p => p.embeds?.[0]?.data?.title?.includes("Werft"));
+  assert.match(JSON.stringify(werftCard.embeds[0].data.fields), /Gleichzeitig.*Bizwar/);
+});

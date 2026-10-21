@@ -203,3 +203,22 @@ test("Konfiguration: Rollenstufen, Standardwerte und Hinweise ohne erfundene IDs
   assert.throws(() => loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", RANK_ROLE_ASSIGNMENT_ENABLED: "true" }), /RANK_ROLES_JSON/);
   assert.throws(() => loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", ROLE_STAFF: "123" }), /ROLE_STAFF/);
 });
+
+test("Gleichzeitige Events: Anmeldung beim einen meldet beim anderen ab (inkl. Warteliste), Nachrücker rückt nach", async () => {
+  const { createEventService } = await import("../src/services/events.js");
+  const db = testDb(), events = createEventService(db), G = "10000000000000001";
+  const add = (id, at, max = null) => db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at,max_participants) VALUES(?,?,?,'',?,'HQ','h','scheduled','x',?)").run(id, G, id, at, max);
+  add("bizwar", "2026-10-21T17:05:00.000Z", 1); add("werft", "2026-10-21T17:10:00.000Z"); add("rang", "2026-10-21T18:50:00.000Z");
+  const A = "30000000000000001", B = "30000000000000002";
+  events.join({ guildId: G, eventId: "bizwar", userId: A, overlapMinutes: 30 });
+  assert.equal(events.join({ guildId: G, eventId: "bizwar", userId: B, overlapMinutes: 30 }).status, "waitlisted");
+  events.join({ guildId: G, eventId: "rang", userId: A, overlapMinutes: 30 });
+  const r = events.join({ guildId: G, eventId: "werft", userId: A, overlapMinutes: 30 });
+  assert.equal(r.status, "joined");
+  assert.deepEqual(r.switched.map(s => [s.event.id, s.promoted]), [["bizwar", [B]]], "nur das gleichzeitige; B rückt nach");
+  assert.deepEqual(events.participants("bizwar").map(p => p.user_id), [B]);
+  assert.deepEqual(events.participants("rang").map(p => p.user_id), [A], "20:50 ist nicht gleichzeitig");
+  // B wechselt zur Werft → von Bizwar ab; ohne Überschneidungsregel (0) bleibt alles.
+  assert.equal(events.join({ guildId: G, eventId: "werft", userId: B, overlapMinutes: 0 }).switched.length, 0);
+  assert.deepEqual(events.participants("bizwar").map(p => p.user_id), [B]);
+});
