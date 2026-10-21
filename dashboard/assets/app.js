@@ -532,7 +532,7 @@ const actions = {
     openInfo(`Event-Logs · ${e?.name ?? ""}`, `<div class="proofs">${html}</div>`, "NACHWEISE", true);
   },
   "state-control": () => openForm({ eyebrow: "SPONTAN", title: "🚩 Staatliche Kontrolle", intro: "<p>Angriff oder Verteidigung – der Bot kündigt es sofort im Event-Channel mit Anmeldung an.</p>",
-    fields: [{ name: "mode", label: "Wer greift an?", type: "select", options: [["defend", "🛡️ Wir werden angegriffen"], ["attack", "🚩 Wir greifen an"]] }, { name: "family", label: "Welche Familie?", required: true, max: 60, placeholder: "z. B. Death Note" }, { name: "when", label: "Wann?", required: true, value: "jetzt", max: 20, hint: "jetzt, in 20 (Minuten) oder 16:30" }],
+    fields: [{ name: "mode", label: "Wer greift an?", type: "select", options: [["defend", "🛡️ Wir werden angegriffen"], ["attack", "🚩 Wir greifen an"]] }, { name: "family", label: "Welche Familie?", required: true, max: 60, placeholder: "z. B. Death Note" }, { name: "when", label: "Wann?", required: true, value: "jetzt", max: 20, hint: "jetzt, in 20 (Minuten) oder 16:30" }, { name: "max", label: "Max. Teilnehmer", type: "number", value: state.me.settings.controlMax ?? 10, min: 0, maxValue: 200, hint: "danach Warteliste · 0 = unbegrenzt" }],
     submit: "Ankündigen", onSubmit: v => post("/api/events/control", v) }),
   "att": async ({ event, user, status }) => { const r = await post(`/api/events/${event}/attendance`, { userId: user, status }); notify(r.message); await loadEvents(); attendanceDialog(event); },
   "event-end": ({ id }) => confirmAction("Event beenden?", "Die Anmeldung wird geschlossen. Danach die Anwesenheit eintragen und abschließen – erst dann ist das Event fertig.", "Beenden", () => post(`/api/events/${id}/end`), false),

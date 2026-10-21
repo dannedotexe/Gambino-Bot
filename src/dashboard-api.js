@@ -141,7 +141,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
         timezone: config.TIMEZONE, minimumCents: config.PAYOUT_MINIMUM_CENTS ?? null,
         ticketCategories: (config.TICKET_CATEGORIES_JSON ?? []).map(({ id, label }) => ({ id, label })),
         rankRoles: config.RANK_ROLE_ASSIGNMENT_ENABLED ? config.RANK_ROLES_JSON : [],
-        giveawayChannel: config.CHANNEL_GIVEAWAYS ?? null,
+        giveawayChannel: config.CHANNEL_GIVEAWAYS ?? null, controlMax: config.CONTROL_MAX_PARTICIPANTS ?? 10,
       },
     })],
     // „Mein Bereich“: ausschließlich die eigenen Daten der angemeldeten Person, ohne Staff-Interna.
@@ -686,7 +686,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
     [/^\/api\/events\/control$/, async (member, body) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");
       try {
-        const result = await announceControl({ db, client, config, actorId: member.id, family: body.family, when: body.when, mode: body.mode === "attack" ? "attack" : "defend" });
+        const result = await announceControl({ db, client, config, actorId: member.id, family: body.family, when: body.when, mode: body.mode === "attack" ? "attack" : "defend", max: body.max });
         return { message: `${result.name} angekündigt – Beginn ${new Intl.DateTimeFormat("de-AT", { timeStyle: "short", timeZone: config.TIMEZONE }).format(result.startsAt)} Uhr.` };
       } catch (error) { if (error instanceof ControlError) throw new HttpError(400, error.message); throw error; }
     }],

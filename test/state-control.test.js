@@ -26,8 +26,14 @@ test("Staatliche Kontrolle wird als Event mit Anmeldung angekündigt; /staatlich
   assert.equal(row.name, "🛡️ Staatliche Kontrolle – Verteidigung gegen Death Note");
   const attack = await announceControl({ db, client, config, actorId: "30000000000000001", family: "Ballas", when: "jetzt", mode: "attack" });
   assert.equal(attack.name, "🚩 Staatliche Kontrolle – Angriff auf Ballas");
+  assert.equal(row.max_participants, 10, "Standard-Limit 10 → Warteliste ab dem Elften");
+  const open = await announceControl({ db, client, config, actorId: "30000000000000001", family: "Vagos", when: "jetzt", max: 0 });
+  assert.equal(db.prepare("SELECT max_participants FROM events WHERE id=?").get(open.id).max_participants, null, "0 = unbegrenzt");
+  const big = await announceControl({ db, client, config, actorId: "30000000000000001", family: "Families", when: "jetzt", max: "25" });
+  assert.equal(db.prepare("SELECT max_participants FROM events WHERE id=?").get(big.id).max_participants, 25);
+  await assert.rejects(announceControl({ db, client, config, actorId: "x", family: "Lost", when: "jetzt", max: 500 }), ControlError);
   assert.equal(row.status, "scheduled");
-  assert.equal(sent.length, 2);
+  assert.equal(sent.length, 4);
   await assert.rejects(announceControl({ db, client, config, actorId: "x", family: "D", when: "jetzt" }), ControlError);
   assert.ok(buildCommands().some(c => c.name === "staatliche"));
 });

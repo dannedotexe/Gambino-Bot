@@ -249,7 +249,8 @@ export function buildCommands() {
   const control = new SlashCommandBuilder().setName("staatliche").setDescription("Staatliche Kontrolle ankündigen (Angriff oder Verteidigung)")
     .addStringOption(o=>o.setName("art").setDescription("Greifen wir an oder werden wir angegriffen?").setRequired(true).addChoices({name:"🛡️ Wir werden angegriffen",value:"defend"},{name:"🚩 Wir greifen an",value:"attack"}))
     .addStringOption(o=>o.setName("familie").setDescription("Welche Familie?").setRequired(true).setMaxLength(60))
-    .addStringOption(o=>o.setName("wann").setDescription("jetzt, in 20 (Minuten) oder 16:30").setRequired(false).setMaxLength(20));
+    .addStringOption(o=>o.setName("wann").setDescription("jetzt, in 20 (Minuten) oder 16:30").setRequired(false).setMaxLength(20))
+    .addIntegerOption(o=>o.setName("max").setDescription("Max. Teilnehmer, danach Warteliste (Standard aus Einstellungen, 0 = unbegrenzt)").setRequired(false).setMinValue(0).setMaxValue(200));
   const absence = new SlashCommandBuilder().setName("abwesend").setDescription("Abmeldung bei der Familie (Urlaub, Pause)")
     .addSubcommand(s=>s.setName("melden").setDescription("Für einen Zeitraum abmelden").addStringOption(o=>o.setName("von").setDescription("Beginn, z. B. heute, morgen, Freitag oder 20.10.").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("bis").setDescription("Ende, z. B. 27.10., Sonntag, 3 Tage oder 1 Woche").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Grund – sieht nur das Team").setRequired(true).setMinLength(2).setMaxLength(300)))
     .addSubcommand(s=>s.setName("kurz").setDescription("Kurz weg (Minuten/Stunden), z. B. 30 min, 2h oder bis 21:30").addStringOption(o=>o.setName("dauer").setDescription("z. B. 30 min, 2h, 1,5 h oder bis 21:30").setRequired(true).setMaxLength(20)).addStringOption(o=>o.setName("grund").setDescription("Optional – sieht nur das Team").setMaxLength(200)))
@@ -400,7 +401,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="unwarn") return await unwarnCommand(i,g,u);
       if (i.commandName==="staatliche"){
         const denied=guard(i,"events","Event-Team- oder Leitungsrolle");if(denied)return respond(i,denied);
-        try{const r=await announceControl({db,client,config,actorId:u,family:i.options.getString("familie"),when:i.options.getString("wann")??"jetzt",mode:i.options.getString("art")==="attack"?"attack":"defend"});return respond(i,`🚩 **${r.name}** angekündigt – Beginn <t:${Math.floor(r.startsAt.getTime()/1000)}:t>.`);}
+        try{const r=await announceControl({db,client,config,actorId:u,family:i.options.getString("familie"),when:i.options.getString("wann")??"jetzt",mode:i.options.getString("art")==="attack"?"attack":"defend",max:i.options.getInteger("max")});return respond(i,`🚩 **${r.name}** angekündigt – Beginn <t:${Math.floor(r.startsAt.getTime()/1000)}:t>.`);}
         catch(error){if(error instanceof ControlError)return respond(i,error.message);throw error;}
       }
       if (i.commandName==="log"){const denied=memberGate(i);if(denied)return respond(i,denied);return await submitTaskLog({i,db,client:i.client??client,config});}
