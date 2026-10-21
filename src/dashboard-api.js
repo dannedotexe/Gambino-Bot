@@ -34,7 +34,7 @@ import { CLOSURE_REASONS, createAccountClosureService } from "./services/account
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
 import { addPresent, afterClose, afterNotPlayed, closeAttendance, markNotPlayed, parseAmount, requestAttendance } from "./attendance.js";
-import { assignProofFromWeb, eventLogDay, proofMessages, proofsByUser } from "./event-proofs.js";
+import { assignProofFromWeb, deleteProofFromWeb, eventLogDay, proofMessages, proofsByUser } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
@@ -706,6 +706,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const result = await assignProofFromWeb({ db, client, config, guildId, messageId, eventId: String(body.eventId ?? ""), actorId: member.id });
       if (result.error) throw new HttpError(409, result.error);
       return { message: `Event-Log zugeordnet: ${result.event.name}.` };
+    }],
+    [/^\/api\/event-logs\/(\d{17,20})\/delete$/, async (member, body, [, messageId]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const result = await deleteProofFromWeb({ db, client, guildId, messageId, actorId: member.id });
+      if (result.error) throw new HttpError(404, result.error);
+      return { message: result.discord ? "Event-Log gelöscht – auch das Bild in Discord." : "Event-Log von der Website entfernt. Das Bild in Discord konnte nicht gelöscht werden (Bot braucht „Nachrichten verwalten“ im Forum)." };
     }],
     [/^\/api\/events\/([\w-]+)\/attendance\/proofs$/, async (member, body, [, id]) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");

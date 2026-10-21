@@ -7,7 +7,7 @@ import { zonedTime } from "./services/event-series.js";
 /**
  * Event-Nachweise: Bilder im Event-Logbuch-Forum werden einem Event zugeordnet. Der Bot fragt per Menü, zu welchem
  * Event das Bild gehört (alle Events von heute, kurz nach Mitternacht auch die von gestern Abend; angemeldete zuerst).
- * Gibt es genau ein passendes Event, wird direkt zugeordnet. Die Nachweise erscheinen bei der Anwesenheit.
+ * Es wird immer gefragt – nichts automatisch. Die Nachweise erscheinen bei der Anwesenheit und auf der Website.
  */
 const LATE_NIGHT = 8 * 3_600_000;
 const unix = iso => Math.floor(new Date(iso).getTime() / 1000);
@@ -24,13 +24,13 @@ function midnight(reference, timezone, offset = 0) {
 
 /**
  * Passende Events: alle von heute (Server-Zeitzone), damit man auch später noch nachreichen kann; dazu Events,
- * die in den letzten 8 Std. begonnen haben (Bild kurz nach Mitternacht). Anwesenheit muss noch offen sein.
+ * die in den letzten 8 Std. begonnen haben (Bild kurz nach Mitternacht). Auch Events mit abgeschlossener Anwesenheit.
  */
 export function candidateEvents(db, { guildId, userId, reference = new Date(), timezone = "Europe/Vienna" }) {
   const start = midnight(reference, timezone);
   const from = new Date(Math.min(start.getTime(), reference.getTime() - LATE_NIGHT)).toISOString(), until = midnight(reference, timezone, 1).toISOString();
   const rows = db.prepare(`SELECT e.*, EXISTS(SELECT 1 FROM event_participants p WHERE p.event_id=e.id AND p.user_id=? AND p.status IN ('signed_up','present')) AS joined
-    FROM events e WHERE e.guild_id=? AND e.status IN ('scheduled','ended') AND e.attendance_closed_at IS NULL AND e.starts_at>=? AND e.starts_at<?`).all(userId, guildId, from, until);
+    FROM events e WHERE e.guild_id=? AND e.status IN ('scheduled','ended') AND e.starts_at>=? AND e.starts_at<?`).all(userId, guildId, from, until);
   const distance = e => Math.abs(new Date(e.starts_at).getTime() - reference.getTime());
   return rows.sort((a, b) => b.joined - a.joined || distance(a) - distance(b)).slice(0, 25);
 }
@@ -40,13 +40,12 @@ const eventLabel = (event, timezone) => `${event.name}`.slice(0, 80) + ` · ${cl
 /** Antwort unter dem Bild: Zuordnung anzeigen bzw. Auswahl anbieten. */
 export function proofPrompt(db, config, proof, candidates) {
   const event = proof.event_id ? db.prepare("SELECT * FROM events WHERE id=?").get(proof.event_id) : null;
-  const closed = Boolean(event?.attendance_closed_at);
   const others = candidates.filter(e => e.id !== proof.event_id);
   const content = event
-    ? `✅ Event-Log für **${event.name}** (${day(event.starts_at, config.TIMEZONE)}, ${clock(event.starts_at, config.TIMEZONE)})${closed ? " · Anwesenheit abgeschlossen" : ""}`
-    : candidates.length ? "📸 **Zu welchem Event gehört das?**" : "📸 Heute gibt es (noch) kein offenes Event. Das Bild bleibt gespeichert – das Team kann es zuordnen.";
-  const options = (event ? others : candidates).map(e => ({ label: eventLabel(e, config.TIMEZONE).slice(0, 100), value: e.id, description: `${e.joined ? "✅ angemeldet · " : ""}Beginn <${day(e.starts_at, config.TIMEZONE)} ${clock(e.starts_at, config.TIMEZONE)}>`.replace(/[<>]/g, "").slice(0, 100) }));
-  const components = !closed && options.length ? [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`evp:pick:${proof.message_id}`)
+    ? `✅ Event-Log für **${event.name}** (${day(event.starts_at, config.TIMEZONE)}, ${clock(event.starts_at, config.TIMEZONE)})`
+    : candidates.length ? "📸 **Zu welchem Event gehört das?**" : "📸 Heute gibt es (noch) kein Event. Das Bild bleibt gespeichert – das Team kann es auf der Website zuordnen.";
+  const options = (event ? others : candidates).map(e => ({ label: eventLabel(e, config.TIMEZONE).slice(0, 100), value: e.id, description: `${e.joined ? "✅ angemeldet · " : ""}Beginn ${day(e.starts_at, config.TIMEZONE)} ${clock(e.starts_at, config.TIMEZONE)}${e.status === "ended" ? " · vorbei" : ""}`.slice(0, 100) }));
+  const components = options.length ? [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`evp:pick:${proof.message_id}`)
     .setPlaceholder(event ? "Falsches Event? Anderes wählen …" : "Event auswählen …").addOptions(options))] : [];
   return { content, components, allowedMentions: { parse: [] } };
 }
@@ -57,16 +56,15 @@ function assign(db, { proof, eventId, actorId }) {
   return db.prepare("SELECT * FROM event_proofs WHERE message_id=?").get(proof.message_id);
 }
 
-/** Bild im Event-Logbuch: speichern, bei genau einem passenden Event direkt zuordnen, sonst fragen. */
+/** Bild im Event-Logbuch: speichern und fragen, zu welchem Event es gehört. */
 export async function handleEventProofMessage({ db, config, message, reference = new Date() }) {
   const images = imagesOf(message);
   if (!images.length) return false;
   const now = reference.toISOString();
   db.prepare("INSERT OR IGNORE INTO event_proofs(message_id,guild_id,event_id,user_id,channel_id,images,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?)")
     .run(message.id, message.guildId, message.author.id, message.channelId ?? message.channel?.id, images.length, now, now);
-  let proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=?").get(message.id);
+  const proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=?").get(message.id);
   const candidates = candidateEvents(db, { guildId: message.guildId, userId: message.author.id, reference, timezone: config.TIMEZONE });
-  if (candidates.length === 1) proof = assign(db, { proof, eventId: candidates[0].id, actorId: message.author.id });
   const reply = await message.reply(proofPrompt(db, config, proof, candidates)).catch(() => null);
   if (reply) db.prepare("UPDATE event_proofs SET prompt_message_id=? WHERE message_id=?").run(reply.id, message.id);
   return true;
@@ -81,10 +79,8 @@ export async function handleEventProofInteraction({ i, db, config }) {
   const proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=?").get(messageId);
   if (!proof) return i.reply({ content: "Dieses Bild gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
   if (proof.user_id !== i.user.id && !isTeam(i, config)) return i.reply({ content: "Das kann nur die Person auswählen, die das Bild gepostet hat.", flags: MessageFlags.Ephemeral });
-  const current = proof.event_id ? db.prepare("SELECT attendance_closed_at FROM events WHERE id=?").get(proof.event_id) : null;
-  if (current?.attendance_closed_at) return i.reply({ content: "Die Anwesenheit für dieses Event ist schon abgeschlossen.", flags: MessageFlags.Ephemeral });
-  const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND attendance_closed_at IS NULL AND status IN ('scheduled','ended')").get(i.values[0], proof.guild_id);
-  if (!event) return i.reply({ content: "Dieses Event ist nicht mehr offen.", flags: MessageFlags.Ephemeral });
+  const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(i.values[0], proof.guild_id);
+  if (!event) return i.reply({ content: "Dieses Event gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
   const updated = assign(db, { proof, eventId: event.id, actorId: i.user.id });
   return i.update(proofPrompt(db, config, updated, candidateEvents(db, { guildId: proof.guild_id, userId: proof.user_id, reference: new Date(proof.created_at), timezone: config.TIMEZONE })));
 }
@@ -117,15 +113,33 @@ export function eventLogDay(db, { guildId, day, timezone = "Europe/Vienna" }) {
 export async function assignProofFromWeb({ db, client, config, guildId, messageId, eventId, actorId }) {
   const proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=? AND guild_id=?").get(messageId, guildId);
   if (!proof) return { error: "Dieses Bild gibt es nicht mehr." };
-  const current = proof.event_id ? db.prepare("SELECT attendance_closed_at FROM events WHERE id=?").get(proof.event_id) : null;
-  if (current?.attendance_closed_at) return { error: "Die Anwesenheit für das bisherige Event ist schon abgeschlossen." };
-  const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND attendance_closed_at IS NULL AND status IN ('scheduled','ended')").get(eventId, guildId);
-  if (!event) return { error: "Dieses Event ist nicht (mehr) offen." };
+  const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(eventId, guildId);
+  if (!event) return { error: "Dieses Event gibt es nicht (mehr)." };
   const updated = assign(db, { proof, eventId: event.id, actorId });
-  if (proof.prompt_message_id) {
-    const channel = await client.channels.fetch(proof.channel_id).catch(() => null);
-    const prompt = await channel?.messages?.fetch(proof.prompt_message_id).catch(() => null);
-    if (prompt) await prompt.edit(proofPrompt(db, config, updated, candidateEvents(db, { guildId, userId: proof.user_id, reference: new Date(proof.created_at), timezone: config.TIMEZONE }))).catch(() => {});
-  }
+  await refreshProofPrompt({ db, client, config, proof: updated });
   return { proof: updated, event };
+}
+
+/** Antwort unter dem Bild in Discord neu aufbauen (aktuelle Zuordnung, alle Events des Tages zur Auswahl). */
+export async function refreshProofPrompt({ db, client, config, proof }) {
+  if (!proof.prompt_message_id) return false;
+  const channel = await client.channels.fetch(proof.channel_id).catch(() => null);
+  const prompt = await channel?.messages?.fetch(proof.prompt_message_id).catch(() => null);
+  if (!prompt) return false;
+  return prompt.edit(proofPrompt(db, config, proof, candidateEvents(db, { guildId: proof.guild_id, userId: proof.user_id, reference: new Date(proof.created_at), timezone: config.TIMEZONE }))).then(() => true).catch(() => false);
+}
+
+/** Event-Log löschen (Website, Event-Team): Bild und Bot-Antwort in Discord entfernen, Eintrag löschen. */
+export async function deleteProofFromWeb({ db, client, guildId, messageId, actorId }) {
+  const proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=? AND guild_id=?").get(messageId, guildId);
+  if (!proof) return { error: "Dieses Bild gibt es nicht mehr." };
+  const channel = await client.channels.fetch(proof.channel_id).catch(() => null);
+  let discord = true;
+  for (const id of [proof.message_id, proof.prompt_message_id].filter(Boolean)) {
+    const message = await channel?.messages?.fetch(id).catch(() => null);
+    if (message && !(await message.delete().then(() => true).catch(() => false))) discord = false;
+  }
+  db.prepare("DELETE FROM event_proofs WHERE message_id=?").run(messageId);
+  audit(db, guildId, actorId, "event.proof_deleted", proof.user_id, { eventId: proof.event_id, messageId });
+  return { proof, discord };
 }

@@ -242,7 +242,7 @@ test("Event-Forum: Bilder bleiben ohne Aufgaben-Menü, Text wird gelöscht", asy
   assert.equal(await handleLogbookMessage({ db, config, message: image }), true);
   assert.equal(replies.length, 1);
   assert.doesNotMatch(replies[0].content, /Aufgabe/, "kein Aufgaben-Menü im Event-Forum");
-  assert.match(replies[0].content, /Heute gibt es \(noch\) kein offenes Event/);
+  assert.match(replies[0].content, /Heute gibt es \(noch\) kein Event/);
   assert.equal(image.deleted, false);
   await handleLogbookMessage({ db, config, message: text });
   assert.equal(text.deleted, true);

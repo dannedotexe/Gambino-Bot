@@ -11,7 +11,7 @@ const addEvent = (db, id, startsAt, extra = {}) => db.prepare("INSERT INTO event
   .run(id, G, extra.name ?? id, "", startsAt, "HQ", "h", extra.status ?? "scheduled", "x", extra.closed ?? null);
 const message = (id, replies) => ({ id, guildId: G, channelId: "t1", author: { id: U }, attachments: new Map([["a", { contentType: "image/png", name: "a.png" }], ["b", { contentType: "image/png", name: "b.png" }]]), reply: async p => { replies.push(p); return { id: `r-${id}` }; } });
 
-test("Passende Events: alle von heute (auch frühere), angemeldete zuerst, morgen und abgeschlossene nicht", () => {
+test("Passende Events: alle von heute (auch frühere und abgeschlossene), angemeldete zuerst, morgen und abgesagte nicht", () => {
   const db = testDb();
   addEvent(db, "rang", "2026-10-20T18:20:00Z", { name: "Kampf um die Rangfolge" });
   addEvent(db, "cayo", "2026-10-20T18:50:00Z", { name: "Cayo Perico" });
@@ -21,10 +21,11 @@ test("Passende Events: alle von heute (auch frühere), angemeldete zuerst, morge
   addEvent(db, "tomorrow", "2026-10-20T23:00:00Z", { name: "01:00 Wiener Zeit = morgen" });
   addEvent(db, "yesterday", "2026-10-19T19:00:00Z");
   addEvent(db, "done", "2026-10-20T18:00:00Z", { closed: "x" });
+  addEvent(db, "off", "2026-10-20T18:40:00Z", { status: "cancelled" });
   db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES('rang',?,'signed_up','x')").run(U);
-  assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: ref }).map(e => e.id), ["rang", "cayo", "soon", "evening", "morning"]);
+  assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: ref }).map(e => e.id), ["rang", "cayo", "soon", "done", "evening", "morning"]);
   // Kurz nach Mitternacht: das Event von gestern Abend ist noch wählbar.
-  assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: new Date("2026-10-20T23:30:00Z") }).map(e => e.id).sort(), ["cayo", "evening", "rang", "soon", "tomorrow"]);
+  assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: new Date("2026-10-20T23:30:00Z") }).map(e => e.id).sort(), ["cayo", "done", "evening", "rang", "soon", "tomorrow"]);
 });
 
 test("Bild: bei mehreren Events fragen, Person wählt, Team darf korrigieren, Fremde nicht", async () => {
@@ -46,18 +47,18 @@ test("Bild: bei mehreren Events fragen, Person wählt, Team darf korrigieren, Fr
   assert.equal(proofsByUser(db, "cayo").size, 0);
 });
 
-test("Bild: genau ein passendes Event wird direkt zugeordnet; nach Abschluss nicht mehr änderbar", async () => {
+test("Bild: auch bei nur einem Event wird gefragt (nichts automatisch); abgeschlossene Events bleiben wählbar", async () => {
   const db = testDb(), replies = [];
   addEvent(db, "cayo", "2026-10-20T18:50:00Z", { name: "Cayo Perico" });
+  addEvent(db, "early", "2026-10-20T09:00:00Z", { name: "Ohne Anmeldung", closed: "x", status: "ended" });
   await handleEventProofMessage({ db, config, message: message("m2", replies), reference: ref });
-  assert.match(replies[0].content, /✅ Event-Log für \*\*Cayo Perico\*\*/);
-  assert.equal(replies[0].components.length, 0, "kein anderes Event zur Auswahl");
-  assert.equal(proofsByUser(db, "cayo").get(U), 2);
-  db.prepare("UPDATE events SET attendance_closed_at='x' WHERE id='cayo'").run();
-  addEvent(db, "other", "2026-10-20T19:10:00Z");
-  const answers = [];
-  await handleEventProofInteraction({ i: { customId: "evp:pick:m2", user: { id: U }, member: { roles: { cache: new Map() } }, values: ["other"], reply: async p => answers.push(p) }, db, config });
-  assert.match(answers[0].content, /schon abgeschlossen/);
+  assert.match(replies[0].content, /Zu welchem Event/);
+  assert.deepEqual(replies[0].components[0].components[0].options.map(o => o.data.value), ["cayo", "early"]);
+  assert.equal(proofsByUser(db, "cayo").size, 0, "nicht automatisch zugeordnet");
+  const updates = [];
+  await handleEventProofInteraction({ i: { customId: "evp:pick:m2", user: { id: U }, member: { roles: { cache: new Map() } }, values: ["early"], update: async p => updates.push(p) }, db, config });
+  assert.match(updates[0].content, /Ohne Anmeldung/);
+  assert.deepEqual(updates[0].components[0].components[0].options.map(o => o.data.value), ["cayo"], "Verschieben bleibt möglich");
 });
 
 test("Anwesenheit: „Mit Event-Log = da“ trägt alle mit Bild ein – auch Nichtangemeldete (Website und Discord)", async () => {
@@ -106,6 +107,12 @@ test("Website: Event-Logs pro Tag, fehlende Logs, nicht zugeordnete Bilder zuord
   const ok = await api.post(team, new URL("/api/event-logs/70000000000000002/assign", "https://x"), { eventId: "cayo" });
   assert.equal(ok.status, 200);
   assert.equal(db.prepare("SELECT event_id FROM event_proofs WHERE message_id='70000000000000002'").get().event_id, "cayo");
-  db.prepare("UPDATE events SET attendance_closed_at='x' WHERE id='cayo'").run();
-  assert.equal((await api.post(team, new URL("/api/event-logs/70000000000000002/assign", "https://x"), { eventId: "other" })).status, 409, "abgeschlossene Anwesenheit bleibt");
+  assert.equal((await api.post(team, new URL("/api/event-logs/70000000000000002/assign", "https://x"), { eventId: "other" })).status, 200, "verschieben");
+  assert.equal(db.prepare("SELECT event_id FROM event_proofs WHERE message_id='70000000000000002'").get().event_id, "other");
+  assert.equal((await api.post(team, new URL("/api/event-logs/70000000000000002/assign", "https://x"), { eventId: "nope" })).status, 409);
+  assert.equal((await api.post(nobody, new URL("/api/event-logs/70000000000000002/delete", "https://x"))).status, 403);
+  const del = await api.post(team, new URL("/api/event-logs/70000000000000002/delete", "https://x"));
+  assert.equal(del.status, 200);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM event_proofs WHERE message_id='70000000000000002'").get().n, 0);
+  assert.equal((await api.post(team, new URL("/api/event-logs/70000000000000002/delete", "https://x"))).status, 404);
 });

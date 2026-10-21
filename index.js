@@ -5,6 +5,7 @@ import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
 import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
+import { refreshProofPrompt } from "./src/event-proofs.js";
 import { startScheduler } from "./src/scheduler.js";
 import { ensureFamilyRole, syncFamilyRoles } from "./src/family-role.js";
 import { startModeration } from "./src/moderation.js";
@@ -80,6 +81,13 @@ async function adoptLeadershipDefaults(){
   if(!config.CHANNEL_VERIFICATION_PANEL){
     const matches=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.isTextBased?.()&&/neue-spieler/i.test(ch.name));
     if(matches.length===1&&adopt("CHANNEL_VERIFICATION_PANEL",matches[0].id,`Verifizierungs-Panel-Channel (#${matches[0].name})`))await ensurePanels({db,client,config,series,only:["CHANNEL_VERIFICATION_PANEL"]}).catch(()=>{});
+  }
+  // Einmalig: Antworten unter Event-Log-Bildern der letzten 36 Std. neu aufbauen (jetzt immer mit Auswahl aller Events des Tages).
+  if(!getSetting(db,guild.id,"EVENT_PROOF_PROMPTS_V2")){
+    setSetting(db,guild.id,"EVENT_PROOF_PROMPTS_V2",new Date().toISOString());
+    for(const proof of db.prepare("SELECT * FROM event_proofs WHERE guild_id=? AND created_at>=? AND prompt_message_id IS NOT NULL").all(guild.id,new Date(Date.now()-36*3_600_000).toISOString())){
+      if(await refreshProofPrompt({db,client,config,proof}).catch(()=>false))await new Promise(r=>setTimeout(r,800));
+    }
   }
   // Geänderte Vorlage (Standardtext oder „Vorlage …“-Post) in die bestehenden Bot-Posts übernehmen.
   for(const kind of activeLogbookKinds(config)){const n=await syncLogbookTemplates({db,client,config,guildId:guild.id,kind}).catch(()=>0);if(n)console.log(`${LOGBOOK_FORUMS[kind].label}: Text in ${n} Posts aktualisiert.`);}
