@@ -116,3 +116,19 @@ test("Website: Event-Logs pro Tag, fehlende Logs, nicht zugeordnete Bilder zuord
   assert.equal(db.prepare("SELECT COUNT(*) n FROM event_proofs WHERE message_id='70000000000000002'").get().n, 0);
   assert.equal((await api.post(team, new URL("/api/event-logs/70000000000000002/delete", "https://x"))).status, 404);
 });
+
+test("Fehlendes Event-Log: DM an Angemeldete ohne Bild, genau einmal, mit Link zum Logbuch", async () => {
+  const { remindMissingEventLogs } = await import("../src/event-proofs.js");
+  const db = testDb(), dms = [], reference = new Date("2026-10-20T21:00:00Z");
+  const cfg = { ...config, CHANNEL_EVENT_FORUM: "60000000000000070", EVENT_LOG_REMINDER_MINUTES: 90 };
+  addEvent(db, "cayo", "2026-10-20T19:00:00Z", { name: "Cayo Perico" });
+  addEvent(db, "later", "2026-10-20T20:00:00Z");
+  db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES('cayo',?,'signed_up','x'),('cayo',?,'signed_up','x'),('cayo','30000000000000003','absent','x'),('later',?,'signed_up','x')").run(U, O, U);
+  db.prepare("INSERT INTO event_proofs(message_id,guild_id,event_id,user_id,channel_id,images,created_at,updated_at) VALUES('p1',?,'cayo',?,'t',1,'x','x')").run(G, O);
+  db.prepare("INSERT INTO event_logbooks(guild_id,user_id,thread_id,title,created_at) VALUES(?,?,'70000000000000099','Tony | 1','x')").run(G, U);
+  const client = { user: { id: "bot" }, users: { fetch: async id => ({ send: async p => dms.push([id, p.content]) }) } };
+  assert.equal(await remindMissingEventLogs({ db, client, config: cfg, reference }), 1);
+  assert.equal(dms[0][0], U); assert.match(dms[0][1], /Cayo Perico/); assert.match(dms[0][1], /<#70000000000000099>/);
+  assert.equal(await remindMissingEventLogs({ db, client, config: cfg, reference }), 0, "nur einmal; „later“ noch nicht fällig");
+  assert.equal(await remindMissingEventLogs({ db, client, config: { ...cfg, EVENT_LOG_REMINDER_MINUTES: 0 }, reference: new Date("2026-10-20T23:00:00Z") }), 0, "0 = aus");
+});

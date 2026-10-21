@@ -143,3 +143,32 @@ export async function deleteProofFromWeb({ db, client, guildId, messageId, actor
   audit(db, guildId, actorId, "event.proof_deleted", proof.user_id, { eventId: proof.event_id, messageId });
   return { proof, discord };
 }
+
+/** Angemeldete ohne Event-Log für ein Event (Anmeldung offen oder anwesend, kein Bild zugeordnet). */
+export const missingLogs = (db, eventId) => db.prepare(`SELECT p.user_id FROM event_participants p WHERE p.event_id=? AND p.status IN ('signed_up','present')
+  AND NOT EXISTS(SELECT 1 FROM event_proofs x WHERE x.event_id=p.event_id AND x.user_id=p.user_id) ORDER BY p.updated_at`).all(eventId).map(r => r.user_id);
+
+/**
+ * EVENT_LOG_REMINDER_MINUTES nach Eventbeginn: jeder Angemeldete ohne Bild bekommt einmal eine DM mit Link zu seinem
+ * Event-Logbuch. Nur Events der letzten 12 Std. (keine Flut alter Events nach dem Update).
+ */
+export async function remindMissingEventLogs({ db, client, config, reference = new Date() }) {
+  const minutes = config.EVENT_LOG_REMINDER_MINUTES ?? 0, guildId = config.DISCORD_GUILD_ID;
+  if (!minutes || !guildId || !config.CHANNEL_EVENT_FORUM) return 0;
+  const due = new Date(reference.getTime() - minutes * 60_000).toISOString(), oldest = new Date(reference.getTime() - minutes * 60_000 - 12 * 3_600_000).toISOString();
+  let sent = 0;
+  for (const event of db.prepare("SELECT * FROM events WHERE guild_id=? AND status IN ('scheduled','ended') AND log_reminder_at IS NULL AND starts_at<=? AND starts_at>=? ORDER BY starts_at LIMIT 10").all(guildId, due, oldest)) {
+    // Erst markieren, damit ein Neustart mitten im Versand niemanden doppelt anschreibt.
+    if (!db.prepare("UPDATE events SET log_reminder_at=? WHERE id=? AND log_reminder_at IS NULL").run(reference.toISOString(), event.id).changes) continue;
+    const missing = missingLogs(db, event.id);
+    for (const userId of missing) {
+      const thread = db.prepare("SELECT thread_id FROM event_logbooks WHERE guild_id=? AND user_id=? AND thread_id IS NOT NULL AND archived_at IS NULL").get(guildId, userId)?.thread_id;
+      const where = thread ? `in dein Event-Logbuch <#${thread}>` : `in dein Event-Logbuch im Forum <#${config.CHANNEL_EVENT_FORUM}>`;
+      const ok = await client.users.fetch(userId).then(user => user.send({ content: `📸 **Dein Event-Log fehlt:** ${event.name} (${day(event.starts_at, config.TIMEZONE)}, ${clock(event.starts_at, config.TIMEZONE)}).\nBitte das Bild (ganzer Bildschirm mit Datum & Uhrzeit) ${where} posten und im Menü das Event wählen – sonst zählt die Teilnahme evtl. nicht.` })).then(() => true).catch(() => false);
+      if (ok) sent++;
+      await new Promise(r => setTimeout(r, 300));
+    }
+    if (missing.length) audit(db, guildId, client.user?.id ?? "system", "event.log_reminder", event.id, { name: event.name, missing: missing.length });
+  }
+  return sent;
+}

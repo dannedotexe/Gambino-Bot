@@ -168,13 +168,31 @@ test("manuell geöffnetes leeres Event wird nicht vom Hintergrund wieder geschlo
   assert.equal(x.db.prepare("SELECT attendance_closed_at FROM events WHERE id='e3'").get().attendance_closed_at, null);
 });
 
-test("Event ohne Anmeldungen wird beim Start direkt beendet", async () => {
+test("Event ohne Anmeldungen: wartet auf Event-Logs, endet nach der Auto-Ende-Zeit; mit Logs normale Abfrage", async () => {
   const x = setup();
   x.db.prepare("INSERT INTO guild_settings(guild_id,key,value,updated_at) VALUES(?,?,?,?)").run(G, "ATTENDANCE_SINCE", new Date(Date.now() - 86_400_000).toISOString(), new Date().toISOString());
-  x.db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at) VALUES('e4','" + G + "','RP Fabrik','',?,'HQ',?,'scheduled',?)").run(new Date(Date.now() - 60_000).toISOString(), STAFF, new Date().toISOString());
+  const add = (id, minutesAgo) => x.db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at) VALUES(?,'" + G + "','RP Fabrik','',?,'HQ',?,'scheduled',?)").run(id, new Date(Date.now() - minutesAgo * 60_000).toISOString(), STAFF, new Date().toISOString());
+  add("e4", 1); add("e5", (x.config.EVENT_SERIES_AUTO_END_MINUTES ?? 120) + 5); add("e6", 1);
+  const now = new Date().toISOString();
+  x.db.prepare("INSERT INTO event_proofs(message_id,guild_id,event_id,user_id,channel_id,images,created_at,updated_at) VALUES('pp','" + G + "','e6',?,'t',1,?,?)").run(A, now, now);
   await requestDueAttendance({ ...x });
-  const row = x.db.prepare("SELECT status,attendance_closed_at FROM events WHERE id='e4'").get();
-  assert.equal(row.status, "ended"); assert.ok(row.attendance_closed_at);
+  const row = id => x.db.prepare("SELECT status,attendance_closed_at,attendance_message_id FROM events WHERE id=?").get(id);
+  assert.equal(row("e4").status, "scheduled", "kurz nach Beginn: Bilder können noch kommen"); assert.equal(row("e4").attendance_closed_at, null);
+  assert.equal(row("e5").status, "ended"); assert.ok(row("e5").attendance_closed_at);
+  assert.ok(row("e6").attendance_message_id, "mit Event-Log: Abfrage wird gepostet");
+  assert.equal(x.db.prepare("SELECT status FROM event_participants WHERE event_id='e6' AND user_id=?").get(A).status, "present");
+});
+
+test("Abschließen: wer ein Event-Log gepostet hat, wird automatisch anwesend (ausdrücklich abwesend bleibt)", async () => {
+  const { closeAttendance } = await import("../src/attendance.js");
+  const x = setup(), now = new Date().toISOString();
+  x.db.prepare("INSERT INTO event_proofs(message_id,guild_id,event_id,user_id,channel_id,images,created_at,updated_at) VALUES('q1','" + G + "','e1',?,'t',1,?,?),('q2','" + G + "','e1','30000000000000077','t',1,?,?)").run(A, now, now, now, now);
+  const before = Object.fromEntries(x.db.prepare("SELECT user_id,status FROM event_participants WHERE event_id='e1'").all().map(r => [r.user_id, r.status]));
+  const { rows } = closeAttendance(x.db, { eventId: "e1", actorId: STAFF });
+  const status = Object.fromEntries(rows.map(r => [r.user_id, r.status]));
+  assert.equal(status[A], before[A] === "absent" ? "absent" : "present");
+  assert.equal(status["30000000000000077"], "present", "nicht angemeldet, aber Log gepostet");
+  for (const [id, s] of Object.entries(before)) if (id !== A && s === "signed_up") assert.equal(status[id], "absent", "ohne Log und nicht markiert = abwesend");
 });
 
 test("Win mit Kills: Anfahrt für alle, Prämie × eigene Kills, Auszahlung genau einmal", async () => {

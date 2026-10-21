@@ -369,3 +369,4 @@ kbd{font:11px var(--font);padding:1px 6px;border-radius:4px;border:1px solid var
 .invite-bar{height:7px;border-radius:4px;background:var(--line);overflow:hidden}.invite-bar i{display:block;height:100%;width:0;background:#e0a100}.invite-row.ok .invite-bar i{background:#2e9d4f}.invite-row.ok b{color:#2e9d4f}
 .evlog-tools{display:flex;gap:4px;align-items:center}.evlog-tools select{flex:1;min-width:0}
 .evlog-wait{aspect-ratio:16/9}
+.evlog-missing{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}.evlog-missing p{margin:0}

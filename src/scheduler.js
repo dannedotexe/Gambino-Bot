@@ -1,5 +1,6 @@
 import { EmbedBuilder } from "discord.js";
 import { CONTROL_SQL } from "./control-detect.js";
+import { remindMissingEventLogs } from "./event-proofs.js";
 import { getSetting, setSetting } from "./database.js";
 import { auditLogPayload, BRAND_COLOR, logEmbed } from "./presentation.js";
 import { createGiveawayService } from "./services/giveaways.js";
@@ -106,6 +107,7 @@ export function startScheduler({db,client,config,series=null}) {
         await refreshPayoutList({db,client,config}).catch(error=>console.warn("Auszahlungsliste konnte nicht aktualisiert werden:",error.message));
         // Sicherheitsnetz: geänderte Vorlage alle 15 Minuten nachziehen (falls die Bearbeitung verpasst wurde).
         if(config.DISCORD_GUILD_ID&&Date.now()-lastTemplateSync>15*60_000){lastTemplateSync=Date.now();for(const kind of activeLogbookKinds(config))await syncLogbookTemplates({db,client,config,guildId:config.DISCORD_GUILD_ID,kind}).catch(error=>console.warn("Vorlage konnte nicht übernommen werden:",error.message));}
+        await remindMissingEventLogs({db,client,config,reference:now}).catch(error=>console.warn("Event-Log-Erinnerungen fehlgeschlagen:",error.message));
         await releaseHeldInvites({db,client,config,reference:now}).catch(error=>console.warn("Invite-Bedingungen konnten nicht geprüft werden:",error.message));
         await refreshTaskBoard({db,client,config}).catch(error=>console.warn("Aufgaben-Board konnte nicht aktualisiert werden:",error.message));
         await runDailySnapshot({db,client,config,reference:now}).catch(error=>console.warn("Rollen-Sicherung fehlgeschlagen:",error.message));

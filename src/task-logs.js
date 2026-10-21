@@ -396,9 +396,18 @@ export async function refreshTaskBoard({ db, client, config, force = false }) {
  * nach HELD_MAX_DAYS Tagen ohne Erfüllung ablehnen.
  */
 export async function releaseHeldInvites({ db, client, config, reference = new Date() }) {
-  const guildId = config.DISCORD_GUILD_ID, result = { released: 0, expired: 0, updated: 0 };
+  const guildId = config.DISCORD_GUILD_ID, result = { released: 0, expired: 0, updated: 0, notified: 0 };
   if (!guildId) return result;
   const tasks = service(db, config);
+  // Noch nicht geprüfte Invites: nur Stand mitschreiben und den Einlader informieren (auszahlen erst nach Bestätigung).
+  for (const open of tasks.list(guildId, { status: "pending", limit: 300 }).filter(l => !l.preapproved_at && l.invitee_id && (l.invite_min_days != null || l.invite_min_events != null))) {
+    const status = await inviteStatus({ db, client, config, log: open, reference });
+    if (!status) continue;
+    const text = progressText(status);
+    if (text === open.progress) continue;
+    tasks.setProgress(open.id, text);
+    if (await notifyInviteProgress({ client, config, log: open, status, before: open.progress, held: false })) result.notified++;
+  }
   for (const held of tasks.held(guildId)) {
     const status = await inviteStatus({ db, client, config, log: held, reference });
     if (!status) continue;
@@ -417,9 +426,30 @@ export async function releaseHeldInvites({ db, client, config, reference = new D
       } else if (text !== held.progress) {
         tasks.setProgress(held.id, text);
         result.updated++;
+        if (await notifyInviteProgress({ client, config, log: held, status, before: held.progress, held: true })) result.notified++;
         await refreshTaskMessages({ db, client, config, log: tasks.get(guildId, held.id) });
       }
     } catch (error) { if (!(error instanceof TaskError)) throw error; }
   }
   return result;
+}
+
+const counted = (text, unit) => { const m = new RegExp(`(\\d+)/\\d+ ${unit}`).exec(text ?? ""); return m ? Number(m[1]) : null; };
+
+/**
+ * DM an den Einlader, wenn die eingeladene Person einen Tag oder ein Event weiter ist. Nur bei echtem Fortschritt
+ * (Zähler gestiegen) – kurze Aussetzer der Discord-Abfrage lösen keine Nachricht aus.
+ */
+async function notifyInviteProgress({ client, config, log, status, before, held }) {
+  if (!config.TASK_DM_ENABLED || !status.inGuild || before == null) return false;
+  const days = counted(before, "Tage"), events = counted(before, "Events");
+  const grew = (status.needDays && days != null && Math.min(status.days, status.needDays) > days) || (status.needEvents && events != null && Math.min(status.events, status.needEvents) > events);
+  if (!grew) return false;
+  const left = [status.needDays > status.days ? `${status.needDays - status.days} ${status.needDays - status.days === 1 ? "Tag" : "Tage"}` : null, status.needEvents > status.events ? `${status.needEvents - status.events} ${status.needEvents - status.events === 1 ? "Event" : "Events"}` : null].filter(Boolean);
+  const reward = log.reward_cents ? formatMoney(log.reward_cents) : "deinem Invite";
+  const next = status.met ? (held ? `Bedingung erfüllt – die **${reward}** werden gleich gebucht.` : "Bedingung erfüllt – jetzt fehlt nur noch die Bestätigung durch das Team.")
+    : `Noch **${left.join(" & ")}** bis zu ${log.reward_cents ? `deinen **${reward}**` : "deinem Invite"}.${held ? "" : " (Das Team muss den Log außerdem noch bestätigen.)"}`;
+  const embed = new EmbedBuilder().setColor(AMBER).setAuthor({ name: "GAMBINOS  •  INVITE" }).setTitle("📈 Invite-Fortschritt")
+    .setDescription(`<@${log.invitee_id}> · ${progressText(status)}\n\n${next}`).setTimestamp();
+  return client.users.fetch(log.user_id).then(user => user.send({ embeds: [embed] })).then(() => true).catch(() => false);
 }

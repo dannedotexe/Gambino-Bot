@@ -17,7 +17,7 @@ async function loadEventLogs(day = evlogState.day) {
   const figure = (p, current = null) => `<figure class="evlog" data-proof="${escapeHtml(p.messageId)}"><div class="evlog-imgs">${evlogState.images.has(p.messageId) ? evlogImages(evlogState.images.get(p.messageId)) : '<span class="evlog-wait">lädt …</span>'}</div><figcaption><b>${who(p.userId)}</b> · ${evlogClock(p.createdAt)}${p.images > 1 ? ` · ${p.images} Bilder` : ""}</figcaption>${tools(p, current)}</figure>`;
   const events = data.events.map(e => `<div class="evlog-event"><div class="evlog-head"><div><b>${escapeHtml(e.name)}</b><small>${evlogClock(e.startsAt)} · ${e.proofs.length ? `${e.proofs.length} ${e.proofs.length === 1 ? "Log" : "Logs"} von ${e.people} ${e.people === 1 ? "Person" : "Personen"}` : "noch keine Logs"}${e.closed ? " · Anwesenheit abgeschlossen" : ""}</small></div></div>
     ${e.proofs.length ? `<div class="evlog-grid">${e.proofs.map(p => figure(p, e.id)).join("")}</div>` : ""}
-    ${e.missing.length ? `<p class="subtle evlog-missing">Angemeldet, aber ohne Log: ${e.missing.map(who).join(", ")}</p>` : ""}</div>`);
+    ${e.missing.length ? `<div class="evlog-missing"><p class="subtle">Angemeldet, aber ohne Log: ${e.missing.map(who).join(", ")}</p>${state.me.capabilities.sanctions ? btn("Fehlende sanktionieren …", "evlog-sanction", { id: e.id }, "reject") : ""}</div>` : ""}</div>`);
   const unassigned = data.unassigned.length ? `<div class="evlog-event evlog-open"><div class="evlog-head"><div><b>Nicht zugeordnet</b><small>${data.unassigned.length} ${data.unassigned.length === 1 ? "Bild wartet" : "Bilder warten"} auf ein Event</small></div></div><div class="evlog-grid">${data.unassigned.map(p => figure(p)).join("")}</div></div>` : "";
   $("evlogs").innerHTML = total || data.events.length ? unassigned + events.join("") : empty(`${evlogDayLabel(data.day)} gab es keine Events und keine Event-Logs.`);
   evlogState.queue = [...document.querySelectorAll("#evlogs [data-proof]")].map(el => el.dataset.proof).filter(id => !evlogState.images.has(id));
@@ -53,6 +53,12 @@ Object.assign(actions, {
   "evlogs-prev": () => loadEventLogs(evlogShift(evlogState.day ?? evlogState.today, -1)),
   "evlogs-next": () => loadEventLogs(evlogShift(evlogState.day ?? evlogState.today, 1)),
   "evlogs-today": () => loadEventLogs(evlogState.today),
+  "evlog-sanction": ({ id }) => {
+    const e = evlogState.data.events.find(x => x.id === id), requestId = uuid();
+    openForm({ eyebrow: "SANKTION", title: "Fehlende Event-Logs", danger: true, intro: `<p><b>${escapeHtml(e.name)}</b> · ${evlogClock(e.startsAt)}: Diese Mitglieder waren angemeldet, haben aber kein Event-Log gepostet. Haken entfernen, wer verschont bleiben soll. Die Sanktion wird erst bei der nächsten Auszahlung verrechnet.</p>`,
+      fields: [{ name: "userIds", label: "Mitglieder", type: "checks", required: true, value: e.missing, options: e.missing.map(uid => [uid, state.names[uid] ?? `Mitglied …${uid.slice(-4)}`]) }, { name: "amount", label: "Betrag pro Person ($)", type: "money", required: true }, { name: "reason", label: "Grund", required: true, max: 300, value: `Kein Event-Log: ${e.name}` }],
+      submit: "Sanktionen vormerken", onSubmit: v => post("/api/sanctions/bulk", { ...v, requestId, caseRef: `Event ${e.name}`.slice(0, 100) }) });
+  },
   "evlog-delete": ({ id }) => openForm({ eyebrow: "EVENT-LOG", title: "Event-Log löschen", danger: true, intro: "<p>Das Bild wird auch im Forum in Discord gelöscht (samt Bot-Antwort) und zählt nicht mehr als Nachweis. Das lässt sich nicht rückgängig machen.</p>",
     fields: [], submit: "Endgültig löschen", onSubmit: async () => { const r = await post(`/api/event-logs/${id}/delete`); evlogState.images.delete(id); return r; } }),
 });

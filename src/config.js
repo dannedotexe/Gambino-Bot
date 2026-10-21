@@ -53,6 +53,7 @@ const schema = z.object({
   EVENT_SERIES_DELETE_ENDED: bool("true"),
   ACCOUNT_AUTO_OPEN_FOR_MEMBERS: bool("true"),
   EVENT_SERIES_AUTO_END_MINUTES: z.coerce.number().int().min(15).max(1440).default(120),
+  EVENT_LOG_REMINDER_MINUTES: z.coerce.number().int().min(0).max(1440).default(90),
   APPLICATION_QUESTIONS_JSON: jsonValue("{}").pipe(applicationQuestionsSchema),
   RANK_ROLE_ASSIGNMENT_ENABLED: bool("false"),
   DASHBOARD_MEMBER_AREA: bool("true"),

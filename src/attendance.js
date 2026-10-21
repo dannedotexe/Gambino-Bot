@@ -31,10 +31,13 @@ export function attendanceEmbed(event, rows, closed = null) {
 export async function requestAttendance({ db, client, config, event }) {
   const row = db.prepare("SELECT * FROM events WHERE id=?").get(event.id);
   if (!row || row.attendance_closed_at || row.attendance_message_id) return false;
-  const rows = participantsOf(db, row.id);
+  let rows = participantsOf(db, row.id);
+  // Ohne Anmeldungen, aber mit Event-Logs: die Poster gelten als anwesend und werden ganz normal abgefragt.
+  if (!rows.length && proofsByUser(db, row.id).size) { addProofPresent(db, row.id); rows = participantsOf(db, row.id); }
   if (!rows.length) {
-    // Ohne Anmeldungen gibt es nichts zu prüfen: Event direkt beenden, damit der Post nicht stehen bleibt
-    // (Aktivitäts-Posts werden dabei gelöscht, wenn EVENT_SERIES_DELETE_ENDED an ist).
+    // Ohne Anmeldungen und ohne Event-Logs: erst nach der Auto-Ende-Zeit schließen (Bilder können noch kommen),
+    // dann Event beenden, damit der Post nicht stehen bleibt (Aktivitäts-Posts werden dabei gelöscht).
+    if (Date.now() < new Date(row.starts_at).getTime() + (config.EVENT_SERIES_AUTO_END_MINUTES ?? 120) * 60_000) return false;
     const ended = db.transaction(() => {
       db.prepare("UPDATE events SET attendance_closed_at=?,attendance_closed_by=? WHERE id=? AND attendance_closed_at IS NULL").run(new Date().toISOString(), client.user?.id ?? "system", row.id);
       const changed = db.prepare("UPDATE events SET status='ended' WHERE id=? AND status='scheduled'").run(row.id).changes;
@@ -94,12 +97,21 @@ export async function afterNotPlayed({ db, client, config, event, actorId }) {
   }
 }
 
+/** Wer ein Event-Log (Bild) zum Event gepostet hat, gilt als anwesend – außer das Team hat ihn ausdrücklich abwesend gesetzt. */
+export function addProofPresent(db, eventId) {
+  const now = new Date().toISOString(), ids = [...proofsByUser(db, eventId).keys()];
+  for (const id of ids) db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,'present',?) ON CONFLICT(event_id,user_id) DO UPDATE SET status='present',updated_at=excluded.updated_at WHERE event_participants.status IN ('signed_up','left')").run(eventId, id, now);
+  return ids.length;
+}
+
+/** Abschluss: wer ein Event-Log gepostet hat, wird anwesend; alle übrigen nicht als anwesend Markierten werden abwesend. */
 export function closeAttendance(db, { eventId, actorId }) {
   return db.transaction(() => {
     const event = db.prepare("SELECT * FROM events WHERE id=?").get(eventId);
     if (!event) return { error: "Event nicht gefunden." };
     if (event.attendance_closed_at) return { error: "Die Anwesenheit wurde bereits abgeschlossen.", event };
     const now = new Date().toISOString();
+    addProofPresent(db, eventId);
     db.prepare("UPDATE event_participants SET status='absent',updated_at=? WHERE event_id=? AND status='signed_up'").run(now, eventId);
     if (event.status === "scheduled") db.prepare("UPDATE events SET status='ended' WHERE id=?").run(eventId);
     db.prepare("UPDATE events SET attendance_closed_at=?,attendance_closed_by=? WHERE id=?").run(now, actorId, eventId);

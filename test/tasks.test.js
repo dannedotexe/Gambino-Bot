@@ -289,7 +289,7 @@ test("Invite mit Bedingung: eingeladene Person nötig, Bestätigen hält zurück
     db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,'present',?)").run(`e${n}`, NEW, now);
   }
   let result = await releaseHeldInvites({ db, client, config });
-  assert.deepEqual(result, { released: 0, expired: 0, updated: 1 });
+  assert.deepEqual({ ...result, notified: 0 }, { released: 0, expired: 0, updated: 1, notified: 0 });
   assert.equal(tasks.get(G, log.id).progress, "1/2 Tage · 4/4 Events", "Event vor dem Beitritt zählt nicht");
 
   joinedAt = new Date(Date.now() - 2.5 * 86_400_000);
@@ -352,4 +352,24 @@ test("Website: Invite-Karten zeigen den Stand der Bedingung schon vor dem Bestä
   service(db).submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id, inviteeId: NEW });
   const res = await createDashboardApi({ db, client, config }).get({ id: R, owner: false, roles: [REV] }, new URL("/api/tasks", "https://x"));
   assert.deepEqual(res.body.pending[0].invite, { days: 1, events: 0, needDays: 2, needEvents: 4, inGuild: true, met: false });
+});
+
+test("Invite-Fortschritt: DM an den Einlader nur bei echtem Fortschritt", async () => {
+  const { releaseHeldInvites } = await import("../src/task-logs.js");
+  const db = testDb(), tasks = service(db), config = { ...baseConfig(), TASK_DM_ENABLED: true }, NEW = "30000000000000066", dms = [];
+  const log = tasks.submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id, inviteeId: NEW });
+  let member = { id: NEW, joinedAt: new Date(Date.now() - 0.5 * 86_400_000) };
+  const guild = { id: G, members: { fetch: async () => member } };
+  const client = { guilds: { cache: new Map([[G, guild]]) }, channels: { fetch: async () => null }, users: { fetch: async () => ({ send: async p => dms.push(p) }) } };
+  assert.equal((await releaseHeldInvites({ db, client, config })).notified, 0, "erster Stand wird nur gemerkt");
+  assert.equal(tasks.get(G, log.id).progress, "0/2 Tage · 0/4 Events");
+  member = null; // kurzer Aussetzer der Abfrage
+  assert.equal((await releaseHeldInvites({ db, client, config })).notified, 0);
+  member = { id: NEW, joinedAt: new Date(Date.now() - 1.5 * 86_400_000) };
+  await releaseHeldInvites({ db, client, config }); // Stand wieder bekannt (nach Aussetzer keine DM)
+  member = { id: NEW, joinedAt: new Date(Date.now() - 2.5 * 86_400_000) };
+  assert.equal((await releaseHeldInvites({ db, client, config })).notified, 1);
+  assert.match(dms.at(-1).embeds[0].data.description, /2\/2 Tage · 0\/4 Events/);
+  assert.match(dms.at(-1).embeds[0].data.description, /Noch \*\*4 Events\*\*/);
+  assert.equal(tasks.get(G, log.id).status, "pending", "ohne Bestätigung keine Auszahlung");
 });
