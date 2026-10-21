@@ -45,7 +45,11 @@ const myTaskIcons = { pending: "⏳", approved: "✅", rejected: "❌" };
 function renderMyTasks(t) {
   if (!t) { $("my-tasks-panel").hidden = true; return; }
   const p = t.profile, lvl = p.level;
-  $("my-level-badge").textContent = lvl.emoji;
+  // Abzeichen: Ring zeigt den Fortschritt zur nächsten Stufe, in der Mitte die Stufen-Nummer; Farbe je Stufe.
+  const badge = $("my-level-badge"), rank = lvl.rank ?? 1, ring = 2 * Math.PI * 26;
+  badge.className = `level-badge tier-${rank}`;
+  badge.setAttribute("aria-label", `Stufe ${rank} von ${lvl.of ?? 7}: ${lvl.name}`);
+  badge.innerHTML = `<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="lb-track" cx="32" cy="32" r="26"/><circle class="lb-fill" cx="32" cy="32" r="26" stroke-dasharray="${ring.toFixed(1)}" stroke-dashoffset="${(ring * (1 - Math.max(0.02, lvl.progress))).toFixed(1)}" transform="rotate(-90 32 32)"/></svg><b>${rank}</b><small>STUFE</small>`;
   $("my-level-title").textContent = `Stufe: ${lvl.name}`;
   // Breite per CSSOM (Inline-Styles sind durch die Content-Security-Policy gesperrt).
   requestAnimationFrame(() => { $("my-level-fill").style.width = `${Math.round(lvl.progress * 100)}%`; });

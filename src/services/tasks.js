@@ -34,7 +34,7 @@ export const LEVELS = [
 export function levelFor(count) {
   const index = LEVELS.findLastIndex(level => count >= level.min);
   const current = LEVELS[index], next = LEVELS[index + 1] ?? null;
-  return { ...current, count, next: next ? { ...next, missing: next.min - count } : null, progress: next ? (count - current.min) / (next.min - current.min) : 1 };
+  return { ...current, rank: index + 1, of: LEVELS.length, count, next: next ? { ...next, missing: next.min - count } : null, progress: next ? (count - current.min) / (next.min - current.min) : 1 };
 }
 
 /** Montag (lokal) der Woche eines Tages, als YYYY-MM-DD. */
