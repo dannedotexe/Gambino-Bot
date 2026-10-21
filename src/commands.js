@@ -27,6 +27,7 @@ import { createShortAbsenceService, parseShortUntil } from "./services/short-abs
 import { killLeaderboard, killsOf } from "./services/calendar.js";
 import { handleEventProofInteraction } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
+import { prizeLabel } from "./giveaway-cards.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
 import { buildVerification, createVerificationService } from "./services/verification.js";
@@ -171,7 +172,7 @@ export function giveawayButtons(id){
 }
 
 export function giveawayCard(row,entries=0){
-  const card=embed(`🎉 ${row.prize}`,"Nimm über die Schaltfläche teil. Die Gewinner werden nach Ablauf automatisch gezogen.");
+  const card=embed(`🎉 ${prizeLabel(row.prize)}`,"Nimm über die Schaltfläche teil. Die Gewinner werden nach Ablauf automatisch gezogen.");
   card.addFields(
     {name:"⏳ Ende",value:`<t:${unix(row.ends_at)}:F> · <t:${unix(row.ends_at)}:R>`,inline:true},
     {name:"🏆 Gewinner",value:String(row.winner_count),inline:true},
@@ -1016,7 +1017,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       catch(error){giveaways.cancel({guildId:g,giveawayId:row.id,actorId:u,reason:`Veröffentlichung fehlgeschlagen: ${error.message}`});throw new Error("Das Giveaway konnte nicht veröffentlicht werden und wurde abgebrochen. Prüfe die Bot-Berechtigungen in diesem Channel.");}
       db.prepare("UPDATE giveaways SET message_id=? WHERE id=?").run(sent.id,row.id);
       return answer(i,{...fieldsEmbed("🎉 Giveaway gestartet",[
-        {name:"Preis",value:`**${row.prize}**`,inline:true},{name:"Endet",value:`<t:${unix(row.ends_at)}:R>`,inline:true},
+        {name:"Preis",value:`**${prizeLabel(row.prize)}**`,inline:true},{name:"Endet",value:`<t:${unix(row.ends_at)}:R>`,inline:true},
         {name:"Veröffentlicht in",value:`${targetGiveawayChannel}`,inline:true},{name:"Verwaltung",value:`Referenz: \`${row.id}\``},
       ],"Die Teilnahme ist ab sofort möglich."),ephemeral:true});
     }
@@ -1024,9 +1025,9 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const denied=guard(i,"staff","Staff-Rolle");if(denied)return respond(i,denied);
       const row=giveaways.cancel({guildId:g,giveawayId:i.options.getString("id"),actorId:u,reason:i.options.getString("grund")??""});
       if(!row)return respond(i,"Aktives Giveaway nicht gefunden.");
-      if(row.channel_id&&row.message_id){const ch=await targetChannel(i.guild,row.channel_id);const msg=ch?await ch.messages.fetch(row.message_id).catch(()=>null):null;if(msg)await msg.edit({embeds:[embed("🚫 Giveaway abgebrochen",`**${row.prize}** wird nicht mehr verlost. Die Teilnahme ist geschlossen.`)],components:[]}).catch(()=>{});}
+      if(row.channel_id&&row.message_id){const ch=await targetChannel(i.guild,row.channel_id);const msg=ch?await ch.messages.fetch(row.message_id).catch(()=>null):null;if(msg)await msg.edit({embeds:[embed("🚫 Giveaway abgebrochen",`**${prizeLabel(row.prize)}** wird nicht mehr verlost. Die Teilnahme ist geschlossen.`)],components:[]}).catch(()=>{});}
       return answer(i,{...fieldsEmbed("🚫 Giveaway abgebrochen",[
-        {name:"Preis",value:`**${row.prize}**`,inline:true},{name:"Status",value:"Abgebrochen · Es wird kein Gewinner gezogen.",inline:true},
+        {name:"Preis",value:`**${prizeLabel(row.prize)}**`,inline:true},{name:"Status",value:"Abgebrochen · Es wird kein Gewinner gezogen.",inline:true},
       ],"Die Teilnahmeschaltfläche wurde deaktiviert."),ephemeral:true});
     }
   }
@@ -1198,7 +1199,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         await i.message?.edit({embeds:[giveawayCard(result.giveaway,giveaways.entryCount(id))]}).catch(()=>{});
         if(action==="leave")return answer(i,{content:"Du bist vom Giveaway abgemeldet.",ephemeral:true});
         return answer(i,{...fieldsEmbed("🎉 Teilnahme bestätigt",[
-          {name:"Preis",value:`**${result.giveaway.prize}**`,inline:true},
+          {name:"Preis",value:`**${prizeLabel(result.giveaway.prize)}**`,inline:true},
           {name:"Endet",value:`<t:${unix(result.giveaway.ends_at)}:R>`,inline:true},
         ],"Du bist jetzt im Lostopf. Viel Glück!"),ephemeral:true});
       }

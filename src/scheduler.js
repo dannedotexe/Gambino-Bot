@@ -1,4 +1,5 @@
 import { EmbedBuilder } from "discord.js";
+import { giveawayResultPayload, giveawayWinnerPayload } from "./giveaway-cards.js";
 import { CONTROL_SQL } from "./control-detect.js";
 import { remindMissingEventLogs } from "./event-proofs.js";
 import { getSetting, setSetting } from "./database.js";
@@ -191,9 +192,11 @@ async function refreshStatsChannel(db,client,config){
 async function announceGiveaway(db,client,row){
   const winners=JSON.parse(row.winners??"[]"),channel=await client.channels.fetch(row.channel_id).catch(()=>null);
   if(!channel){console.warn(`Giveaway ${row.id} ended but its channel is unavailable; result remains stored for retry.`);return;}
-  const result={embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  GIVEAWAY"}).setTitle(`🎉 Giveaway beendet: ${row.prize}`.slice(0,256)).setDescription(winners.length?`**Gewonnen haben:**\n${winners.map(id=>`🏆 <@${id}>`).join("\n")}`:"Es gab keine Teilnahmen; es wurde kein Gewinner gezogen.").setFooter({text:"GAMBINOS  •  Ergebnis dauerhaft gespeichert"}).setTimestamp()],components:[],allowedMentions:{users:winners}};
+  const entries=db.prepare("SELECT COUNT(*) n FROM giveaway_entries WHERE giveaway_id=?").get(row.id).n;
+  const result=giveawayResultPayload(row,{entries});
   const message=row.message_id?await channel.messages.fetch(row.message_id).catch(()=>null):null;
-  if(message){await message.edit(result);if(winners.length)await channel.send({content:`Glückwunsch ${winners.map(id=>`<@${id}>`).join(", ")}! Ihr habt **${row.prize}** gewonnen.`,allowedMentions:{users:winners}}).catch(()=>{});}
+  if(message)await message.edit(result);
   else await channel.send(result);
+  if(winners.length)await channel.send(giveawayWinnerPayload(row)).catch(()=>{});
   db.prepare("INSERT OR IGNORE INTO giveaway_announcements(giveaway_id,sent_at) VALUES(?,?)").run(row.id,new Date().toISOString());
 }

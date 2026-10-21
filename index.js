@@ -6,6 +6,7 @@ import { buildCommands, createHandler, handleComponent } from "./src/commands.js
 import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { refreshProofPrompt } from "./src/event-proofs.js";
+import { giveawayResultPayload } from "./src/giveaway-cards.js";
 import { startScheduler } from "./src/scheduler.js";
 import { ensureFamilyRole, syncFamilyRoles } from "./src/family-role.js";
 import { startModeration } from "./src/moderation.js";
@@ -95,6 +96,14 @@ async function adoptLeadershipDefaults(){
     setSetting(db,guild.id,"EVENT_PROOF_PROMPTS_V2",new Date().toISOString());
     for(const proof of db.prepare("SELECT * FROM event_proofs WHERE guild_id=? AND created_at>=? AND prompt_message_id IS NOT NULL").all(guild.id,new Date(Date.now()-36*3_600_000).toISOString())){
       if(await refreshProofPrompt({db,client,config,proof}).catch(()=>false))await new Promise(r=>setTimeout(r,800));
+    }
+  }
+  // Einmalig: Ergebnis-Karten der Giveaways der letzten 7 Tage im neuen Aussehen.
+  if(!getSetting(db,guild.id,"GIVEAWAY_CARDS_V2")){
+    setSetting(db,guild.id,"GIVEAWAY_CARDS_V2",new Date().toISOString());
+    for(const row of db.prepare("SELECT * FROM giveaways WHERE guild_id=? AND status='ended' AND message_id IS NOT NULL AND ended_at>=?").all(guild.id,new Date(Date.now()-7*86_400_000).toISOString())){
+      const channel=await client.channels.fetch(row.channel_id).catch(()=>null),message=await channel?.messages?.fetch(row.message_id).catch(()=>null);
+      if(message)await message.edit(giveawayResultPayload(row,{entries:db.prepare("SELECT COUNT(*) n FROM giveaway_entries WHERE giveaway_id=?").get(row.id).n})).catch(()=>{});
     }
   }
   // Geänderte Vorlage (Standardtext oder „Vorlage …“-Post) in die bestehenden Bot-Posts übernehmen.
