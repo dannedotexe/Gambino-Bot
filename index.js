@@ -6,7 +6,7 @@ import { buildCommands, createHandler, handleComponent } from "./src/commands.js
 import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { refreshProofPrompt } from "./src/event-proofs.js";
-import { giveawayResultPayload } from "./src/giveaway-cards.js";
+import { giveawayResultPayload, giveawayWinnerPayload } from "./src/giveaway-cards.js";
 import { startScheduler } from "./src/scheduler.js";
 import { ensureFamilyRole, syncFamilyRoles } from "./src/family-role.js";
 import { startModeration } from "./src/moderation.js";
@@ -99,11 +99,14 @@ async function adoptLeadershipDefaults(){
     }
   }
   // Einmalig: Ergebnis-Karten der Giveaways der letzten 7 Tage im neuen Aussehen.
-  if(!getSetting(db,guild.id,"GIVEAWAY_CARDS_V2")){
-    setSetting(db,guild.id,"GIVEAWAY_CARDS_V2",new Date().toISOString());
+  // V3: auch die alte Glückwunsch-Zeile darunter durch die neue Karte ersetzen (Bearbeiten pingt nicht erneut).
+  if(!getSetting(db,guild.id,"GIVEAWAY_CARDS_V3")){
+    setSetting(db,guild.id,"GIVEAWAY_CARDS_V3",new Date().toISOString());
     for(const row of db.prepare("SELECT * FROM giveaways WHERE guild_id=? AND status='ended' AND message_id IS NOT NULL AND ended_at>=?").all(guild.id,new Date(Date.now()-7*86_400_000).toISOString())){
       const channel=await client.channels.fetch(row.channel_id).catch(()=>null),message=await channel?.messages?.fetch(row.message_id).catch(()=>null);
-      if(message)await message.edit(giveawayResultPayload(row,{entries:db.prepare("SELECT COUNT(*) n FROM giveaway_entries WHERE giveaway_id=?").get(row.id).n})).catch(()=>{});
+      if(message)await message.edit(giveawayResultPayload(row,{entries:db.prepare("SELECT COUNT(*) n FROM giveaway_entries WHERE giveaway_id=?").get(row.id).n})).catch(error=>console.warn("Giveaway-Karte nicht aktualisiert:",error.message));
+      const later=await channel?.messages?.fetch({after:row.message_id,limit:50}).catch(()=>null);
+      for(const old of later?.values?.()??[])if(old.author?.id===client.user?.id&&/^Glückwunsch /.test(old.content??"")&&!old.embeds?.length)await old.edit({...giveawayWinnerPayload(row),allowedMentions:{parse:[]}}).catch(error=>console.warn("Giveaway-Glückwunsch nicht aktualisiert:",error.message));
     }
   }
   // Geänderte Vorlage (Standardtext oder „Vorlage …“-Post) in die bestehenden Bot-Posts übernehmen.
