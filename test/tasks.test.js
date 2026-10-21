@@ -373,3 +373,28 @@ test("Invite-Fortschritt: DM an den Einlader nur bei echtem Fortschritt", async 
   assert.match(dms.at(-1).embeds[0].data.description, /Noch \*\*4 Events\*\*/);
   assert.equal(tasks.get(G, log.id).status, "pending", "ohne Bestätigung keine Auszahlung");
 });
+
+test("Logbuch: fremde Posts werden gelöscht (Staff ausgenommen), Auswahl nur durch den Poster", async () => {
+  const { handleLogbookMessage } = await import("../src/task-logs.js");
+  const db = testDb(), FORUM = "60000000000000081", THREAD = "60000000000000082", STAFF = "20000000000000002";
+  const config = { ...baseConfig({ CHANNEL_TASK_FORUM: FORUM }), ROLE_STAFF: [STAFF] };
+  db.prepare("INSERT INTO logbooks(guild_id,user_id,thread_id,title,created_at) VALUES(?,?,?,'Tony | 1','x')").run(G, U, THREAD);
+  const sent = [];
+  const thread = { id: THREAD, parentId: FORUM, name: "Tony | 1", isThread: () => true, send: async p => { sent.push(p); return { delete: async () => {} }; } };
+  const msg = (author, roles = []) => { const m = { id: `m${author}`, guildId: G, channelId: THREAD, channel: thread, author: { id: author }, member: { roles: { cache: new Map(roles.map(r => [r, true])) } }, attachments: new Map([["a", { url: "https://cdn.discordapp.com/x.png", contentType: "image/png", name: "x.png", size: 1 }]]), deleted: false, replies: [] };
+    m.delete = async () => { m.deleted = true; }; m.reply = async p => { m.replies.push(p); return { id: "p" }; }; return m; };
+  const stranger = msg("30000000000000055");
+  await handleLogbookMessage({ db, config, message: stranger });
+  assert.ok(stranger.deleted); assert.match(sent[0].content, /Logbuch von <@30000000000000001>/);
+  const staff = msg("30000000000000056", [STAFF]);
+  await handleLogbookMessage({ db, config, message: staff });
+  assert.ok(!staff.deleted, "Staff darf posten"); assert.equal(staff.replies.length, 1);
+  const own = msg(U);
+  await handleLogbookMessage({ db, config, message: own });
+  assert.ok(!own.deleted); assert.equal(own.replies.length, 1);
+  // Auswahl unter dem Bild des Besitzers: Prüfer darf nicht wählen.
+  const answers = [];
+  thread.messages = { fetch: async () => own };
+  await handleTaskInteraction({ i: { guildId: G, channel: thread, customId: `task:pick:${own.id}:0`, user: { id: R }, member: { roles: { cache: new Map([[REV, true]]) } }, values: ["x"], message: { id: "p" }, reply: async p => answers.push(p) }, db, client: {}, config });
+  assert.match(answers[0].content, /nur die Person/);
+});

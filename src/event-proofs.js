@@ -1,5 +1,4 @@
 import { ActionRowBuilder, MessageFlags, StringSelectMenuBuilder } from "discord.js";
-import { accessGroups } from "./config.js";
 import { audit } from "./database.js";
 import { localDay } from "./services/absences.js";
 import { zonedTime } from "./services/event-series.js";
@@ -70,7 +69,6 @@ export async function handleEventProofMessage({ db, config, message, reference =
   return true;
 }
 
-const isTeam = (i, config) => (config.BOT_OWNER_IDS ?? []).includes(i.user.id) || accessGroups(config).events.some(id => i.member?.roles?.cache?.has?.(id));
 
 /** Auswahl „evp:pick:<Nachricht>“: nur die Person selbst oder das Event-Team. */
 export async function handleEventProofInteraction({ i, db, config }) {
@@ -78,7 +76,8 @@ export async function handleEventProofInteraction({ i, db, config }) {
   if (action !== "pick") return i.reply({ content: "Unbekannte Aktion.", flags: MessageFlags.Ephemeral });
   const proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=?").get(messageId);
   if (!proof) return i.reply({ content: "Dieses Bild gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
-  if (proof.user_id !== i.user.id && !isTeam(i, config)) return i.reply({ content: "Das kann nur die Person auswählen, die das Bild gepostet hat.", flags: MessageFlags.Ephemeral });
+  // Nur wer das Bild gepostet hat; das Event-Team kann auf der Website verschieben.
+  if (proof.user_id !== i.user.id) return i.reply({ content: "Das kann nur die Person auswählen, die das Bild gepostet hat. (Das Event-Team kann es auf der Website verschieben.)", flags: MessageFlags.Ephemeral });
   const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(i.values[0], proof.guild_id);
   if (!event) return i.reply({ content: "Dieses Event gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
   const updated = assign(db, { proof, eventId: event.id, actorId: i.user.id });

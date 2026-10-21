@@ -28,7 +28,7 @@ test("Passende Events: alle von heute (auch frühere und abgeschlossene), angeme
   assert.deepEqual(candidateEvents(db, { guildId: G, userId: U, reference: new Date("2026-10-20T23:30:00Z") }).map(e => e.id).sort(), ["cayo", "done", "evening", "rang", "soon", "tomorrow"]);
 });
 
-test("Bild: bei mehreren Events fragen, Person wählt, Team darf korrigieren, Fremde nicht", async () => {
+test("Bild: bei mehreren Events fragen, nur die Person selbst wählt (auch nicht das Team)", async () => {
   const db = testDb(), replies = [];
   addEvent(db, "rang", "2026-10-20T18:20:00Z", { name: "Kampf um die Rangfolge" });
   addEvent(db, "cayo", "2026-10-20T18:50:00Z", { name: "Cayo Perico" });
@@ -43,7 +43,9 @@ test("Bild: bei mehreren Events fragen, Person wählt, Team darf korrigieren, Fr
   assert.match(answers[1].content, /✅ Event-Log für \*\*Cayo Perico\*\*/);
   assert.equal(answers[1].components[0].components[0].data.placeholder, "Falsches Event? Anderes wählen …");
   await handleEventProofInteraction({ i: i(O, [TEAM], "rang"), db, config });
-  assert.deepEqual([...proofsByUser(db, "rang")], [[U, 2]], "Team hat korrigiert, 2 Bilder gezählt");
+  assert.match(answers[2].content, /nur die Person/, "auch das Team wählt in Discord nicht – es verschiebt auf der Website");
+  await handleEventProofInteraction({ i: i(U, [], "rang"), db, config });
+  assert.deepEqual([...proofsByUser(db, "rang")], [[U, 2]], "selbst umgewählt, 2 Bilder gezählt");
   assert.equal(proofsByUser(db, "cayo").size, 0);
 });
 

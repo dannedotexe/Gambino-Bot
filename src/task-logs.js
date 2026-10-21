@@ -153,12 +153,22 @@ export async function handleLogbookMessage({ db, config, message }) {
   const inEvents = Boolean(config.CHANNEL_EVENT_FORUM) && message.channel.parentId === config.CHANNEL_EVENT_FORUM;
   if (!inTasks && !inEvents) return false;
   if (/^\W*vorlage/i.test(message.channel.name ?? "")) return false;
+  const groups = accessGroups(config), roles = message.member?.roles?.cache;
+  const team = (config.BOT_OWNER_IDS ?? []).includes(message.author?.id) || [...groups.anyStaff, ...groups.tasks, ...groups.events].some(id => roles?.has?.(id));
+  // Fremdes Logbuch: nur die Person, der es gehört, darf hineinposten (Staff ausgenommen) – alles andere wird gelöscht.
+  const owner = db.prepare(`SELECT user_id FROM ${inTasks ? "logbooks" : "event_logbooks"} WHERE thread_id=?`).get(message.channel.id)?.user_id;
+  if (owner && owner !== message.author?.id && !team) {
+    const deleted = await message.delete().then(() => true).catch(() => false);
+    if (deleted) {
+      const hint = await message.channel.send({ content: `<@${message.author.id}> Das ist das Logbuch von <@${owner}> – hier darf nur diese Person posten. Bitte in **dein eigenes** Logbuch.`, allowedMentions: { users: [message.author.id] } }).catch(() => null);
+      if (hint) setTimeout(() => hint.delete().catch(() => {}), 8000).unref?.();
+    }
+    return false;
+  }
   // Event-Logbücher: Bild als Event-Nachweis zuordnen (keine Aufgaben-Auswahl).
   if (inEvents && imageOf(message)) return handleEventProofMessage({ db, config, message });
   if (!imageOf(message)) {
     // Nur Bilder: Text von Mitgliedern wird gelöscht (Team darf schreiben), kurzer Hinweis verschwindet wieder.
-    const groups = accessGroups(config), roles = message.member?.roles?.cache;
-    const team = (config.BOT_OWNER_IDS ?? []).includes(message.author?.id) || [...groups.anyStaff, ...groups.tasks].some(id => roles?.has?.(id));
     if (!config.LOGBOOK_IMAGES_ONLY || team) return false;
     const deleted = await message.delete().then(() => true).catch(() => false);
     if (deleted) {
@@ -301,7 +311,8 @@ export async function handleTaskInteraction({ i, db, client, config }) {
   if (["pick", "pickq", "skip", "invitee"].includes(action)) {
     const parts = i.customId.split(":"), index = Number(action === "pickq" || action === "invitee" ? parts[4] : parts[3]) || 0;
     const source = await i.channel?.messages?.fetch(id).catch(() => null);
-    if (source && source.author?.id !== i.user.id && !canReview(i, config)) return reply("Das kann nur die Person auswählen, die den Screenshot gepostet hat.");
+    // Auswählen darf nur, wer den Screenshot gepostet hat (auch nicht das Team – das prüft danach auf der Prüf-Karte).
+    if (source && source.author?.id !== i.user.id) return reply("Das kann nur die Person auswählen, die den Screenshot gepostet hat.");
     if (action === "skip") return i.update({ content: "Kein Log – alles gut.", components: [] }).then(() => i.message?.delete?.().catch(() => {}));
     const typeId = action === "pick" ? i.values[0] : parts[3];
     const type = service(db, config).typeById(i.guildId, typeId);
