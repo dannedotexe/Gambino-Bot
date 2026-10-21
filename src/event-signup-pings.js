@@ -4,7 +4,7 @@
  * Hinweis wieder; nach dem Event räumt der Bot ihn auf (das Logbuch bleibt sauber).
  */
 const unix = iso => Math.floor(new Date(iso).getTime() / 1000);
-const KEEP_AFTER_START = 4 * 3_600_000;
+const KEEP_AFTER_START = 30 * 60_000;
 
 export async function pingSignup({ db, client, config, event, userId }) {
   if (!config.EVENT_SIGNUP_LOGBOOK_PING || !config.CHANNEL_EVENT_FORUM) return false;
@@ -30,7 +30,7 @@ export async function removeSignupPing({ db, client, eventId, userId }) {
   return true;
 }
 
-/** Hinweise zu Events, die vor mehr als 4 Std. begonnen haben oder abgesagt wurden, entfernen. */
+/** Hinweise zu Events, die vor mehr als 30 Minuten begonnen haben oder abgesagt wurden, entfernen. */
 export async function cleanupSignupPings({ db, client, reference = new Date() }) {
   const rows = db.prepare(`SELECT p.event_id,p.user_id FROM event_signup_pings p LEFT JOIN events e ON e.id=p.event_id
     WHERE e.id IS NULL OR e.status='cancelled' OR e.starts_at<? LIMIT 25`).all(new Date(reference.getTime() - KEEP_AFTER_START).toISOString());

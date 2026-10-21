@@ -24,7 +24,8 @@ test("Anmeldung: Ping im eigenen Event-Logbuch, einmalig; Abmelden und Aufräume
   assert.deepEqual(deleted, ["m1"]);
   await pingSignup({ db, client, config, event, userId: U });
   assert.equal(await cleanupSignupPings({ db, client, reference: new Date() }), 0, "vor dem Event bleibt er");
-  assert.equal(await cleanupSignupPings({ db, client, reference: new Date(Date.now() + 6 * 3600e3) }), 1, "4 Std. nach Beginn weg");
+  assert.equal(await cleanupSignupPings({ db, client, reference: new Date(Date.now() + 3600e3 + 20 * 60_000) }), 0, "20 Min. nach Beginn bleibt er");
+  assert.equal(await cleanupSignupPings({ db, client, reference: new Date(Date.now() + 3600e3 + 31 * 60_000) }), 1, "30 Min. nach Beginn weg");
   assert.equal(db.prepare("SELECT COUNT(*) n FROM event_signup_pings").get().n, 0);
 });
 
