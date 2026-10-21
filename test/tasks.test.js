@@ -58,7 +58,7 @@ test("Tageslimit und Erkennung doppelter Screenshots", () => {
 
 test("Stufen, Serie und Wochenbeginn", () => {
   assert.equal(levelFor(0).name, "Neuling");
-  assert.equal(levelFor(16).name, "Fleißig");
+  assert.equal(levelFor(16).name, "Fortgeschrittener");
   assert.equal(levelFor(16).next.missing, 14);
   assert.equal(levelFor(500).next, null);
   assert.equal(streakOf(["2026-10-18", "2026-10-19", "2026-10-20"], "2026-10-20"), 3);

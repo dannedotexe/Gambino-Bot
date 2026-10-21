@@ -24,12 +24,12 @@ const DEFAULT_TYPES = [
 /** Stufen nach Anzahl bestätigter Logs (gesamt). */
 export const LEVELS = [
   { min: 0, name: "Neuling", emoji: "🌱" },
-  { min: 5, name: "Anpacker", emoji: "🔧" },
-  { min: 15, name: "Fleißig", emoji: "🥉" },
+  { min: 5, name: "Amateur", emoji: "🔧" },
+  { min: 15, name: "Fortgeschrittener", emoji: "🥉" },
   { min: 30, name: "Profi", emoji: "🥈" },
   { min: 60, name: "Elite", emoji: "🥇" },
   { min: 100, name: "Legende", emoji: "💎" },
-  { min: 200, name: "Gambino-Maschine", emoji: "👑" },
+  { min: 200, name: "Gambino", emoji: "👑" },
 ];
 export function levelFor(count) {
   const index = LEVELS.findLastIndex(level => count >= level.min);
