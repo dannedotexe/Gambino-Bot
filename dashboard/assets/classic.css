@@ -370,3 +370,11 @@ kbd{font:11px var(--font);padding:1px 6px;border-radius:4px;border:1px solid var
 .evlog-tools{display:flex;gap:4px;align-items:center}.evlog-tools select{flex:1;min-width:0}
 .evlog-wait{aspect-ratio:16/9}
 .evlog-missing{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}.evlog-missing p{margin:0}
+/* Tabellen mit Aktions-Spalte: Kopf und Zeilen teilen sich ein Spaltenraster (sonst verrutschen die Spalten). */
+@media (min-width:701px){
+  .table:has(>.table-head){display:grid;grid-template-columns:minmax(150px,1.4fr) 1fr 1.2fr 1fr auto}
+  .table:has(>.table-head.members-row){grid-template-columns:minmax(170px,1.5fr) .7fr 1.2fr 1fr auto}
+  .table:has(>.table-head.inactive-row){grid-template-columns:minmax(170px,1.5fr) 1fr 1fr .8fr auto}
+  .table:has(>.table-head):not(:has(>.payout-row,>.task-hist,>.access-row))>.table-row{grid-column:1/-1;grid-template-columns:subgrid}
+  .table:has(>.payout-row,>.task-hist,>.access-row){display:block}
+}
