@@ -37,6 +37,12 @@ const series=createSeriesService(db);
 if(config.DISCORD_GUILD_ID){const seeded=series.seedDefaults(config.DISCORD_GUILD_ID);if(seeded)console.log(`${seeded} Standard-Aktivitäten angelegt (inaktiv). Aktivieren über Website oder /aktivitaeten.`);}
 // Auf Wunsch der Leitung (21.10.2026): „Der Kampf um die Werft“ alle 3 Std. um xx:10 (ab 01:10), direkt aktiv.
 if(config.DISCORD_GUILD_ID&&series.addDefaultOnce(config.DISCORD_GUILD_ID,"Der Kampf um die Werft",{active:true,key:"SERIES_WERFT_ADDED"}))console.log("Aktivität „Der Kampf um die Werft“ angelegt (aktiv).");
+// Auf Wunsch der Leitung (21.10.2026): Hafen/Werft nur noch abends + 01:10 – nur wenn die Zeiten noch unverändert alle 3 Std. sind.
+if(config.DISCORD_GUILD_ID&&!getSetting(db,config.DISCORD_GUILD_ID,"SERIES_WERFT_EVENING")){
+  setSetting(db,config.DISCORD_GUILD_ID,"SERIES_WERFT_EVENING",new Date().toISOString());
+  const changed=db.prepare("UPDATE event_series SET times='01:10,19:10,22:10',updated_at=? WHERE guild_id=? AND times='01:10,04:10,07:10,10:10,13:10,16:10,19:10,22:10'").run(new Date().toISOString(),config.DISCORD_GUILD_ID).changes;
+  if(changed){audit(db,config.DISCORD_GUILD_ID,"system","event.series_updated",null,{name:"Hafen/Werft",schedule:"täglich 01:10, 19:10, 22:10",reason:"nur abends + 01:10"});console.log("Hafen/Werft: Zeiten auf 01:10, 19:10, 22:10 umgestellt.");}
+}
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],partials:[Partials.Channel,Partials.Message]});
 const finance=createFinance(db);
 const handlers=createHandler({db,finance,config,client,settings,series});

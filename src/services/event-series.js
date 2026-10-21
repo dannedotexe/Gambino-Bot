@@ -19,7 +19,7 @@ export const DEFAULT_SERIES = [
   { name: "Gießerei", weekdays: ALL_DAYS, times: ["14:20"] },
   { name: "Bizwar", weekdays: ALL_DAYS, times: ["19:05", "01:05"] },
   { name: "Kampf um die Rangfolge", weekdays: ALL_DAYS, times: ["20:50"] },
-  { name: "Der Kampf um die Werft", weekdays: ALL_DAYS, times: ["01:10", "04:10", "07:10", "10:10", "13:10", "16:10", "19:10", "22:10"], location: "Hafen von Los Santos",
+  { name: "Der Kampf um die Werft", weekdays: ALL_DAYS, times: ["01:10", "19:10", "22:10"], location: "Hafen von Los Santos",
     description: "Schlacht um den Hafen – Belohnung: Munition & Waffen für das Familienlager.\n⚠️ **Alle Teilnehmer müssen POV aufnehmen und 48 Stunden aufbewahren** (sonst 30 Tage Sperre)." },
 ];
 
