@@ -514,3 +514,4 @@ dialog .cselect-list{z-index:1000}
 .invite-row{display:grid;grid-template-columns:78px 1fr auto;align-items:center;gap:8px;font-size:13px}.invite-row b{font-variant-numeric:tabular-nums}
 .invite-bar{height:8px;border-radius:99px;background:var(--fill);overflow:hidden}.invite-bar i{display:block;height:100%;width:0;border-radius:99px;background:var(--orange,#ff9f0a);transition:width .5s var(--ease)}.invite-row.ok .invite-bar i{background:var(--green,#30d158)}.invite-row.ok b{color:var(--green,#30d158)}
 .evlog-tools{display:flex;gap:6px;align-items:center}.evlog-tools select{flex:1;min-width:0}.evlog-tools .action{flex:none}
+.evlog-wait{aspect-ratio:16/9}

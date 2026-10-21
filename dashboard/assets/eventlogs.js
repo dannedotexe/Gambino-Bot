@@ -14,15 +14,18 @@ async function loadEventLogs(day = evlogState.day) {
   // Verschieben (anderes Event des Tages) und Löschen unter jedem Bild.
   const options = current => `<option value="">${current ? "Verschieben …" : "Event zuordnen …"}</option>${data.events.filter(e => e.id !== current).map(e => `<option value="${escapeHtml(e.id)}">${escapeHtml(`${e.name} · ${evlogClock(e.startsAt)}`)}</option>`).join("")}`;
   const tools = (p, current) => `<div class="evlog-tools">${data.events.some(e => e.id !== current) ? `<select class="evlog-assign" data-assign="${escapeHtml(p.messageId)}" aria-label="${current ? "Verschieben" : "Event zuordnen"}">${options(current)}</select>` : ""}<button type="button" class="action reject" data-action="evlog-delete" data-id="${escapeHtml(p.messageId)}" title="Event-Log löschen">Löschen</button></div>`;
-  const figure = (p, current = null) => `<figure class="evlog" data-proof="${escapeHtml(p.messageId)}"><div class="evlog-imgs"><span class="evlog-wait">lädt …</span></div><figcaption><b>${who(p.userId)}</b> · ${evlogClock(p.createdAt)}${p.images > 1 ? ` · ${p.images} Bilder` : ""}</figcaption>${tools(p, current)}</figure>`;
+  const figure = (p, current = null) => `<figure class="evlog" data-proof="${escapeHtml(p.messageId)}"><div class="evlog-imgs">${evlogState.images.has(p.messageId) ? evlogImages(evlogState.images.get(p.messageId)) : '<span class="evlog-wait">lädt …</span>'}</div><figcaption><b>${who(p.userId)}</b> · ${evlogClock(p.createdAt)}${p.images > 1 ? ` · ${p.images} Bilder` : ""}</figcaption>${tools(p, current)}</figure>`;
   const events = data.events.map(e => `<div class="evlog-event"><div class="evlog-head"><div><b>${escapeHtml(e.name)}</b><small>${evlogClock(e.startsAt)} · ${e.proofs.length ? `${e.proofs.length} ${e.proofs.length === 1 ? "Log" : "Logs"} von ${e.people} ${e.people === 1 ? "Person" : "Personen"}` : "noch keine Logs"}${e.closed ? " · Anwesenheit abgeschlossen" : ""}</small></div></div>
     ${e.proofs.length ? `<div class="evlog-grid">${e.proofs.map(p => figure(p, e.id)).join("")}</div>` : ""}
     ${e.missing.length ? `<p class="subtle evlog-missing">Angemeldet, aber ohne Log: ${e.missing.map(who).join(", ")}</p>` : ""}</div>`);
   const unassigned = data.unassigned.length ? `<div class="evlog-event evlog-open"><div class="evlog-head"><div><b>Nicht zugeordnet</b><small>${data.unassigned.length} ${data.unassigned.length === 1 ? "Bild wartet" : "Bilder warten"} auf ein Event</small></div></div><div class="evlog-grid">${data.unassigned.map(p => figure(p)).join("")}</div></div>` : "";
   $("evlogs").innerHTML = total || data.events.length ? unassigned + events.join("") : empty(`${evlogDayLabel(data.day)} gab es keine Events und keine Event-Logs.`);
-  evlogState.queue = [...document.querySelectorAll("#evlogs [data-proof]")].map(el => el.dataset.proof);
+  evlogState.queue = [...document.querySelectorAll("#evlogs [data-proof]")].map(el => el.dataset.proof).filter(id => !evlogState.images.has(id));
   for (let n = 0; n < 4; n++) evlogPump();
 }
+
+const evlogImages = info => info.missing || !info.images.length ? `<span class="evlog-wait">Bild wurde in Discord gelöscht</span>`
+  : info.images.map(url => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(url)}" alt="Event-Log" loading="lazy"></a>`).join("") + `<a class="evlog-link" href="${escapeHtml(info.link)}" target="_blank" rel="noopener noreferrer">in Discord</a>`;
 
 /** Bilder nacheinander laden (max. 4 gleichzeitig), Discord-Links laufen ab – daher frisch vom Server. */
 async function evlogPump() {
@@ -32,8 +35,7 @@ async function evlogPump() {
   try {
     const info = evlogState.images.get(id) ?? await api(`/api/event-logs/${id}`);
     evlogState.images.set(id, info);
-    if (box?.isConnected) box.innerHTML = info.missing || !info.images.length ? `<span class="evlog-wait">Bild wurde in Discord gelöscht</span>`
-      : info.images.map(url => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(url)}" alt="Event-Log" loading="lazy"></a>`).join("") + `<a class="evlog-link" href="${escapeHtml(info.link)}" target="_blank" rel="noopener noreferrer">in Discord</a>`;
+    if (box?.isConnected) box.innerHTML = evlogImages(info);
   } catch (error) { if (box) box.innerHTML = `<span class="evlog-wait">${escapeHtml(error.message)}</span>`; }
   evlogPump();
 }
@@ -52,5 +54,5 @@ Object.assign(actions, {
   "evlogs-next": () => loadEventLogs(evlogShift(evlogState.day ?? evlogState.today, 1)),
   "evlogs-today": () => loadEventLogs(evlogState.today),
   "evlog-delete": ({ id }) => openForm({ eyebrow: "EVENT-LOG", title: "Event-Log löschen", danger: true, intro: "<p>Das Bild wird auch im Forum in Discord gelöscht (samt Bot-Antwort) und zählt nicht mehr als Nachweis. Das lässt sich nicht rückgängig machen.</p>",
-    fields: [], submit: "Endgültig löschen", onSubmit: async () => { const r = await post(`/api/event-logs/${id}/delete`); evlogState.images.delete(id); setTimeout(() => loadEventLogs().catch(() => {}), 50); return r; } }),
+    fields: [], submit: "Endgültig löschen", onSubmit: async () => { const r = await post(`/api/event-logs/${id}/delete`); evlogState.images.delete(id); return r; } }),
 });

@@ -227,9 +227,15 @@ async function showTab(id) {
 let loadingCount = 0;
 async function refresh() {
   loadingCount++; document.body.classList.add("is-loading");
+  // Neu laden ohne Sprung nach oben: Höhe festhalten, solange Listen neu aufgebaut werden, danach Position wiederherstellen.
+  const y = window.scrollY, page = document.querySelector("main.content") ?? document.body;
+  if (y > 0) page.style.minHeight = `${page.scrollHeight}px`;
   try { await (loaders[state.tab] ?? loadOverview)(); }
   catch (error) { notify(error.message, "error"); }
-  finally { if (--loadingCount === 0) document.body.classList.remove("is-loading"); }
+  finally {
+    if (--loadingCount === 0) document.body.classList.remove("is-loading");
+    if (y > 0) { window.scrollTo({ top: y }); requestAnimationFrame(() => { page.style.minHeight = ""; window.scrollTo({ top: y }); }); }
+  }
 }
 function openMenu() { document.body.classList.add("menu-open"); $("menu-toggle").setAttribute("aria-expanded", "true"); }
 function closeMenu() { document.body.classList.remove("menu-open"); $("menu-toggle").setAttribute("aria-expanded", "false"); }
