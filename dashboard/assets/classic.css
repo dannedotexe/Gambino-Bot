@@ -354,3 +354,16 @@ kbd{font:11px var(--font);padding:1px 6px;border-radius:4px;border:1px solid var
 .proofs{display:grid;gap:12px}.proof{padding:10px;border:1px solid var(--line);border-radius:var(--radius-sm)}.proof-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px}.proof-head small{color:var(--muted)}
 .proof-images{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}.proof-images img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;display:block}
 .held-actions{display:flex;justify-content:flex-end;margin:-4px 0 10px}
+
+/* Event-Logs */
+.evlogs{display:grid;gap:12px}.evlog-event{padding:10px;border:1px solid var(--line);border-radius:var(--radius-sm)}.evlog-open{border-style:dashed}
+.evlog-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.evlog-head b{display:block}.evlog-head small{color:var(--muted)}
+.evlog-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}.evlog{margin:0;display:flex;flex-direction:column;gap:4px;min-width:0}
+.evlog-imgs{position:relative;display:grid;gap:4px;min-height:50px}.evlog-imgs img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;display:block}
+.evlog-wait{display:grid;place-items:center;min-height:50px;color:var(--muted);font-size:12px}.evlog-link{position:absolute;right:4px;bottom:4px;font-size:11px;padding:1px 6px;border-radius:4px;background:rgba(0,0,0,.6);color:#fff}
+.evlog figcaption{font-size:12px;color:var(--muted);overflow-wrap:anywhere}.evlog-missing{margin:8px 0 0}.evlog-assign{width:100%}
+
+/* Invite-Bedingung */
+.invite-meter{display:grid;gap:4px;margin:6px 0;padding:8px;border:1px solid var(--line);border-radius:4px}.invite-meter small{color:var(--muted);font-size:12px}
+.invite-row{display:grid;grid-template-columns:72px 1fr auto;align-items:center;gap:6px;font-size:13px}
+.invite-bar{height:7px;border-radius:4px;background:var(--line);overflow:hidden}.invite-bar i{display:block;height:100%;width:0;background:#e0a100}.invite-row.ok .invite-bar i{background:#2e9d4f}.invite-row.ok b{color:#2e9d4f}

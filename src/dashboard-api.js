@@ -34,7 +34,7 @@ import { CLOSURE_REASONS, createAccountClosureService } from "./services/account
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
 import { addPresent, afterClose, afterNotPlayed, closeAttendance, markNotPlayed, parseAmount, requestAttendance } from "./attendance.js";
-import { proofMessages, proofsByUser } from "./event-proofs.js";
+import { assignProofFromWeb, eventLogDay, proofMessages, proofsByUser } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { sendWeeklyReport } from "./weekly-report.js";
 import { PollError, createPollService, publishPoll, refreshPollMessage, announcePollResult, validatePoll } from "./polls.js";
@@ -298,7 +298,13 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const week = weekStart(today()), month = `${today().slice(0, 7)}-01`;
       const open = tasks.list(guildId, { status: "pending", limit: 300 }), pending = open.filter(l => !l.preapproved_at), held = open.filter(l => l.preapproved_at), recent = tasks.list(guildId, { limit: 150 }).filter(l => l.status !== "pending");
       const board = { week: tasks.leaderboard(guildId, { since: week, limit: 15 }), month: tasks.leaderboard(guildId, { since: month, limit: 15 }), all: tasks.leaderboard(guildId, { limit: 15 }) };
-      const strip = l => ({ id: l.id, user_id: l.user_id, type: `${l.type_emoji} ${l.type_name}`, type_id: l.type_id, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, note: l.note, status: l.status, duplicate_of: l.duplicate_of, reviewer_id: l.reviewer_id, reviewed_at: l.reviewed_at, reject_reason: l.reject_reason, created_at: l.created_at, hasProof: Boolean(l.message_id || l.proof_url),
+      // Invite-Bedingung live: Tage seit Beitritt der eingeladenen Person und Events, bei denen sie seitdem anwesend war.
+      const g = await guild().catch(() => null), progress = new Map();
+      for (const l of open) if (l.invitee_id && (l.invite_min_days != null || l.invite_min_events != null)) {
+        const joined = await g?.members?.fetch?.(l.invitee_id).catch(() => null);
+        progress.set(l.id, tasks.inviteProgress(l, l, { joinedAt: joined?.joinedAt ?? null }));
+      }
+      const strip = l => ({ id: l.id, user_id: l.user_id, invite: progress.get(l.id) ?? null, type: `${l.type_emoji} ${l.type_name}`, type_id: l.type_id, quantity: l.quantity, perUnit: Boolean(l.type_per_unit), unit: l.type_unit, reward_cents: l.reward_cents, note: l.note, status: l.status, duplicate_of: l.duplicate_of, reviewer_id: l.reviewer_id, reviewed_at: l.reviewed_at, reject_reason: l.reject_reason, created_at: l.created_at, hasProof: Boolean(l.message_id || l.proof_url),
         invitee_id: l.invitee_id, preapproved_by: l.preapproved_by, preapproved_at: l.preapproved_at, progress: l.progress, condition: l.invite_min_days != null || l.invite_min_events != null ? conditionText(l) : null });
       const ids = [...open, ...recent].flatMap(l => [l.user_id, l.reviewer_id, l.invitee_id, l.preapproved_by]).concat(Object.values(board).flat().map(r => r.userId));
       return withNames({ summary: tasks.summary(guildId), pending: pending.map(strip), held: held.map(strip), recent: recent.map(strip), types: tasks.listTypes(guildId, { all: true }), board, me: member.id, owner: member.owner, rejectReasons: config.TASK_REJECT_REASONS ?? [] }, ids);
@@ -433,6 +439,23 @@ export function createDashboardApi({ db, client, config, settings = null, series
         return { id: row.id, userId: row.user_id, reason: row.reason, reasonLabel: CLOSURE_REASONS[row.reason], createdAt: row.created_at, balance: plan.gross, openSanctions: plan.openCents, inGuild };
       });
       return withNames({ closures: items, canDecide: can(member, "finance") }, items.map(c => c.userId));
+    }],
+    // Event-Logs eines Tages, nach Event gruppiert (Bilder lädt die Seite einzeln nach).
+    [/^\/api\/event-logs$/, async (member, url) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("day") ?? "") ? url.searchParams.get("day") : today();
+      const data = eventLogDay(db, { guildId, day, timezone: config.TIMEZONE });
+      return withNames({ ...data, today: today() }, [...data.events.flatMap(e => [...e.proofs.map(p => p.userId), ...e.missing]), ...data.unassigned.map(p => p.userId)]);
+    }],
+    // Bilder eines Event-Logs – Links frisch aus Discord, da sie ablaufen.
+    [/^\/api\/event-logs\/(\d{17,20})$/, async (member, url, [, messageId]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const row = db.prepare("SELECT channel_id FROM event_proofs WHERE message_id=? AND guild_id=?").get(messageId, guildId);
+      if (!row) throw new HttpError(404, "Dieses Bild gibt es nicht mehr.");
+      const ch = await client.channels.fetch(row.channel_id).catch(() => null);
+      const msg = await ch?.messages?.fetch(messageId).catch(() => null);
+      const images = [...(msg?.attachments?.values?.() ?? [])].filter(a => /^image\//.test(a.contentType ?? "") || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(a.name ?? "")).map(a => a.url);
+      return { images, missing: !msg, link: `https://discord.com/channels/${guildId}/${row.channel_id}/${messageId}` };
     }],
     // Event-Nachweise (Bilder aus dem Event-Logbuch) eines Events – Links frisch aus Discord, da sie ablaufen.
     [/^\/api\/events\/([\w-]+)\/proofs$/, async (member, url, [, id]) => {
@@ -677,6 +700,12 @@ export function createDashboardApi({ db, client, config, settings = null, series
       await afterClose({ db, client, config, event: result.event, rows: result.rows, actorId: member.id });
       const present = result.rows.filter(r => r.status === "present").length;
       return { message: `Anwesenheit abgeschlossen: ${present} von ${result.rows.length} da. Das Ergebnis wurde gepostet.` };
+    }],
+    [/^\/api\/event-logs\/(\d{17,20})\/assign$/, async (member, body, [, messageId]) => {
+      need(member, "events", "Event-Team- oder Leitungsrolle");
+      const result = await assignProofFromWeb({ db, client, config, guildId, messageId, eventId: String(body.eventId ?? ""), actorId: member.id });
+      if (result.error) throw new HttpError(409, result.error);
+      return { message: `Event-Log zugeordnet: ${result.event.name}.` };
     }],
     [/^\/api\/events\/([\w-]+)\/attendance\/proofs$/, async (member, body, [, id]) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");

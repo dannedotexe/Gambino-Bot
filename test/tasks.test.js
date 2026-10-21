@@ -344,3 +344,12 @@ test("Logbuch: Invite gewählt → Auswahl der eingeladenen Person → eingereic
   assert.equal(log.invitee_id, "30000000000000077"); assert.equal(log.prompt_message_id, "p9");
   assert.match(promptEdits[0].content, /eingereicht für <@30000000000000077>/);
 });
+
+test("Website: Invite-Karten zeigen den Stand der Bedingung schon vor dem Bestätigen", async () => {
+  const db = testDb(), config = baseConfig(), NEW = "30000000000000088";
+  const guild = { id: G, members: { cache: new Map(), fetch: async id => (id === NEW ? { id, joinedAt: new Date(Date.now() - 86_400_000) } : null) }, roles: { cache: new Map() }, channels: { fetch: async () => null } };
+  const client = { guilds: { cache: new Map([[G, guild]]), fetch: async () => guild }, users: { cache: new Map(), fetch: async () => null }, channels: { fetch: async () => null } };
+  service(db).submit({ guildId: G, userId: U, typeId: typeNamed(db, "Invite – gute").id, inviteeId: NEW });
+  const res = await createDashboardApi({ db, client, config }).get({ id: R, owner: false, roles: [REV] }, new URL("/api/tasks", "https://x"));
+  assert.deepEqual(res.body.pending[0].invite, { days: 1, events: 0, needDays: 2, needEvents: 4, inGuild: true, met: false });
+});

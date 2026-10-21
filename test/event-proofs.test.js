@@ -84,3 +84,28 @@ test("Anwesenheit: „Mit Event-Log = da“ trägt alle mit Bild ein – auch Ni
   assert.ok(buttons.includes("att:proofs:e1"));
   assert.match(replies[0].content, /\*\*2\*\* Personen haben Event-Logs gepostet, 1 Angemeldete ohne Bild/);
 });
+
+test("Website: Event-Logs pro Tag, fehlende Logs, nicht zugeordnete Bilder zuordnen", async () => {
+  const { eventLogDay } = await import("../src/event-proofs.js");
+  const { createDashboardApi } = await import("../src/dashboard-api.js");
+  const db = testDb(), now = "2026-10-20T18:55:00.000Z";
+  addEvent(db, "cayo", "2026-10-20T18:50:00Z", { name: "Cayo Perico" });
+  addEvent(db, "other", "2026-10-21T18:50:00Z");
+  db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES('cayo',?,'signed_up','x'),('cayo','30000000000000077','signed_up','x')").run(U);
+  const proof = (id, eventId) => db.prepare("INSERT INTO event_proofs(message_id,guild_id,event_id,user_id,channel_id,images,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?)").run(id, G, eventId, U, "t1", now, now);
+  proof("70000000000000001", "cayo"); proof("70000000000000002", null);
+  const day = eventLogDay(db, { guildId: G, day: "2026-10-20", timezone: "Europe/Vienna" });
+  assert.deepEqual(day.events.map(e => [e.id, e.proofs.length, e.missing]), [["cayo", 1, ["30000000000000077"]]]);
+  assert.equal(day.unassigned.length, 1);
+  const client = { guilds: { cache: new Map(), fetch: async () => null }, users: { cache: new Map(), fetch: async () => null }, channels: { fetch: async () => null } };
+  const api = createDashboardApi({ db, client, config });
+  const team = { id: "40000000000000002", owner: false, roles: [TEAM] }, nobody = { id: "1", owner: false, roles: [] };
+  assert.equal((await api.get(nobody, new URL("/api/event-logs?day=2026-10-20", "https://x"))).status, 403);
+  const res = await api.get(team, new URL("/api/event-logs?day=2026-10-20", "https://x"));
+  assert.equal(res.status, 200); assert.equal(res.body.events[0].name, "Cayo Perico");
+  const ok = await api.post(team, new URL("/api/event-logs/70000000000000002/assign", "https://x"), { eventId: "cayo" });
+  assert.equal(ok.status, 200);
+  assert.equal(db.prepare("SELECT event_id FROM event_proofs WHERE message_id='70000000000000002'").get().event_id, "cayo");
+  db.prepare("UPDATE events SET attendance_closed_at='x' WHERE id='cayo'").run();
+  assert.equal((await api.post(team, new URL("/api/event-logs/70000000000000002/assign", "https://x"), { eventId: "other" })).status, 409, "abgeschlossene Anwesenheit bleibt");
+});

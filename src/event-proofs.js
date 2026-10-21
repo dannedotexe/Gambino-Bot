@@ -93,3 +93,39 @@ export async function handleEventProofInteraction({ i, db, config }) {
 export const proofsByUser = (db, eventId) => new Map(db.prepare("SELECT user_id, SUM(images) n FROM event_proofs WHERE event_id=? GROUP BY user_id").all(eventId).map(r => [r.user_id, r.n]));
 export const proofMessages = (db, eventId) => db.prepare("SELECT * FROM event_proofs WHERE event_id=? ORDER BY user_id,created_at").all(eventId);
 export { unix };
+
+/**
+ * Event-Logs eines Tages (Server-Zeitzone) für die Website: pro Event die Bilder und wer angemeldet ist, aber
+ * keinen Log gepostet hat; dazu nicht zugeordnete Bilder des Tages.
+ */
+export function eventLogDay(db, { guildId, day, timezone = "Europe/Vienna" }) {
+  const [y, m, d] = day.split("-").map(Number);
+  const from = midnight(new Date(Date.UTC(y, m - 1, d, 12)), timezone), until = midnight(new Date(Date.UTC(y, m - 1, d, 12)), timezone, 1);
+  const proofs = eventId => db.prepare("SELECT message_id AS messageId, user_id AS userId, images, created_at AS createdAt FROM event_proofs WHERE event_id=? ORDER BY created_at").all(eventId);
+  const events = db.prepare("SELECT id,name,starts_at,status,attendance_closed_at FROM events WHERE guild_id=? AND status IN ('scheduled','ended') AND starts_at>=? AND starts_at<? ORDER BY starts_at")
+    .all(guildId, from.toISOString(), until.toISOString()).map(e => {
+      const list = proofs(e.id), posted = new Set(list.map(p => p.userId));
+      const joined = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(e.id).map(r => r.user_id);
+      return { id: e.id, name: e.name, startsAt: e.starts_at, status: e.status, closed: Boolean(e.attendance_closed_at), proofs: list, people: posted.size, missing: joined.filter(id => !posted.has(id)) };
+    });
+  const unassigned = db.prepare("SELECT message_id AS messageId, user_id AS userId, images, created_at AS createdAt FROM event_proofs WHERE guild_id=? AND event_id IS NULL AND created_at>=? AND created_at<? ORDER BY created_at")
+    .all(guildId, from.toISOString(), until.toISOString());
+  return { day, events, unassigned };
+}
+
+/** Zuordnung von der Website (Event-Team): wie im Menü, danach die Antwort unter dem Bild in Discord aktualisieren. */
+export async function assignProofFromWeb({ db, client, config, guildId, messageId, eventId, actorId }) {
+  const proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=? AND guild_id=?").get(messageId, guildId);
+  if (!proof) return { error: "Dieses Bild gibt es nicht mehr." };
+  const current = proof.event_id ? db.prepare("SELECT attendance_closed_at FROM events WHERE id=?").get(proof.event_id) : null;
+  if (current?.attendance_closed_at) return { error: "Die Anwesenheit für das bisherige Event ist schon abgeschlossen." };
+  const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND attendance_closed_at IS NULL AND status IN ('scheduled','ended')").get(eventId, guildId);
+  if (!event) return { error: "Dieses Event ist nicht (mehr) offen." };
+  const updated = assign(db, { proof, eventId: event.id, actorId });
+  if (proof.prompt_message_id) {
+    const channel = await client.channels.fetch(proof.channel_id).catch(() => null);
+    const prompt = await channel?.messages?.fetch(proof.prompt_message_id).catch(() => null);
+    if (prompt) await prompt.edit(proofPrompt(db, config, updated, candidateEvents(db, { guildId, userId: proof.user_id, reference: new Date(proof.created_at), timezone: config.TIMEZONE }))).catch(() => {});
+  }
+  return { proof: updated, event };
+}

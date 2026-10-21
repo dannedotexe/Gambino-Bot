@@ -3,6 +3,14 @@ const taskState = { data: null, proofs: new Map() };
 const taskMedals = ["🥇", "🥈", "🥉"];
 const taskStatus = { pending: ["Offen", "status-open"], approved: ["Bestätigt", "status-accepted"], rejected: ["Abgelehnt", "status-rejected"] };
 const taskTitle = l => `${l.type}${l.perUnit ? ` ×${l.quantity} ${l.unit}` : ""}`;
+/** Fortschritt der Invite-Bedingung als zwei Balken (Tage, Events). */
+const inviteMeter = p => {
+  if (!p) return "";
+  if (!p.inGuild) return '<div class="invite-meter"><div class="task-flag">⚠️ Eingeladene Person ist (noch) nicht auf dem Server.</div></div>';
+  const bar = (label, have, need) => need ? `<div class="invite-row ${have >= need ? "ok" : ""}"><span>${label}</span><div class="invite-bar"><i data-pct="${Math.round(Math.min(1, have / need) * 100)}"></i></div><b>${Math.min(have, need)}/${need}${have >= need ? " ✓" : ""}</b></div>` : "";
+  return `<div class="invite-meter">${bar("📅 Tage", p.days, p.needDays)}${bar("🎯 Events", p.events, p.needEvents)}<small>${p.met ? "✅ Bedingung erfüllt – Bestätigen zahlt sofort aus." : "⏳ Noch nicht erfüllt – Bestätigen hält die Auszahlung zurück, der Bot zahlt automatisch, sobald erfüllt."}</small></div>`;
+};
+const fillMeters = root => root.querySelectorAll(".invite-bar i[data-pct]").forEach(el => { el.style.width = `${el.dataset.pct}%`; });
 const taskReward = t => t.reward_cents ? `${money(t.reward_cents)}${t.per_unit ? ` pro ${t.unit}` : ""}` : "ohne Geld";
 
 async function loadTasks() {
@@ -30,17 +38,19 @@ function renderTaskQueue() {
       <button type="button" class="task-shot" data-action="task-proof" data-id="${escapeHtml(l.id)}" aria-label="Screenshot vergrößern"><span>${l.hasProof ? "Screenshot lädt …" : "Kein Screenshot"}</span>${l.reward_cents ? `<b class="task-reward">+${money(l.reward_cents)}</b>` : ""}</button>
       <div class="task-body"><h3>${escapeHtml(taskTitle(l))}</h3>
         <div class="manage-meta">${plink(l.user_id)} · ${date(l.created_at)}</div>
-        ${l.invitee_id ? `<div class="desc">Eingeladen: ${plink(l.invitee_id)}${l.condition ? ` · ${escapeHtml(l.condition)}` : ""}</div>` : ""}
+        ${l.invitee_id ? `<div class="desc">Eingeladen: ${plink(l.invitee_id)}${l.condition ? ` · ${escapeHtml(l.condition)}` : ""}</div>${inviteMeter(l.invite)}` : ""}
         ${l.note ? `<div class="desc">„${escapeHtml(l.note)}“</div>` : ""}
         ${l.duplicate_of ? '<div class="task-flag">⚠️ Gleicher Screenshot wie ein früheres Log – bitte genau prüfen.</div>' : ""}
         <div class="actions">${buttons}</div></div></article>`;
   }).join("") || '<div class="all-done"><b>Alles geprüft 🎉</b><small>Gerade wartet kein Aufgaben-Log.</small></div>';
   pending.filter(l => l.hasProof).forEach(l => loadTaskProof(l.id));
+  fillMeters($("tasks-pending"));
   const held = taskState.data.held ?? [];
   $("tasks-held-wrap").hidden = !held.length;
   $("tasks-held").innerHTML = held.map(l => myRow(`${escapeHtml(taskTitle(l))} · ${plink(l.user_id)} → ${plink(l.invitee_id)}`,
-    `${escapeHtml(l.condition ?? "")} · Stand: ${escapeHtml(l.progress ?? "wird geprüft …")} · bestätigt von ${plink(l.preapproved_by)} ${date(l.preapproved_at)}${l.reward_cents ? ` · ${money(l.reward_cents)} offen` : ""}`)
-    + `<div class="actions held-actions">${btn("Doch ablehnen", "task-reject", { id: l.id }, "reject")}</div>`).join("");
+    `${escapeHtml(l.condition ?? "")} · bestätigt von ${plink(l.preapproved_by)} ${date(l.preapproved_at)}${l.reward_cents ? ` · ${money(l.reward_cents)} offen` : ""}`)
+    + inviteMeter(l.invite) + `<div class="actions held-actions">${btn("Doch ablehnen", "task-reject", { id: l.id }, "reject")}</div>`).join("");
+  fillMeters($("tasks-held"));
 }
 
 /** Screenshot-Link frisch vom Server holen (Discord-Links laufen ab) und als Vorschau einsetzen. */
