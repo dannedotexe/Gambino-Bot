@@ -274,6 +274,7 @@ const COLUMNS = [
   ["logbooks", "archived_at", "TEXT"],
   ["events", "signup_closed_at", "TEXT"],
   ["events", "log_reminder_at", "TEXT"],
+  ["polls", "reminded_at", "TEXT"],
   ["task_types", "invite_min_days", "INTEGER"],
   ["task_types", "invite_min_events", "INTEGER"],
   ["task_logs", "invitee_id", "TEXT"],

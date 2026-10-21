@@ -281,6 +281,7 @@ export function buildCommands() {
       .addBooleanOption(o=>o.setName("anonym").setDescription("Niemand (auch nicht das Team) sieht, wer was gewählt hat"))
       .addBooleanOption(o=>o.setName("ergebnis_verstecken").setDescription("Zwischenstand erst am Ende zeigen"))
       .addRoleOption(o=>o.setName("rolle").setDescription("Nur Mitglieder mit dieser Rolle dürfen abstimmen"))
+      .addBooleanOption(o=>o.setName("pingen").setDescription("Beim Start pingen (die gewählte Rolle, sonst die Familienrolle)"))
       .addChannelOption(o=>o.setName("kanal").setDescription("Channel (Standard: Abstimmungs-Channel)").addChannelTypes(ChannelType.GuildText,ChannelType.GuildAnnouncement)))
     .addSubcommand(s=>s.setName("beenden").setDescription("Abstimmung vorzeitig beenden (Staff)").addStringOption(o=>o.setName("umfrage").setDescription("Abstimmung auswählen").setRequired(true).setAutocomplete(true)));
   const log = new SlashCommandBuilder().setName("log").setDescription("Erledigte Familien-Aufgabe mit Screenshot einreichen (Belohnung nach Prüfung)")
@@ -649,7 +650,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       const channelId=i.options.getChannel?.("kanal")?.id??config.CHANNEL_POLLS??i.channelId;
       const data=validatePoll({question:i.options.getString("frage"),options:i.options.getString("optionen"),hours:i.options.getInteger("stunden")??24,anonymous:i.options.getBoolean?.("anonym")??false,hideResults:i.options.getBoolean?.("ergebnis_verstecken")??false,requiredRoleId:i.options.getRole?.("rolle")?.id??null,channelId},{timezone:config.TIMEZONE});
       const row=polls.create({guildId:g,actorId:u,data});
-      await publishPoll({db,client,poll:row});
+      await publishPoll({db,client,poll:row,pingRoleIds:i.options.getBoolean?.("pingen")?(data.requiredRoleId?[data.requiredRoleId]:(config.ROLE_MEMBERS??[]).slice(0,1)):[]});
       return respond(i,`Abstimmung gestartet in <#${data.channelId}>. Sie endet <t:${Math.floor(new Date(data.endsAt).getTime()/1000)}:R>.`);
     }
     if(sub==="beenden"){

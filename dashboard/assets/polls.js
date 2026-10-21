@@ -19,7 +19,7 @@ function renderPollForm() {
       <label>Endet am <small>(${escapeHtml(state.timezone)})</small><input name="endsAt" type="datetime-local" value="${tomorrow}"></label>
     </div>
     <label>Nur diese Rolle darf abstimmen <small>(optional)</small><select name="requiredRoleId"><option value="">Alle im Channel</option>${pollState.roles.map(r => `<option value="${escapeHtml(r.id)}">@${escapeHtml(r.name)}</option>`).join("")}</select></label>
-    <div class="checks"><label class="check"><input type="checkbox" name="anonymous"> Anonym – niemand sieht, wer was gewählt hat</label><label class="check"><input type="checkbox" name="hideResults"> Zwischenstand erst am Ende zeigen</label></div>
+    <div class="checks"><label class="check"><input type="checkbox" name="anonymous"> Anonym – niemand sieht, wer was gewählt hat</label><label class="check"><input type="checkbox" name="hideResults"> Zwischenstand erst am Ende zeigen</label><label class="check"><input type="checkbox" name="ping" checked> Beim Start pingen (gewählte Rolle, sonst Familie)</label></div>
     <p id="poll-error" class="form-error" role="alert"></p>
     <div class="actions start"><button type="button" class="primary-btn" data-action="poll-create">Abstimmung starten</button></div>`;
   $("poll-form").dataset.ready = "1";
@@ -49,7 +49,7 @@ Object.assign(actions, {
   "poll-create": async () => {
     const f = $("poll-form"), v = name => f.elements[name]?.value ?? "";
     $("poll-error").textContent = "";
-    const body = { question: v("question"), options: v("options").split("\n"), channelId: v("channelId"), endsAt: v("endsAt"), requiredRoleId: v("requiredRoleId"), anonymous: f.elements.anonymous.checked, hideResults: f.elements.hideResults.checked };
+    const body = { question: v("question"), options: v("options").split("\n"), channelId: v("channelId"), endsAt: v("endsAt"), requiredRoleId: v("requiredRoleId"), anonymous: f.elements.anonymous.checked, hideResults: f.elements.hideResults.checked, ping: f.elements.ping.checked };
     try {
       const result = await post("/api/polls", body);
       notify(result.message); delete f.dataset.ready; renderPollForm(); await loadPolls();

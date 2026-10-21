@@ -91,37 +91,66 @@ export function createPollService(db) {
   return { create, setMessage, get, byId, vote, unvote, results, voters, myVote, close, due, list };
 }
 
-const bar = (share, width = 12) => "█".repeat(Math.round(share * width)) + "░".repeat(width - Math.round(share * width));
+const NUMBERS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+const MEDALS = ["🥇", "🥈", "🥉"];
+const OPEN_COLOR = 0xd4af37, DONE_COLOR = 0x30d158, CANCEL_COLOR = 0x8e8e93;
+const bar = (share, width = 14) => { const n = Math.round(share * width); return "▰".repeat(n) + "▱".repeat(width - n); };
+const votes = n => `${n} ${n === 1 ? "Stimme" : "Stimmen"}`;
 
-/** Discord-Nachricht: Frage, Optionen mit Balken (oder verdeckt), Buttons zum Abstimmen solange offen. */
+/**
+ * Discord-Nachricht: Frage, Antworten mit Zahlen-Emoji und Balken (bzw. verdeckt), Führung mit 👑,
+ * Knöpfe mit Live-Zähler solange offen.
+ */
 export function pollPayload(poll, { counts, total }) {
   const open = poll.status === "open", reveal = !open || !poll.hide_results;
-  const winner = Math.max(...counts);
+  const max = Math.max(...counts), lead = i => reveal && total > 0 && counts[i] === max;
   const lines = poll.options.map((option, i) => {
-    if (!reveal) return `**${i + 1}.** ${option}`;
+    if (!reveal) return `${NUMBERS[i]} **${option}**`;
     const share = total ? counts[i] / total : 0;
-    const mark = !open && total && counts[i] === winner ? " ✅" : "";
-    return `**${i + 1}.** ${option}${mark}\n\`${bar(share)}\` ${Math.round(share * 100)} % · ${counts[i]} ${counts[i] === 1 ? "Stimme" : "Stimmen"}`;
+    return `${NUMBERS[i]} **${option}**${lead(i) ? (open ? " 👑" : " 🏆") : ""}\n${bar(share)} **${Math.round(share * 100)} %** · ${votes(counts[i])}`;
   });
-  const status = poll.status === "cancelled" ? "Abgebrochen" : open ? `Endet <t:${unix(poll.ends_at)}:R> (<t:${unix(poll.ends_at)}:f>)` : `Beendet <t:${unix(poll.closed_at ?? poll.ends_at)}:f>`;
-  const notes = [poll.anonymous ? "anonym" : "Stimmen sind für das Team sichtbar", poll.hide_results && open ? "Ergebnis erst am Ende" : null, poll.required_role_id ? `nur <@&${poll.required_role_id}>` : null].filter(Boolean).join(" · ");
-  const embed = new EmbedBuilder().setColor(open ? BRAND_COLOR : 0x5865f2).setAuthor({ name: "GAMBINOS  •  ABSTIMMUNG" }).setTitle(poll.question.slice(0, 256))
-    .setDescription(`${lines.join("\n\n")}\n\n**${total}** ${total === 1 ? "Stimme" : "Stimmen"} · ${status}`.slice(0, 4096))
-    .setFooter({ text: `Eine Stimme pro Person${open ? ", jederzeit änderbar" : ""} · ${notes}`.slice(0, 2048) });
+  const color = poll.status === "cancelled" ? CANCEL_COLOR : open ? OPEN_COLOR : DONE_COLOR;
+  const head = poll.status === "cancelled" ? "🚫 Abgebrochen" : open ? (poll.hide_results ? "🙈 Zwischenstand verdeckt – Ergebnis erst am Ende" : "🗳️ Stimme jetzt ab!") : "🏁 Abstimmung beendet";
+  const notes = [poll.anonymous ? "🔒 anonym" : "👁️ Stimmen fürs Team sichtbar", poll.required_role_id ? `nur <@&${poll.required_role_id}>` : null].filter(Boolean).join(" · ");
+  const embed = new EmbedBuilder().setColor(color).setAuthor({ name: "GAMBINOS  •  ABSTIMMUNG" }).setTitle(`📊 ${poll.question}`.slice(0, 256))
+    .setDescription(`*${head}*\n\n${lines.join("\n\n")}`.slice(0, 4096))
+    .addFields(
+      { name: "🗳️ Stimmen", value: `**${total}**`, inline: true },
+      { name: open ? "⏳ Endet" : "🕒 Beendet", value: open ? `<t:${unix(poll.ends_at)}:R>\n<t:${unix(poll.ends_at)}:f>` : `<t:${unix(poll.closed_at ?? poll.ends_at)}:f>`, inline: true },
+      { name: "👤 Gestellt von", value: `<@${poll.created_by}>`, inline: true },
+      { name: "ℹ️ Info", value: notes.slice(0, 1024), inline: false },
+    )
+    .setFooter({ text: open ? "Eine Stimme pro Person · jederzeit änderbar" : "GAMBINOS  •  Abstimmung" });
   const components = [];
   if (open) {
-    const buttons = poll.options.map((option, i) => new ButtonBuilder().setCustomId(`poll:vote:${poll.id}:${i}`).setLabel(`${i + 1}. ${option}`.slice(0, 80)).setStyle(ButtonStyle.Secondary));
+    const buttons = poll.options.map((option, i) => new ButtonBuilder().setCustomId(`poll:vote:${poll.id}:${i}`).setEmoji(NUMBERS[i])
+      .setLabel(`${option}${reveal ? ` · ${counts[i]}` : ""}`.slice(0, 80)).setStyle(lead(i) ? ButtonStyle.Primary : ButtonStyle.Secondary));
     for (let i = 0; i < buttons.length; i += 5) components.push(new ActionRowBuilder().addComponents(...buttons.slice(i, i + 5)));
-    components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`poll:unvote:${poll.id}`).setLabel("Stimme zurückziehen").setStyle(ButtonStyle.Danger)));
+    components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`poll:unvote:${poll.id}`).setEmoji("↩️").setLabel("Stimme zurückziehen").setStyle(ButtonStyle.Secondary)));
   }
   return { embeds: [embed], components, allowedMentions: { parse: [] } };
 }
 
-export async function publishPoll({ db, client, poll }) {
+/** Ergebnis-Karte mit Podium (🥇🥈🥉), Gewinner groß. */
+export function pollResultPayload(poll, { counts, total }) {
+  const ranked = poll.options.map((option, i) => ({ option, i, n: counts[i] })).sort((a, b) => b.n - a.n || a.i - b.i);
+  const max = ranked[0]?.n ?? 0, winners = total ? ranked.filter(r => r.n === max) : [];
+  const headline = !total ? "Es wurde nicht abgestimmt." : winners.length > 1
+    ? `🤝 **Gleichstand** zwischen ${winners.map(w => `**${w.option}**`).join(" und ")} – je ${votes(max)}.`
+    : `🏆 **${winners[0].option}** gewinnt mit **${votes(max)}** (${Math.round(max / total * 100)} %).`;
+  const podium = total ? ranked.map((r, k) => `${MEDALS[k] ?? `**${k + 1}.**`} ${r.option} · ${bar(r.n / total, 10)} ${Math.round(r.n / total * 100)} % · ${votes(r.n)}`).join("\n") : "";
+  const embed = new EmbedBuilder().setColor(DONE_COLOR).setAuthor({ name: "GAMBINOS  •  ERGEBNIS" }).setTitle(`🏁 ${poll.question}`.slice(0, 256))
+    .setDescription(`${headline}${podium ? `\n\n${podium}` : ""}`.slice(0, 4096))
+    .setFooter({ text: `${votes(total)} insgesamt` }).setTimestamp(new Date(poll.closed_at ?? poll.ends_at));
+  return { embeds: [embed], allowedMentions: { parse: [] } };
+}
+
+export async function publishPoll({ db, client, poll, pingRoleIds = [] }) {
   const service = createPollService(db);
   const channel = await client.channels?.fetch?.(poll.channel_id).catch(() => null);
   if (!channel?.send) throw new PollError("Der Channel ist nicht erreichbar oder der Bot darf dort nicht schreiben.");
-  const message = await channel.send(pollPayload(poll, service.results(poll.id)));
+  const ping = pingRoleIds.filter(id => SNOWFLAKE.test(id));
+  const message = await channel.send({ ...pollPayload(poll, service.results(poll.id)), ...(ping.length ? { content: `${ping.map(id => `<@&${id}>`).join(" ")} 📊 Neue Abstimmung!`, allowedMentions: { roles: ping } } : {}) });
   service.setMessage(poll.id, message.id);
   return message;
 }
@@ -136,7 +165,7 @@ export async function refreshPollMessage({ db, client, pollId }) {
   return message.edit(pollPayload(poll, service.results(pollId))).then(() => true).catch(() => false);
 }
 
-/** Beendet abgelaufene Abstimmungen und postet das Ergebnis als Antwort. */
+/** Beendet abgelaufene Abstimmungen und postet das Ergebnis; erinnert eine Stunde vor Ende (Abstimmungen ab 3 Std. Dauer). */
 export async function closeDuePolls({ db, client, reference = new Date() }) {
   const service = createPollService(db);
   let closed = 0;
@@ -147,18 +176,23 @@ export async function closeDuePolls({ db, client, reference = new Date() }) {
     await refreshPollMessage({ db, client, pollId: id });
     await announcePollResult({ db, client, poll });
   }
+  const soon = new Date(reference.getTime() + 3_600_000).toISOString();
+  for (const row of db.prepare("SELECT * FROM polls WHERE status='open' AND reminded_at IS NULL AND message_id IS NOT NULL AND ends_at<=? AND ends_at>? AND (julianday(ends_at)-julianday(created_at))*24>=3 LIMIT 10").all(soon, reference.toISOString())) {
+    if (!db.prepare("UPDATE polls SET reminded_at=? WHERE id=? AND reminded_at IS NULL").run(reference.toISOString(), row.id).changes) continue;
+    const channel = await client.channels?.fetch?.(row.channel_id).catch(() => null);
+    const original = await channel?.messages?.fetch?.(row.message_id).catch(() => null);
+    const total = service.results(row.id).total;
+    await original?.reply?.({ content: `⏰ **Noch 1 Stunde!** „${row.question}“ endet <t:${unix(row.ends_at)}:R> – bisher ${votes(total)}. Noch nicht abgestimmt? Jetzt oben klicken! 🗳️`.slice(0, 2000), allowedMentions: { parse: [] } }).catch(() => {});
+  }
   return closed;
 }
 
 export async function announcePollResult({ db, client, poll }) {
   if (poll.status !== "closed") return false;
-  const { counts, total } = createPollService(db).results(poll.id);
+  const results = createPollService(db).results(poll.id);
   const channel = await client.channels?.fetch?.(poll.channel_id).catch(() => null);
   if (!channel?.send) return false;
-  const max = Math.max(...counts);
-  const winners = total ? poll.options.filter((_, i) => counts[i] === max) : [];
-  const text = !total ? "Es wurde nicht abgestimmt." : winners.length > 1 ? `Gleichstand zwischen **${winners.join("** und **")}** (je ${max} ${max === 1 ? "Stimme" : "Stimmen"}).` : `Gewonnen hat **${winners[0]}** mit ${max} von ${total} ${total === 1 ? "Stimme" : "Stimmen"} (${Math.round(max / total * 100)} %).`;
-  const payload = { content: `📊 **Abstimmung beendet:** ${poll.question}\n${text}`.slice(0, 2000), allowedMentions: { parse: [] } };
+  const payload = pollResultPayload(poll, results);
   const original = poll.message_id ? await channel.messages?.fetch?.(poll.message_id).catch(() => null) : null;
   return (original ? original.reply(payload) : channel.send(payload)).then(() => true).catch(() => false);
 }

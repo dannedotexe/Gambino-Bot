@@ -823,7 +823,7 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const g = await guild();
       if (data.requiredRoleId && !(await g.roles.fetch(data.requiredRoleId).catch(() => null))) throw new HttpError(400, "Die gewählte Rolle existiert nicht mehr.");
       const row = polls.create({ guildId, actorId: member.id, data });
-      try { await publishPoll({ db, client, poll: row }); }
+      try { await publishPoll({ db, client, poll: row, pingRoleIds: body.ping ? (data.requiredRoleId ? [data.requiredRoleId] : (config.ROLE_MEMBERS ?? []).slice(0, 1)) : [] }); }
       catch (error) { polls.close({ guildId, id: row.id, actorId: member.id, cancel: true }); throw new HttpError(502, error.message); }
       return { message: "Abstimmung gestartet." };
     }],

@@ -62,7 +62,7 @@ test("Discord: Buttons, Zwischenstand verdeckt, Rollenbeschränkung, automatisch
   assert.equal(member.updates.length, 1); assert.match(JSON.stringify(member.follow[0]), /Deine Stimme/);
   assert.equal(polls.results(poll.id).counts[1], 1);
   assert.equal(await closeDuePolls({ db, client: f.client, reference: new Date(Date.now() + 2 * 3_600_000) }), 1);
-  assert.match(f.replies[0].content, /Gewonnen hat \*\*Sa\*\*/);
+  assert.match(f.replies[0].embeds[0].data.description, /🏆 \*\*Sa\*\* gewinnt/);
   assert.equal(f.edits.at(-1).components.length, 0, "Buttons entfernt");
   assert.match(f.edits.at(-1).embeds[0].data.description, /100 %/, "am Ende sichtbar");
 });
