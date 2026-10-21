@@ -48,3 +48,21 @@ test("Staatliche Kontrolle endet nach Ablauf automatisch und ihre Posts werden g
   assert.deepEqual(ended, [r.id], "Anwesenheits-Abfrage wird angestoßen");
   assert.ok(deleted.includes("card"), "Event-Karte gelöscht");
 });
+
+test("Als normales Event angelegte „Staatliche Kontrolle“ (anderer Treffpunkt) endet und wird gelöscht", async () => {
+  const { endSeriesEvents } = await import("../src/activity-board.js");
+  const { isControlEvent } = await import("../src/state-control.js");
+  const db = testDb(), deleted = [];
+  const channel = { id: "60000000000000001", messages: { fetch: async id => ({ id, delete: async () => { deleted.push(id); }, edit: async () => {} }) } };
+  const client = { user: { id: "bot" }, channels: { fetch: async () => channel } };
+  const config = { ...loadConfig({ DISCORD_TOKEN: "x", DISCORD_CLIENT_ID: "12345678901234567", DISCORD_GUILD_ID: "10000000000000001" }) };
+  const start = new Date(Date.now() - 60 * 60_000).toISOString();
+  db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,name,description,starts_at,location,host_id,status,created_at) VALUES('k','10000000000000001','60000000000000001','card2','Staatliche Kontrolle','gegen Mayhem',?,'Fam.Garage','h','scheduled',?)").run(start, start);
+  db.prepare("INSERT INTO events(id,guild_id,channel_id,message_id,name,description,starts_at,location,host_id,status,created_at) VALUES('b','10000000000000001','60000000000000001','card3','Bizwar','',?,'HQ','h','scheduled',?)").run(start, start);
+  assert.ok(isControlEvent({ name: "🛡️ staatliche Kontrolle vs Ballas", location: "x" }));
+  assert.ok(!isControlEvent({ name: "Bizwar", location: "HQ" }));
+  await endSeriesEvents({ db, client, config, reference: new Date(Date.now() + (config.EVENT_SERIES_AUTO_END_MINUTES + 1) * 60_000) });
+  assert.equal(db.prepare("SELECT status FROM events WHERE id='k'").get().status, "ended");
+  assert.equal(db.prepare("SELECT status FROM events WHERE id='b'").get().status, "scheduled", "normale Events bleiben unberührt");
+  assert.ok(deleted.includes("card2"));
+});

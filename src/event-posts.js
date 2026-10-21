@@ -1,3 +1,4 @@
+import { CONTROL_SQL, isControlEvent } from "./control-detect.js";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 import { colorNumber, defaultsFor, panelTexts } from "./services/texts.js";
 import { describeSchedule } from "./services/event-series.js";
@@ -114,7 +115,7 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
   const card = await fetchMessage(client, event.channel_id, event.message_id);
   const announcement = cardOnly ? null : await fetchMessage(client, event.announce_channel_id, event.announce_message_id);
   // Automatische Aktivitäten und Staatliche Kontrollen: nach dem Ende Posts löschen (Daten bleiben gespeichert).
-  if ((event.series_id || event.location === "Staatliche Kontrolle") && state !== "scheduled" && config.EVENT_SERIES_DELETE_ENDED) {
+  if ((event.series_id || isControlEvent(event)) && state !== "scheduled" && config.EVENT_SERIES_DELETE_ENDED) {
     await card?.delete?.()?.catch?.(() => {}); await announcement?.delete?.()?.catch?.(() => {});
     return Boolean(card);
   }
@@ -133,7 +134,7 @@ export async function refreshEventPosts({ db, client, config, event, state = eve
  */
 export async function closeStartedSignups({ db, client, config, reference = new Date() }) {
   // Staatliche Kontrollen starten oft „jetzt“ – dort bleibt die Anmeldung bis zum Ende offen.
-  const rows = db.prepare("SELECT * FROM events WHERE guild_id=? AND status='scheduled' AND signup_closed_at IS NULL AND starts_at<=? AND NOT (location='Staatliche Kontrolle' AND series_id IS NULL) LIMIT 25").all(config.DISCORD_GUILD_ID, reference.toISOString());
+  const rows = db.prepare(`SELECT * FROM events WHERE guild_id=? AND status='scheduled' AND signup_closed_at IS NULL AND starts_at<=? AND NOT ${CONTROL_SQL} LIMIT 25`).all(config.DISCORD_GUILD_ID, reference.toISOString());
   for (const row of rows) {
     if (!db.prepare("UPDATE events SET signup_closed_at=? WHERE id=? AND signup_closed_at IS NULL").run(reference.toISOString(), row.id).changes) continue;
     await refreshEventPosts({ db, client, config, event: { ...row, signup_closed_at: reference.toISOString() }, state: "running" }).catch(() => {});

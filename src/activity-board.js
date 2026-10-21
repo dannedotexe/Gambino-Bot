@@ -1,3 +1,4 @@
+import { CONTROL_SQL } from "./control-detect.js";
 import { randomUUID } from "node:crypto";
 import { EmbedBuilder } from "discord.js";
 import { audit, getSetting, setSetting } from "./database.js";
@@ -89,7 +90,7 @@ export async function createSeriesEvents({ db, client, config, series, reference
 export async function endSeriesEvents({ db, client, config, reference = new Date(), onEnded = null }) {
   const cutoff = new Date(reference.getTime() - config.EVENT_SERIES_AUTO_END_MINUTES * 60_000).toISOString();
   // Auch Staatliche Kontrollen enden automatisch (sie haben keine feste Dauer und werden sonst nie geschlossen).
-  const rows = db.prepare("SELECT * FROM events WHERE (series_id IS NOT NULL OR location='Staatliche Kontrolle') AND status='scheduled' AND starts_at<=? LIMIT 50").all(cutoff);
+  const rows = db.prepare(`SELECT * FROM events WHERE (series_id IS NOT NULL OR ${CONTROL_SQL}) AND status='scheduled' AND starts_at<=? LIMIT 50`).all(cutoff);
   for (const row of rows) {
     const changed = db.transaction(() => {
       const updated = db.prepare("UPDATE events SET status='ended' WHERE id=? AND status='scheduled'").run(row.id).changes;

@@ -1,3 +1,4 @@
+import { isControlEvent } from "../control-detect.js";
 import { localDay } from "./absences.js";
 import { occurrencesBetween, zonedTime } from "./event-series.js";
 import { weekStart } from "./tasks.js";
@@ -18,7 +19,7 @@ export function weekCalendar(db, { guildId, timezone = "Europe/Vienna", offset =
       (SELECT COUNT(*) FROM event_participants p WHERE p.event_id=e.id AND p.status IN ('signed_up','present')) AS participants,
       (SELECT COUNT(*) FROM event_waitlist w WHERE w.event_id=e.id) AS waiting
     FROM events e WHERE e.guild_id=? AND e.starts_at>=? AND e.starts_at<? ORDER BY e.starts_at`).all(guildId, from.toISOString(), until.toISOString());
-  const kindOf = e => (e.location === "Staatliche Kontrolle" && !e.series_id ? "control" : e.series_id ? "series" : "event");
+  const kindOf = e => (isControlEvent(e) ? "control" : e.series_id ? "series" : "event");
   const items = events.map(e => ({ id: e.id, name: e.name, startsAt: e.starts_at, status: e.status, kind: kindOf(e), participants: e.participants, max: e.max_participants, waiting: e.waiting, outcome: e.outcome }));
   // Geplante Aktivitäten, für die noch kein Event angelegt ist (werden erst kurz vorher angekündigt).
   const taken = new Set(events.filter(e => e.series_id).map(e => `${e.series_id}|${new Date(e.starts_at).toISOString()}`));

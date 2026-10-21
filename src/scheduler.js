@@ -1,4 +1,5 @@
 import { EmbedBuilder } from "discord.js";
+import { CONTROL_SQL } from "./control-detect.js";
 import { getSetting, setSetting } from "./database.js";
 import { auditLogPayload, BRAND_COLOR, logEmbed } from "./presentation.js";
 import { createGiveawayService } from "./services/giveaways.js";
@@ -65,9 +66,10 @@ export function startScheduler({db,client,config,series=null}) {
       if(series){
         await createSeriesEvents({db,client,config,series,reference:now}).catch(error=>console.error("Aktivitäten konnten nicht angelegt werden:",error.message));
         // Einmalig: Posts bereits beendeter Staatlicher Kontrollen (vor diesem Update) aufräumen.
-        if(config.EVENT_SERIES_DELETE_ENDED&&config.DISCORD_GUILD_ID&&!getSetting(db,config.DISCORD_GUILD_ID,"CONTROL_POSTS_CLEANED")){
-          setSetting(db,config.DISCORD_GUILD_ID,"CONTROL_POSTS_CLEANED",now.toISOString());
-          for(const row of db.prepare("SELECT * FROM events WHERE guild_id=? AND location='Staatliche Kontrolle' AND series_id IS NULL AND status IN ('ended','cancelled') AND message_id IS NOT NULL").all(config.DISCORD_GUILD_ID))
+        // V2: auch Kontrollen, die als normales Event mit „Staatliche Kontrolle“ im Namen angelegt wurden.
+        if(config.EVENT_SERIES_DELETE_ENDED&&config.DISCORD_GUILD_ID&&!getSetting(db,config.DISCORD_GUILD_ID,"CONTROL_POSTS_CLEANED_V2")){
+          setSetting(db,config.DISCORD_GUILD_ID,"CONTROL_POSTS_CLEANED_V2",now.toISOString());
+          for(const row of db.prepare(`SELECT * FROM events WHERE guild_id=? AND ${CONTROL_SQL} AND status IN ('ended','cancelled') AND message_id IS NOT NULL`).all(config.DISCORD_GUILD_ID))
             await refreshEventPosts({db,client,config,event:row,state:row.status}).catch(()=>{});
         }
         await endSeriesEvents({db,client,config,reference:now,onEnded:event=>requestAttendance({db,client,config,event})}).catch(error=>console.error("Aktivitäten konnten nicht beendet werden:",error.message));

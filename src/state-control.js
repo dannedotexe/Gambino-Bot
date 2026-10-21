@@ -7,9 +7,8 @@ import { deleteEventPosts, publishEvent } from "./event-posts.js";
  * Event angekündigt (Anmeldung, Erinnerung, Anwesenheit im Event-Check, Win/Lose).
  */
 export class ControlError extends Error {}
-export const CONTROL_LOCATION = "Staatliche Kontrolle";
-/** Staatliche Kontrollen erkennt man am festen Ort; sie werden wie Aktivitäten nach Ablauf beendet und ihre Posts gelöscht. */
-export const isControlEvent = event => event?.location === CONTROL_LOCATION && !event?.series_id;
+import { CONTROL_LOCATION } from "./control-detect.js";
+export { CONTROL_LOCATION, isControlEvent } from "./control-detect.js";
 
 /** Wiener Uhrzeit (HH:MM) heute als Date; Eingaben: „jetzt“, „sofort“, „in 20“, „in 20 min“, „16:30“, „16.30“, „16“. */
 export function parseWhen(input, timezone, reference = new Date()) {
