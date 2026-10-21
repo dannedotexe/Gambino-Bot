@@ -47,3 +47,23 @@ test("Eventbeginn: neuer Ping ersetzt den Anmelde-Hinweis, einmal pro Event", as
   assert.equal(await pingEventStart({ db, client, config, reference: new Date(start.getTime() + 120_000) }), 0, "nur einmal");
   assert.equal(db.prepare("SELECT message_id FROM event_signup_pings WHERE event_id='e1'").get().message_id, "m2", "wird später mit aufgeräumt");
 });
+
+test("Bild schon gepostet: kein Start-Ping, und Zuordnen löscht den Hinweis", async () => {
+  const { pingEventStart } = await import("../src/event-signup-pings.js");
+  const { handleEventProofInteraction } = await import("../src/event-proofs.js");
+  const db = testDb(), sent = [], deleted = [];
+  db.prepare("INSERT INTO event_logbooks(guild_id,user_id,thread_id,title,created_at) VALUES(?,?,?,'Tony | 1','x')").run(G, U, THREAD);
+  const start = new Date("2026-10-22T20:30:00Z");
+  db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at) VALUES('rp',?,'RP Fabrik','',?,'HQ','h','scheduled','x')").run(G, start.toISOString());
+  db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES('rp',?,'signed_up','x')").run(U);
+  const thread = { id: THREAD, send: async p => { sent.push(p); return { id: `m${sent.length}` }; }, messages: { fetch: async id => ({ id, delete: async () => { deleted.push(id); } }) } };
+  const client = { channels: { fetch: async id => (id === THREAD ? thread : null) } };
+  const config = { CHANNEL_EVENT_FORUM: "60000000000000001", EVENT_SIGNUP_LOGBOOK_PING: true, DISCORD_GUILD_ID: G, TIMEZONE: "Europe/Vienna" };
+  await pingSignup({ db, client, config, event: db.prepare("SELECT * FROM events WHERE id='rp'").get(), userId: U });
+  db.prepare("INSERT INTO event_proofs(message_id,guild_id,event_id,user_id,channel_id,images,created_at,updated_at) VALUES('img',?,NULL,?,?,1,?,?)").run(G, U, THREAD, start.toISOString(), start.toISOString());
+  await handleEventProofInteraction({ i: { customId: "evp:pick:img", user: { id: U }, client, values: ["rp"], update: async () => {} }, db, config });
+  await new Promise(r => setTimeout(r, 10));
+  assert.deepEqual(deleted, ["m1"], "Anmelde-Hinweis weg, sobald das Bild zugeordnet ist");
+  assert.equal(await pingEventStart({ db, client, config, reference: new Date(start.getTime() + 60_000) }), 0, "kein Start-Ping, Bild ist schon da");
+  assert.equal(sent.length, 1);
+});

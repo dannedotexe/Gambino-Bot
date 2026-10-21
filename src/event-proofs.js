@@ -1,5 +1,6 @@
 import { ActionRowBuilder, MessageFlags, StringSelectMenuBuilder } from "discord.js";
 import { audit } from "./database.js";
+import { removeSignupPing } from "./event-signup-pings.js";
 import { localDay } from "./services/absences.js";
 import { zonedTime } from "./services/event-series.js";
 
@@ -81,6 +82,8 @@ export async function handleEventProofInteraction({ i, db, config }) {
   const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(i.values[0], proof.guild_id);
   if (!event) return i.reply({ content: "Dieses Event gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
   const updated = assign(db, { proof, eventId: event.id, actorId: i.user.id });
+  // Bild ist da: Hinweis/Ping zu diesem Event im Logbuch wird überflüssig.
+  void removeSignupPing({ db, client: i.client, eventId: event.id, userId: proof.user_id }).catch(() => {});
   return i.update(proofPrompt(db, config, updated, candidateEvents(db, { guildId: proof.guild_id, userId: proof.user_id, reference: new Date(proof.created_at), timezone: config.TIMEZONE })));
 }
 
@@ -115,6 +118,7 @@ export async function assignProofFromWeb({ db, client, config, guildId, messageI
   const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(eventId, guildId);
   if (!event) return { error: "Dieses Event gibt es nicht (mehr)." };
   const updated = assign(db, { proof, eventId: event.id, actorId });
+  await removeSignupPing({ db, client, eventId: event.id, userId: proof.user_id }).catch(() => {});
   await refreshProofPrompt({ db, client, config, proof: updated });
   return { proof: updated, event };
 }
