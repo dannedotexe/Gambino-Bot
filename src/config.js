@@ -53,6 +53,7 @@ const schema = z.object({
   EVENT_SERIES_DELETE_ENDED: bool("true"),
   ACCOUNT_AUTO_OPEN_FOR_MEMBERS: bool("true"),
   EVENT_SERIES_AUTO_END_MINUTES: z.coerce.number().int().min(15).max(1440).default(120),
+  EVENT_SIGNUP_LOGBOOK_PING: bool("true"),
   EVENT_OVERLAP_MINUTES: z.coerce.number().int().min(0).max(240).default(30),
   CONTROL_MAX_PARTICIPANTS: z.coerce.number().int().min(0).max(200).default(10),
   EVENT_LOG_REMINDER_MINUTES: z.coerce.number().int().min(0).max(1440).default(90),

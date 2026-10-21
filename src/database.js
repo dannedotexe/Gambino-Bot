@@ -249,6 +249,13 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS short_absences_user ON short_absences(guild_id,user_id,ends_at);
     `),
   },
+  {
+    version: 23,
+    name: "event-signup-pings",
+    up: db => db.exec(`
+      CREATE TABLE IF NOT EXISTS event_signup_pings (event_id TEXT NOT NULL, user_id TEXT NOT NULL, channel_id TEXT NOT NULL, message_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(event_id,user_id));
+    `),
+  },
 ];
 
 // Spalten, die auch bei älteren Datenbanken (vor der Versionierung) sicher nachgezogen werden.

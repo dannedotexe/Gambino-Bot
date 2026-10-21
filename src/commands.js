@@ -28,6 +28,7 @@ import { killLeaderboard, killsOf } from "./services/calendar.js";
 import { handleEventProofInteraction } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { prizeLabel } from "./giveaway-cards.js";
+import { pingSignup, removeSignupPing } from "./event-signup-pings.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
 import { buildVerification, createVerificationService } from "./services/verification.js";
@@ -1210,6 +1211,13 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         if(result.status==="closed")return answer(i,{content:"Dieses Event ist nicht mehr offen.",ephemeral:true});
         if(["joined","left","waitlisted","left_waitlist"].includes(result.status))await refreshEventPosts({db,client,config,event:result.event,cardOnly:true});
         // Nachgerückte von der Warteliste per DM informieren.
+        // Ping im eigenen Event-Logbuch (Anmeldung) bzw. Hinweis entfernen (Abmeldung/Wechsel); Nachrücker bekommen ihn auch.
+        const pc=i.client??client;
+        if(result.status==="joined")void pingSignup({db,client:pc,config,event:result.event,userId:u}).catch(()=>{});
+        if(result.status==="left")void removeSignupPing({db,client:pc,eventId:result.event.id,userId:u}).catch(()=>{});
+        for(const s of result.switched??[])void removeSignupPing({db,client:pc,eventId:s.event.id,userId:u}).catch(()=>{});
+        for(const userId of result.promoted??[])void pingSignup({db,client:pc,config,event:result.event,userId}).catch(()=>{});
+        for(const s of result.switched??[])for(const userId of s.promoted)void pingSignup({db,client:pc,config,event:s.event,userId}).catch(()=>{});
         // Gleichzeitiges Event: dort abgemeldet → Karte aktualisieren, Nachgerückte von dort informieren.
         for(const s of result.switched??[]){await refreshEventPosts({db,client,config,event:s.event,cardOnly:true}).catch(()=>{});result.promoted=[...(result.promoted??[]),...s.promoted.map(userId=>({userId,event:s.event}))];}
         for(const entry of result.promoted??[]){const userId=entry.userId??entry,ev=entry.event??result.event;void (i.client??client).users.fetch(userId).then(user=>user.send({embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  EVENTS"}).setTitle("🎉 Du bist nachgerückt!").setDescription(`Für **${ev.name}** (<t:${unix(ev.starts_at)}:F>) ist ein Platz frei geworden – du stehst jetzt auf der Teilnehmerliste.\nKannst du doch nicht? Dann bitte über die Event-Karte abmelden.`).setTimestamp()]})).catch(()=>{});
