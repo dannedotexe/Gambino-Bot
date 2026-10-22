@@ -169,3 +169,22 @@ test("Bearbeitete Vorlage wird erkannt (nur Startnachricht des „Vorlage …“
   assert.equal(templateKindOf(config, msg("t1", "Tony | 1", "f1")), null);
   assert.equal(templateKindOf(config, msg("t1", "Vorlage", "anderes")), null);
 });
+
+test("Logbuch-Titel: fremde Umbenennung wird zurückgesetzt, Bot-Umbenennung bleibt (inkl. Titel im Text)", async () => {
+  const { guardLogbookName, renameLogbook } = await import("../src/logbooks.js");
+  const db = testDb(), G = "10000000000000001", U = "30000000000000001";
+  db.prepare("INSERT INTO logbooks(guild_id,user_id,thread_id,title,created_at) VALUES(?,?,'t1','Tony Soprano | 1','x')").run(G, U);
+  const names = [], edits = [];
+  const thread = { id: "t1", name: "Mein cooler Post", parentId: "f1", setName: async n => { names.push(n); thread.name = n; },
+    fetchStarterMessage: async () => ({ author: { id: "bot" }, edit: async p => edits.push(p.content) }) };
+  assert.equal(await guardLogbookName({ db, oldThread: { name: "Tony Soprano | 1" }, thread }), true);
+  assert.deepEqual(names, ["Tony Soprano | 1"], "zurückgesetzt");
+  assert.equal(await guardLogbookName({ db, oldThread: { name: "Mein cooler Post" }, thread }), false, "jetzt korrekt – nichts zu tun");
+  const client = { user: { id: "bot" }, channels: { fetch: async id => (id === "t1" ? thread : null) } };
+  assert.equal(await renameLogbook({ db, client, guildId: G, userId: U, title: "Tony Gambino | 1" }), true);
+  assert.equal(db.prepare("SELECT title FROM logbooks").get().title, "Tony Gambino | 1");
+  // Die Umbenennung durch den Bot löst ThreadUpdate aus – der Schutz lässt sie stehen.
+  assert.equal(await guardLogbookName({ db, oldThread: { name: "Tony Soprano | 1" }, thread }), false);
+  assert.equal(thread.name, "Tony Gambino | 1");
+  assert.match(edits[0], /Tony Gambino \| 1/, "Titel im Post-Text aktualisiert");
+});

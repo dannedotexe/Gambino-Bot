@@ -129,14 +129,38 @@ export async function ensureLogbook({ db, client, config, member, actorId = null
 
 /** Nach der Verifizierung: Titel des automatisch angelegten Logbuchs auf „Vorname Nachname | ID“ ändern. */
 export async function renameLogbook({ db, client, guildId, userId, title, kind = "tasks" }) {
-  const T = forumOf(kind).table;
+  const f = forumOf(kind), T = f.table, name = String(title).slice(0, 100);
   const row = db.prepare(`SELECT * FROM ${T} WHERE guild_id=? AND user_id=? AND thread_id IS NOT NULL`).get(guildId, userId);
-  if (!row || row.title === title) return false;
+  if (!row || row.title === name) return false;
   const thread = await client.channels.fetch(row.thread_id).catch(() => null);
   if (!thread?.setName) return false;
-  const ok = await thread.setName(title.slice(0, 100), "Name nach Verifizierung").then(() => true).catch(() => false);
-  if (ok) db.prepare(`UPDATE ${T} SET title=? WHERE guild_id=? AND user_id=?`).run(title, guildId, userId);
-  return ok;
+  // Erst speichern, dann umbenennen – sonst hielte der Umbenennungs-Schutz (guardLogbookName) den Bot selbst für einen Fremden.
+  db.prepare(`UPDATE ${T} SET title=? WHERE guild_id=? AND user_id=?`).run(name, guildId, userId);
+  const ok = await thread.setName(name, "Name geändert").then(() => true).catch(() => false);
+  if (!ok) { db.prepare(`UPDATE ${T} SET title=? WHERE guild_id=? AND user_id=?`).run(row.title, guildId, userId); return false; }
+  // Titel steht auch im Text des Posts („Titel des eigenen Logbuchs: …“).
+  const starter = await Promise.resolve(thread.fetchStarterMessage?.({ force: true })).catch(() => null);
+  if (starter && starter.author?.id === client.user?.id) {
+    const forum = thread.parent ?? await client.channels.fetch(thread.parentId).catch(() => null);
+    const template = forum?.threads ? await templateFrom(await forumThreads(forum), f.template) : f.template;
+    await starter.edit({ content: buildLogbookContent(template, name, userId), allowedMentions: { parse: [] } }).catch(() => {});
+  }
+  return true;
+}
+
+/**
+ * Logbuch-Post wurde umbenannt: Titel verwaltet nur der Bot – fremde Änderungen werden sofort zurückgesetzt.
+ * Gibt true zurück, wenn zurückgesetzt wurde.
+ */
+export async function guardLogbookName({ db, oldThread, thread }) {
+  if (!thread?.setName || oldThread?.name === thread.name || /^\W*vorlage/i.test(thread.name ?? "")) return false;
+  for (const kind of Object.keys(LOGBOOK_FORUMS)) {
+    const row = db.prepare(`SELECT title FROM ${forumOf(kind).table} WHERE thread_id=?`).get(thread.id);
+    if (!row) continue;
+    if (row.title === thread.name) return false;
+    return thread.setName(row.title.slice(0, 100), "Logbuch-Titel wird vom Bot verwaltet").then(() => true).catch(() => false);
+  }
+  return false;
 }
 
 const FORUM_PERMS = [["ViewChannel", "Kanal ansehen"], ["SendMessages", "Beiträge erstellen"], ["SendMessagesInThreads", "Nachrichten in Beiträgen senden"], ["ReadMessageHistory", "Nachrichtenverlauf lesen"], ["AddReactions", "Reaktionen hinzufügen"], ["ManageMessages", "Nachrichten verwalten"], ["ManageThreads", "Threads verwalten (Archivieren)"]];

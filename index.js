@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { audit, getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook } from "./src/logbooks.js";
+import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook, renameLogbook, guardLogbookName, logbookTitle } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { refreshProofPrompt } from "./src/event-proofs.js";
 import { giveawayResultPayload, giveawayWinnerPayload } from "./src/giveaway-cards.js";
@@ -188,6 +188,15 @@ client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
       else if(r.status==="skipped"||r.status==="error"){console.warn(`${LOGBOOK_FORUMS[kind].label} nicht angelegt:`,r.reason);logbookError(member.guild.id,`${LOGBOOK_FORUMS[kind].label}: ${r.reason}`);}
     }
   })();
+});
+// Logbuch-Titel verwaltet nur der Bot: fremde Umbenennungen zurücksetzen.
+client.on(Events.ThreadUpdate,(oldThread,thread)=>{void guardLogbookName({db,oldThread,thread}).then(reset=>{if(reset)console.log(`Logbuch-Titel zurückgesetzt: ${thread.id}`);}).catch(()=>{});});
+// Server-Name geändert (z. B. „Vorname Nachname | ID“): Logbücher automatisch mit umbenennen.
+client.on(Events.GuildMemberUpdate,(oldMember,member)=>{
+  if(member.user?.bot||oldMember?.partial||!oldMember?.displayName||oldMember.displayName===member.displayName)return;
+  if(config.DISCORD_GUILD_ID&&member.guild.id!==config.DISCORD_GUILD_ID)return;
+  const title=/\|\s*\d+\s*$/.test(member.displayName)?member.displayName:logbookTitle(db,member.guild.id,member);
+  for(const kind of activeLogbookKinds(config))void renameLogbook({db,client,guildId:member.guild.id,userId:member.id,title,kind}).catch(()=>{});
 });
 // Familie verlassen: Logbücher archivieren und sperren (Rolle weg oder Server verlassen).
 const archiveAll=(member,reason)=>{for(const kind of activeLogbookKinds(config))void archiveLogbook({db,client,guildId:member.guild.id,userId:member.id,reason,kind}).catch(()=>{});};
