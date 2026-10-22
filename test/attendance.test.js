@@ -238,3 +238,32 @@ test("Mein Bereich zeigt Event-Bilanz und durch Events verdientes Geld", async (
   assert.equal(mine.events.earned, 2_500_000);
   assert.equal(mine.events.past[0].won_cents, 2_500_000);
 });
+
+test("Kill-Logs: Kills am Bild eintragen → beim Auszahlen vorausgefüllt (Handeingabe hat Vorrang)", async () => {
+  const { handleEventProofInteraction } = await import("../src/event-proofs.js");
+  const x = setup(), now = new Date().toISOString(), fin = ["20000000000000003"];
+  x.config.ROLE_FINANCE = fin;
+  const proof = (id, user, kills = null) => x.db.prepare("INSERT INTO event_proofs(message_id,guild_id,event_id,user_id,channel_id,images,kills,created_at,updated_at) VALUES(?,'" + G + "','e1',?,'t',1,?,?,?)").run(id, user, kills, now, now);
+  proof("k1", A); proof("k2", A, 1); proof("k3", C, 4);
+  // Person trägt am eigenen Bild 2 Kills ein (Button → Fenster).
+  const shown = [], updates = [], replies = [];
+  const base = { user: { id: A }, client: { channels: { fetch: async () => null } }, reply: async p => replies.push(p), update: async p => updates.push(p), showModal: async m => shown.push(m) };
+  await handleEventProofInteraction({ i: { ...base, customId: "evp:kills:k1" }, db: x.db, config: x.config });
+  assert.equal(shown[0].data.custom_id, "evp:killset:k1");
+  await handleEventProofInteraction({ i: { ...base, customId: "evp:killset:k1", fields: { getTextInputValue: () => "2" } }, db: x.db, config: x.config });
+  assert.match(updates[0].content, /🎯 Kill-Log: \*\*2 Kills\*\*/);
+  await handleEventProofInteraction({ i: { ...base, user: { id: B }, customId: "evp:kills:k1" }, db: x.db, config: x.config });
+  assert.match(replies[0].content, /nur die Person/, "nur der Poster");
+  // Auszahlen: A = 2 + 1 = 3 Kills aus den Logs, C = 4 aus dem Log, aber von Hand auf 1 korrigiert.
+  await handleAttendanceInteraction({ i: interaction("att:pick:e1:0", { values: [A, C] }), ...x });
+  await handleAttendanceInteraction({ i: interaction("att:close:e1"), ...x });
+  x.db.prepare("INSERT INTO event_kills(event_id,user_id,kills,updated_at) VALUES('e1',?,1,?)").run(C, now);
+  const modal = { ...interaction("att:winmodal:e1", { roles: fin }), fields: { getTextInputValue: id => id === "amount" ? "25k" : "10.000" } };
+  await handleAttendanceInteraction({ i: modal, ...x });
+  assert.match(modal.out.reply.content, /3 Kills 📸 → \*\*\$55\.000,00/);
+  assert.match(modal.out.reply.content, /1 Kill \(Kill-Log: 4\) → \*\*\$35\.000,00/);
+  // Nach der Auszahlung lässt sich am Bild nichts mehr ändern.
+  await handleAttendanceInteraction({ i: interaction("att:payout:e1:2500000:1000000", { roles: fin }), ...x });
+  await handleEventProofInteraction({ i: { ...base, customId: "evp:kills:k1" }, db: x.db, config: x.config });
+  assert.match(replies.at(-1).content, /schon ausgezahlt/);
+});

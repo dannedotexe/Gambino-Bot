@@ -5,7 +5,7 @@ import { audit, getSetting, setSetting } from "./database.js";
 import { BRAND_COLOR, numberedMentions } from "./presentation.js";
 import { postEventResult } from "./panels.js";
 import { refreshEventPosts } from "./event-posts.js";
-import { proofsByUser } from "./event-proofs.js";
+import { killLogsByUser, proofsByUser } from "./event-proofs.js";
 
 /**
  * Verbindliche Anwesenheit: Nach dem Event hakt das Event-Team im Auswahlmenü ab, wer da war.
@@ -252,14 +252,17 @@ async function namesFor({ db, i, event, ids }) {
 /** Kills eintragen: Auswahl einer Person öffnet ein Feld für ihre Kills; „Auszahlen“ bucht alles. */
 async function killPanel({ db, i, event, drive, kill }) {
   const present = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status='present' ORDER BY updated_at,user_id").all(event.id).map(r => r.user_id);
+  // Kills aus den Kill-Logs (Bilder in event-logs) vorausfüllen – von Hand Eingetragenes wird nie überschrieben.
+  const logged = killLogsByUser(db, event.id);
+  for (const id of present) if (logged.get(id)) db.prepare("INSERT OR IGNORE INTO event_kills(event_id,user_id,kills,updated_at) VALUES(?,?,?,?)").run(event.id, id, logged.get(id), new Date().toISOString());
   const kills = new Map(db.prepare("SELECT user_id,kills FROM event_kills WHERE event_id=?").all(event.id).map(r => [r.user_id, r.kills]));
   const nameOf = await namesFor({ db, i, event, ids: present });
   const total = present.reduce((sum, id) => sum + drive + (kills.get(id) ?? 0) * kill, 0);
-  const lines = present.map(id => { const k = kills.get(id) ?? 0; return `• ${nameOf(id)} – ${k} Kill${k === 1 ? "" : "s"} → **${formatMoney(drive + k * kill)}**`; }).join("\n").slice(0, 1700);
+  const lines = present.map(id => { const k = kills.get(id) ?? 0, fromLog = logged.get(id) != null && logged.get(id) === k; return `• ${nameOf(id)} – ${k} Kill${k === 1 ? "" : "s"}${fromLog ? " 📸" : logged.get(id) != null ? ` (Kill-Log: ${logged.get(id)})` : ""} → **${formatMoney(drive + k * kill)}**`; }).join("\n").slice(0, 1700);
   const select = new StringSelectMenuBuilder().setCustomId(`att:killsel:${event.id}:${drive}:${kill}`).setPlaceholder("Kills eintragen – Person wählen").setMinValues(1).setMaxValues(1)
     .addOptions(present.slice(0, 25).map(id => ({ label: nameOf(id).slice(0, 100), value: id, description: `${kills.get(id) ?? 0} Kills` })));
   const buttons = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`att:payout:${event.id}:${drive}:${kill}`).setLabel(`✅ Auszahlen (${formatMoney(total)})`).setStyle(ButtonStyle.Success));
-  return { content: `🏆 **Win – ${event.name}**\nAnfahrt **${formatMoney(drive)}** pro Person + **${formatMoney(kill)}** pro Kill. Wähle unten eine Person und trag ihre Kills ein, dann „Auszahlen“.${present.length > 25 ? "\n⚠️ Mehr als 25 Anwesende – nur die ersten 25 sind wählbar." : ""}\n\n${lines}`,
+  return { content: `🏆 **Win – ${event.name}**\nAnfahrt **${formatMoney(drive)}** pro Person + **${formatMoney(kill)}** pro Kill. 📸 = aus dem Kill-Log übernommen. Bitte kurz prüfen, ggf. Person wählen und Kills korrigieren, dann „Auszahlen“.${present.length > 25 ? "\n⚠️ Mehr als 25 Anwesende – nur die ersten 25 sind wählbar." : ""}\n\n${lines}`,
     components: present.length ? [new ActionRowBuilder().addComponents(select), buttons] : [buttons] };
 }
 

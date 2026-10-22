@@ -530,3 +530,4 @@ dialog .cselect-list{z-index:1000}
 .level-badge svg{position:absolute;inset:0;width:100%;height:100%}.level-badge circle{fill:none;stroke-width:5}.level-badge .lb-track{stroke:var(--fill)}.level-badge .lb-fill{stroke:currentColor;stroke-linecap:round;transition:stroke-dashoffset .9s var(--ease)}
 .level-badge b{position:relative;font-size:24px;font-weight:800;line-height:1;color:var(--text);letter-spacing:-.02em;margin-top:-6px}.level-badge small{position:absolute;bottom:15px;left:0;right:0;text-align:center;font-size:8px;font-weight:700;letter-spacing:.12em;color:var(--muted)}
 .tier-1{--tier:#30d158}.tier-2{--tier:#0a84ff}.tier-3{--tier:#cd7f32}.tier-4{--tier:#a8b3c0}.tier-5{--tier:#ffd60a}.tier-6{--tier:#bf5af2}.tier-7{--tier:#ff453a}
+.evlog figcaption .evlog-kills{color:var(--accent)}

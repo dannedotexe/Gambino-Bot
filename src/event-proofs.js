@@ -1,4 +1,4 @@
-import { ActionRowBuilder, MessageFlags, StringSelectMenuBuilder } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 import { audit } from "./database.js";
 import { removeSignupPing } from "./event-signup-pings.js";
 import { localDay } from "./services/absences.js";
@@ -41,12 +41,16 @@ const eventLabel = (event, timezone) => `${event.name}`.slice(0, 80) + ` · ${cl
 export function proofPrompt(db, config, proof, candidates) {
   const event = proof.event_id ? db.prepare("SELECT * FROM events WHERE id=?").get(proof.event_id) : null;
   const others = candidates.filter(e => e.id !== proof.event_id);
+  const killLine = proof.kills != null ? `\n🎯 Kill-Log: **${proof.kills} ${proof.kills === 1 ? "Kill" : "Kills"}**${event?.outcome ? "" : " – wird beim Auszahlen übernommen"}` : "";
   const content = event
-    ? `✅ Event-Log für **${event.name}** (${day(event.starts_at, config.TIMEZONE)}, ${clock(event.starts_at, config.TIMEZONE)})`
+    ? `✅ Event-Log für **${event.name}** (${day(event.starts_at, config.TIMEZONE)}, ${clock(event.starts_at, config.TIMEZONE)})${killLine}`
     : candidates.length ? "📸 **Zu welchem Event gehört das?**" : "📸 Heute gibt es (noch) kein Event. Das Bild bleibt gespeichert – das Team kann es auf der Website zuordnen.";
   const options = (event ? others : candidates).map(e => ({ label: eventLabel(e, config.TIMEZONE).slice(0, 100), value: e.id, description: `${e.joined ? "✅ angemeldet · " : ""}Beginn ${day(e.starts_at, config.TIMEZONE)} ${clock(e.starts_at, config.TIMEZONE)}${e.status === "ended" ? " · vorbei" : ""}`.slice(0, 100) }));
   const components = options.length ? [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`evp:pick:${proof.message_id}`)
     .setPlaceholder(event ? "Falsches Event? Anderes wählen …" : "Event auswählen …").addOptions(options))] : [];
+  // Kill-Nachricht im Bild: Anzahl Kills eintragen (nur solange das Ergebnis noch nicht ausgezahlt ist).
+  if (event && !event.outcome) components.push(new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`evp:kills:${proof.message_id}`)
+    .setEmoji("🎯").setLabel(proof.kills != null ? `Kills ändern (${proof.kills})` : "Kill-Log: Kills eintragen").setStyle(proof.kills != null ? ButtonStyle.Secondary : ButtonStyle.Primary)));
   return { content, components, allowedMentions: { parse: [] } };
 }
 
@@ -74,18 +78,35 @@ export async function handleEventProofMessage({ db, config, message, reference =
 /** Auswahl „evp:pick:<Nachricht>“: nur die Person selbst oder das Event-Team. */
 export async function handleEventProofInteraction({ i, db, config }) {
   const [, action, messageId] = i.customId.split(":");
-  if (action !== "pick") return i.reply({ content: "Unbekannte Aktion.", flags: MessageFlags.Ephemeral });
+  if (!["pick", "kills", "killset"].includes(action)) return i.reply({ content: "Unbekannte Aktion.", flags: MessageFlags.Ephemeral });
   const proof = db.prepare("SELECT * FROM event_proofs WHERE message_id=?").get(messageId);
   if (!proof) return i.reply({ content: "Dieses Bild gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
   // Nur wer das Bild gepostet hat; das Event-Team kann auf der Website verschieben.
   if (proof.user_id !== i.user.id) return i.reply({ content: "Das kann nur die Person auswählen, die das Bild gepostet hat. (Das Event-Team kann es auf der Website verschieben.)", flags: MessageFlags.Ephemeral });
+  const prompt = row => proofPrompt(db, config, row, candidateEvents(db, { guildId: proof.guild_id, userId: proof.user_id, reference: new Date(proof.created_at), timezone: config.TIMEZONE }));
+  if (action === "kills" || action === "killset") {
+    const event = proof.event_id ? db.prepare("SELECT * FROM events WHERE id=?").get(proof.event_id) : null;
+    if (!event) return i.reply({ content: "Bitte zuerst das Event auswählen.", flags: MessageFlags.Ephemeral });
+    if (event.outcome) return i.reply({ content: "Für dieses Event wurde schon ausgezahlt – Kills bitte beim Event-Team melden.", flags: MessageFlags.Ephemeral });
+    if (action === "kills") return i.showModal(new ModalBuilder().setCustomId(`evp:killset:${proof.message_id}`).setTitle(`Kill-Log – ${event.name}`.slice(0, 45)).addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("kills").setLabel("Wie viele Kills zeigt die Kill-Nachricht?").setPlaceholder("z. B. 3 – 0 = doch kein Kill-Log").setValue(proof.kills != null ? String(proof.kills) : "").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2))));
+    const kills = Number(String(i.fields.getTextInputValue("kills")).trim());
+    if (!Number.isInteger(kills) || kills < 0 || kills > 50) return i.reply({ content: "Bitte eine Zahl von 0 bis 50 eingeben.", flags: MessageFlags.Ephemeral });
+    db.prepare("UPDATE event_proofs SET kills=?,updated_at=? WHERE message_id=?").run(kills || null, new Date().toISOString(), proof.message_id);
+    audit(db, proof.guild_id, i.user.id, "event.kill_log", proof.user_id, { eventId: event.id, messageId: proof.message_id, kills });
+    const updated = db.prepare("SELECT * FROM event_proofs WHERE message_id=?").get(proof.message_id);
+    return typeof i.update === "function" ? i.update(prompt(updated)) : i.reply({ content: `🎯 ${kills} Kills gespeichert.`, flags: MessageFlags.Ephemeral });
+  }
   const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status IN ('scheduled','ended')").get(i.values[0], proof.guild_id);
   if (!event) return i.reply({ content: "Dieses Event gibt es nicht mehr.", flags: MessageFlags.Ephemeral });
   const updated = assign(db, { proof, eventId: event.id, actorId: i.user.id });
   // Bild ist da: Hinweis/Ping zu diesem Event im Logbuch wird überflüssig.
   void removeSignupPing({ db, client: i.client, eventId: event.id, userId: proof.user_id }).catch(() => {});
-  return i.update(proofPrompt(db, config, updated, candidateEvents(db, { guildId: proof.guild_id, userId: proof.user_id, reference: new Date(proof.created_at), timezone: config.TIMEZONE })));
+  return i.update(prompt(updated));
 }
+
+/** Kills aus den Kill-Logs (Bilder) je Person für ein Event – Summe über alle Kill-Bilder. */
+export const killLogsByUser = (db, eventId) => new Map(db.prepare("SELECT user_id, SUM(kills) k FROM event_proofs WHERE event_id=? AND kills IS NOT NULL GROUP BY user_id").all(eventId).map(r => [r.user_id, r.k]));
 
 /** Nachweise je Person für ein Event (Anzahl Bilder). */
 export const proofsByUser = (db, eventId) => new Map(db.prepare("SELECT user_id, SUM(images) n FROM event_proofs WHERE event_id=? GROUP BY user_id").all(eventId).map(r => [r.user_id, r.n]));
@@ -99,7 +120,7 @@ export { unix };
 export function eventLogDay(db, { guildId, day, timezone = "Europe/Vienna" }) {
   const [y, m, d] = day.split("-").map(Number);
   const from = midnight(new Date(Date.UTC(y, m - 1, d, 12)), timezone), until = midnight(new Date(Date.UTC(y, m - 1, d, 12)), timezone, 1);
-  const proofs = eventId => db.prepare("SELECT message_id AS messageId, user_id AS userId, images, created_at AS createdAt FROM event_proofs WHERE event_id=? ORDER BY created_at").all(eventId);
+  const proofs = eventId => db.prepare("SELECT message_id AS messageId, user_id AS userId, images, kills, created_at AS createdAt FROM event_proofs WHERE event_id=? ORDER BY created_at").all(eventId);
   const events = db.prepare("SELECT id,name,starts_at,status,attendance_closed_at FROM events WHERE guild_id=? AND status IN ('scheduled','ended') AND starts_at>=? AND starts_at<? ORDER BY starts_at")
     .all(guildId, from.toISOString(), until.toISOString()).map(e => {
       const list = proofs(e.id), posted = new Set(list.map(p => p.userId));
