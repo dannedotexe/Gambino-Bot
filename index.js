@@ -109,6 +109,18 @@ async function adoptLeadershipDefaults(){
       for(const old of later?.values?.()??[])if(old.author?.id===client.user?.id&&/^Glückwunsch /.test(old.content??"")&&!old.embeds?.length)await old.edit({...giveawayWinnerPayload(row),allowedMentions:{parse:[]}}).catch(error=>console.warn("Giveaway-Glückwunsch nicht aktualisiert:",error.message));
     }
   }
+  // Einmalig: bereits verschickte Logbuch-Pings auf „ein Bild während dem Event“ umschreiben (Bearbeiten pingt nicht erneut).
+  if(!getSetting(db,guild.id,"SIGNUP_PING_TEXT_V2")){
+    setSetting(db,guild.id,"SIGNUP_PING_TEXT_V2",new Date().toISOString());
+    let fixed=0;
+    for(const row of db.prepare("SELECT channel_id,message_id FROM event_signup_pings").all()){
+      const channel=await client.channels.fetch(row.channel_id).catch(()=>null),message=await channel?.messages?.fetch(row.message_id).catch(()=>null);
+      if(!message?.content)continue;
+      const content=message.content.replace("**vor und nach dem Event ein Bild**","**während dem Event ein Bild**").replace(" – und nach dem Event noch eins.",".");
+      if(content!==message.content&&await message.edit({content,allowedMentions:{parse:[]}}).then(()=>true).catch(()=>false))fixed++;
+    }
+    if(fixed)console.log(`Logbuch-Pings: ${fixed} Nachrichten auf den neuen Text umgestellt.`);
+  }
   // Geänderte Vorlage (Standardtext oder „Vorlage …“-Post) in die bestehenden Bot-Posts übernehmen.
   for(const kind of activeLogbookKinds(config)){const n=await syncLogbookTemplates({db,client,config,guildId:guild.id,kind}).catch(()=>0);if(n)console.log(`${LOGBOOK_FORUMS[kind].label}: Text in ${n} Posts aktualisiert.`);}
   // Auf Wunsch der Leitung (20.10.2026) einmalig: Forum event-logs leeren und alle Event-Logbücher mit dem neuen Text frisch anlegen.
