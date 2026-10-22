@@ -26,7 +26,7 @@ export const DEFAULT_LOGBOOK_TEMPLATE = [
 export const DEFAULT_EVENT_LOGBOOK_TEMPLATE = [
   "## 📋 **Event Logs:**",
   "",
-  "In diesen Post kommt vor und nach jedem Event ein Bild, damit wir nachvollziehen können, ob ihr dabei wart oder nicht.",
+  "In diesen Post kommt während jedem Event ein Bild, damit wir nachvollziehen können, ob ihr dabei wart oder nicht.",
   "Wenn ihr Kills bei einem Event mit Kill Auszahlung macht ein Bild von der Kill Nachricht.",
   "",
   "> ⚠️ **Wichtig:**",

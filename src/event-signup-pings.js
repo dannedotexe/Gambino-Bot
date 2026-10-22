@@ -1,5 +1,5 @@
 /**
- * Anmeldung zu einem Event → kurzer Ping im eigenen Event-Logbuch, damit man die Bilder (vor/nach dem Event) nicht
+ * Anmeldung zu einem Event → kurzer Ping im eigenen Event-Logbuch, damit man das Bild (während dem Event) nicht
  * vergisst. Zum Eventbeginn ersetzt ein neuer Ping („geht jetzt los“) den Anmelde-Hinweis. Abmelden entfernt den
  * Hinweis wieder; nach dem Event räumt der Bot ihn auf (das Logbuch bleibt sauber).
  */
@@ -58,7 +58,7 @@ export async function pingEventStart({ db, client, config, reference = new Date(
       // Bild zu diesem Event schon gepostet → keine Erinnerung nötig.
       if (db.prepare("SELECT 1 FROM event_proofs WHERE event_id=? AND user_id=?").get(event.id, userId)) continue;
       const thread = await client.channels.fetch(threadId).catch(() => null);
-      const message = await thread?.send?.({ content: `<@${userId}> 🔔 **${event.name}** geht jetzt los!\n📸 Jetzt das **Bild vom Event** hier posten – und nach dem Event noch eins.`, allowedMentions: { users: [userId] } }).catch(() => null);
+      const message = await thread?.send?.({ content: `<@${userId}> 🔔 **${event.name}** geht jetzt los!\n📸 Jetzt das **Bild vom Event** hier posten.`, allowedMentions: { users: [userId] } }).catch(() => null);
       if (!message) continue;
       db.prepare("INSERT OR REPLACE INTO event_signup_pings(event_id,user_id,channel_id,message_id,created_at) VALUES(?,?,?,?,?)").run(event.id, userId, thread.id, message.id, reference.toISOString());
       sent++;
