@@ -28,12 +28,12 @@ export function createVerificationService(db) {
   }
 
   /** Speichert die Verifizierung erst, nachdem Discord den Namen übernommen hat. */
-  const save = db.transaction(({ guildId, userId, data, roleResult = null }) => {
+  const save = db.transaction(({ guildId, userId, data, roleResult = null, actorId = null, manual = false }) => {
     assertAvailable(guildId, userId, data.ingameId);
     const previous = byUser(guildId, userId), ts = new Date().toISOString();
     db.prepare("INSERT INTO member_verifications(guild_id,user_id,ingame_id,first_name,last_name,nickname,verified_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET ingame_id=excluded.ingame_id,first_name=excluded.first_name,last_name=excluded.last_name,nickname=excluded.nickname,updated_at=excluded.updated_at")
       .run(guildId, userId, data.ingameId, data.firstName, data.lastName, data.nickname, ts, ts);
-    audit(db, guildId, userId, previous ? "member.verification_updated" : "member.verified", userId, { name: data.nickname, previous: previous?.nickname ?? null, roleResult });
+    audit(db, guildId, actorId ?? userId, previous ? "member.verification_updated" : "member.verified", userId, { name: data.nickname, previous: previous?.nickname ?? null, roleResult, ...(manual ? { manual: true } : {}) });
     return { previous };
   });
 

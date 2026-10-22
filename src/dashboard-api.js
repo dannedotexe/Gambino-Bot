@@ -34,6 +34,7 @@ import { CLOSURE_REASONS, createAccountClosureService } from "./services/account
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
 import { addPresent, afterClose, afterNotPlayed, closeAttendance, markNotPlayed, parseAmount, requestAttendance } from "./attendance.js";
+import { VerifyError, verifyMemberManually } from "./manual-verify.js";
 import { afterParticipantChange, canManageSignups, removeParticipant } from "./event-manage.js";
 import { assignProofFromWeb, deleteProofFromWeb, eventLogDay, proofMessages, proofsByUser } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
@@ -1079,6 +1080,14 @@ export function createDashboardApi({ db, client, config, settings = null, series
         note = ["ok", "adopted"].includes(result?.status) ? " Das Panel in Discord wurde aktualisiert." : result?.status === "posted" ? " Das Panel wurde neu im Channel gepostet." : " Das Panel konnte in Discord nicht aktualisiert werden – bitte Channel-Prüfung ansehen.";
       }
       return { message: `${reset ? "Standardtexte wiederhergestellt." : "Texte gespeichert."}${note}`, panels: texts.describe().map(p => ({ ...p, channelSet: Boolean(config[p.channelKey]) })) };
+    }],
+    [/^\/api\/verifications\/manual$/, async (member, body) => {
+      need(member, "staff", "Staff-Rolle");
+      const userId = snowflake(body.userId);
+      try {
+        const r = await verifyMemberManually({ db, client, config, guild: await guild(), userId, input: { firstName: body.firstName, lastName: body.lastName, ingameId: body.ingameId }, actorId: member.id });
+        return { message: `${r.before ? "Umbenannt" : "Verifiziert"}: ${r.data.nickname}.${r.notes.length ? ` Hinweis: ${r.notes.join(" ")}` : ""}` };
+      } catch (error) { if (error instanceof VerifyError) throw new HttpError(400, error.message); throw error; }
     }],
     [/^\/api\/verifications\/(\d{17,20})\/reset$/, async (member, body, [, userId]) => {
       need(member, "leaders", "Leitungsrolle");

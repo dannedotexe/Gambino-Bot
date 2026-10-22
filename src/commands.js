@@ -29,6 +29,7 @@ import { handleEventProofInteraction } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { prizeLabel } from "./giveaway-cards.js";
 import { pingSignup, removeSignupPing } from "./event-signup-pings.js";
+import { VerifyError, verifyMemberManually } from "./manual-verify.js";
 import { handleEventManageInteraction, notifyBumped, prioCheck } from "./event-manage.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
@@ -249,6 +250,11 @@ export function buildCommands() {
     .addUserOption(o=>o.setName("mitglied").setDescription("Wessen Verwarnung zurückgenommen wird").setRequired(true))
     .addStringOption(o=>o.setName("grund").setDescription("Grund der Rücknahme").setRequired(true).setMinLength(3).setMaxLength(300))
     .addStringOption(o=>o.setName("warnung").setDescription("Welche Verwarnung (leer = die neueste aktive)").setAutocomplete(true));
+  const verify = new SlashCommandBuilder().setName("verifizieren").setDescription("Mitglied manuell verifizieren (Staff) – setzt „Vorname Nachname | ID“ und die Verifiziert-Rolle")
+    .addUserOption(o=>o.setName("mitglied").setDescription("Wen?").setRequired(true))
+    .addStringOption(o=>o.setName("vorname").setDescription("Vorname (Ingame)").setRequired(true).setMaxLength(20))
+    .addStringOption(o=>o.setName("nachname").setDescription("Nachname (Ingame)").setRequired(true).setMaxLength(20))
+    .addStringOption(o=>o.setName("id").setDescription("Ingame-ID").setRequired(true).setMaxLength(10));
   const control = new SlashCommandBuilder().setName("staatliche").setDescription("Staatliche Kontrolle ankündigen (Angriff oder Verteidigung)")
     .addStringOption(o=>o.setName("art").setDescription("Greifen wir an oder werden wir angegriffen?").setRequired(true).addChoices({name:"🛡️ Wir werden angegriffen",value:"defend"},{name:"🚩 Wir greifen an",value:"attack"}))
     .addStringOption(o=>o.setName("familie").setDescription("Welche Familie?").setRequired(true).setMaxLength(60))
@@ -304,7 +310,7 @@ export function buildCommands() {
     new SlashCommandBuilder().setName("bewerbung-panel").setDescription("Bewerbungs-Panel senden (Reviewer)"),
     new SlashCommandBuilder().setName("statistik").setDescription("Familienstatistik anzeigen (Staff)").addIntegerOption(o=>o.setName("zeitraum").setDescription("Zeitraum").addChoices(...Object.entries(PERIODS).map(([days,label])=>({name:label,value:Number(days)})))),
   ];
-  return [log,myTasks,logbook,kills,money,sanction,warn,warnings,unwarn,poll,timeout,untimeout,kick,ban,unban,control,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
+  return [verify,log,myTasks,logbook,kills,money,sanction,warn,warnings,unwarn,poll,timeout,untimeout,kick,ban,unban,control,absence,leaderboard,ticket,event,apps,giveaway,dashboard,settings,automod,activities,...misc].map(c=>c.toJSON());
 }
 
 export function createHandler({db,finance,config,client,settings=null,series=null}) {
@@ -403,6 +409,14 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       if (i.commandName==="warn") return await issueWarning(i,g,u,{target:i.options.getUser("mitglied"),reason:i.options.getString("grund"),caseRef:i.options.getString("fall")});
       if (i.commandName==="warnings") return await warningsCommand(i,g,u);
       if (i.commandName==="unwarn") return await unwarnCommand(i,g,u);
+      if (i.commandName==="verifizieren"){
+        const denied=guard(i,"staff","Staff-Rolle");if(denied)return respond(i,denied);
+        await i.deferReply({flags:MessageFlags.Ephemeral});
+        try{
+          const r=await verifyMemberManually({db,client:i.client??client,config,guild:i.guild,userId:i.options.getUser("mitglied").id,input:{firstName:i.options.getString("vorname"),lastName:i.options.getString("nachname"),ingameId:i.options.getString("id")},actorId:u});
+          return i.editReply(presentInteractionPayload({embeds:[embed(r.before?"✏️ Name geändert":"✅ Manuell verifiziert",`<@${i.options.getUser("mitglied").id}> heißt jetzt **${r.data.nickname}**.${r.before?`\nVorher: ${r.before.nickname}`:""}${r.notes.length?`\n\n⚠️ ${r.notes.join("\n⚠️ ")}`:""}`)]}));
+        }catch(error){if(error instanceof VerifyError)return i.editReply(presentInteractionPayload({content:error.message}));throw error;}
+      }
       if (i.commandName==="staatliche"){
         const denied=guard(i,"events","Event-Team- oder Leitungsrolle");if(denied)return respond(i,denied);
         try{const r=await announceControl({db,client,config,actorId:u,family:i.options.getString("familie"),when:i.options.getString("wann")??"jetzt",mode:i.options.getString("art")==="attack"?"attack":"defend",max:i.options.getInteger("max")});return respond(i,`🚩 **${r.name}** angekündigt – Beginn <t:${Math.floor(r.startsAt.getTime()/1000)}:t>.`);}
