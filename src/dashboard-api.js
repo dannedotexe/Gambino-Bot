@@ -34,6 +34,7 @@ import { CLOSURE_REASONS, createAccountClosureService } from "./services/account
 import { createAccessLog } from "./services/access-log.js";
 import { createRoleSnapshots, restoreSnapshot, takeSnapshot } from "./role-snapshots.js";
 import { addPresent, afterClose, afterNotPlayed, closeAttendance, markNotPlayed, parseAmount, requestAttendance } from "./attendance.js";
+import { afterParticipantChange, canManageSignups, removeParticipant } from "./event-manage.js";
 import { assignProofFromWeb, deleteProofFromWeb, eventLogDay, proofMessages, proofsByUser } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { sendWeeklyReport } from "./weekly-report.js";
@@ -712,6 +713,17 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const result = await deleteProofFromWeb({ db, client, guildId, messageId, actorId: member.id });
       if (result.error) throw new HttpError(404, result.error);
       return { message: result.discord ? "Event-Log gelöscht – auch das Bild in Discord." : "Event-Log von der Website entfernt. Das Bild in Discord konnte nicht gelöscht werden (Bot braucht „Nachrichten verwalten“ im Forum)." };
+    }],
+    // Teilnehmer rausnehmen (ab Turf Leader bzw. Event-Team/Leitung); Nachrücker rückt nach.
+    [/^\/api\/events\/([\w-]+)\/remove$/, async (member, body, [, id]) => {
+      const g = await guild();
+      if (!member.owner && !canManageSignups(config, { userId: member.id, roleIds: member.roles, roleName: rid => g?.roles?.cache?.get?.(rid)?.name })) throw new HttpError(403, "Teilnehmer rausnehmen dürfen nur Turf Leader und höher (bzw. Event-Team/Leitung).");
+      const userId = snowflake(body.userId);
+      const result = removeParticipant(db, { guildId, eventId: id, userId, actorId: member.id });
+      if (result.status === "closed") throw new HttpError(409, "Dieses Event ist nicht mehr offen.");
+      if (!["left", "left_waitlist"].includes(result.status)) throw new HttpError(409, "Diese Person war nicht angemeldet.");
+      await afterParticipantChange({ db, client, config, event: result.event, removed: [userId], promoted: result.promoted ?? [], actorId: member.id });
+      return { message: `Rausgenommen${result.promoted?.length ? ` – ${result.promoted.length} von der Warteliste nachgerückt` : ""}.` };
     }],
     [/^\/api\/events\/([\w-]+)\/attendance\/proofs$/, async (member, body, [, id]) => {
       need(member, "events", "Event-Team- oder Leitungsrolle");
