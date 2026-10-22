@@ -29,7 +29,7 @@ import { handleEventProofInteraction } from "./event-proofs.js";
 import { ControlError, announceControl } from "./state-control.js";
 import { prizeLabel } from "./giveaway-cards.js";
 import { pingSignup, removeSignupPing } from "./event-signup-pings.js";
-import { handleEventManageInteraction } from "./event-manage.js";
+import { handleEventManageInteraction, notifyBumped, prioCheck } from "./event-manage.js";
 import { checkChannels } from "./channel-check.js";
 import { moveTicketToClosed, moveTicketToOpen } from "./ticket-channels.js";
 import { buildVerification, createVerificationService } from "./services/verification.js";
@@ -1208,13 +1208,14 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
       }
       if(kind==="event"&&(action==="join"||action==="leave")){
         if(action==="join"){const gate=memberGate(i);if(gate)return answer(i,{content:gate,ephemeral:true});}
-        const result=action==="join"?events.join({guildId:g,eventId:id,userId:u,overlapMinutes:config.EVENT_OVERLAP_MINUTES??0}):events.leave({guildId:g,eventId:id,userId:u});
+        const result=action==="join"?events.join({guildId:g,eventId:id,userId:u,overlapMinutes:config.EVENT_OVERLAP_MINUTES??0,isPrio:prioCheck(config,i.guild)}):events.leave({guildId:g,eventId:id,userId:u});
         if(result.status==="closed")return answer(i,{content:"Dieses Event ist nicht mehr offen.",ephemeral:true});
         if(["joined","left","waitlisted","left_waitlist"].includes(result.status))await refreshEventPosts({db,client,config,event:result.event,cardOnly:true});
         // Nachgerückte von der Warteliste per DM informieren.
         // Ping im eigenen Event-Logbuch (Anmeldung) bzw. Hinweis entfernen (Abmeldung/Wechsel); Nachrücker bekommen ihn auch.
         const pc=i.client??client;
         if(result.status==="joined")void pingSignup({db,client:pc,config,event:result.event,userId:u}).catch(()=>{});
+        if(result.bumped)void notifyBumped({db,client:pc,event:result.event,userId:result.bumped,byId:u}).catch(()=>{});
         if(result.status==="left")void removeSignupPing({db,client:pc,eventId:result.event.id,userId:u}).catch(()=>{});
         for(const s of result.switched??[])void removeSignupPing({db,client:pc,eventId:s.event.id,userId:u}).catch(()=>{});
         for(const userId of result.promoted??[])void pingSignup({db,client:pc,config,event:result.event,userId}).catch(()=>{});
@@ -1224,7 +1225,7 @@ export function createHandler({db,finance,config,client,settings=null,series=nul
         for(const entry of result.promoted??[]){const userId=entry.userId??entry,ev=entry.event??result.event;void (i.client??client).users.fetch(userId).then(user=>user.send({embeds:[new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({name:"GAMBINOS  •  EVENTS"}).setTitle("🎉 Du bist nachgerückt!").setDescription(`Für **${ev.name}** (<t:${unix(ev.starts_at)}:F>) ist ein Platz frei geworden – du stehst jetzt auf der Teilnehmerliste.\nKannst du doch nicht? Dann bitte über die Event-Karte abmelden.`).setTimestamp()]})).catch(()=>{});
         }
         const titles={joined:"✅ Anmeldung bestätigt",already:"ℹ️ Bereits angemeldet",left:"↩️ Abmeldung bestätigt",not_joined:"ℹ️ Keine aktive Anmeldung",waitlisted:"⏳ Auf der Warteliste",already_waiting:"⏳ Schon auf der Warteliste",left_waitlist:"↩️ Von der Warteliste entfernt"};
-        const texts={joined:"Du stehst jetzt auf der Teilnehmerliste.",already:"Deine Anmeldung ist bereits gespeichert.",left:"Du wurdest von der Teilnehmerliste entfernt.",not_joined:"Du warst für dieses Event nicht angemeldet.",waitlisted:`Das Event ist voll – du bist **Platz ${result.position}** auf der Warteliste. Wird ein Platz frei, rückst du automatisch nach und bekommst eine DM.`,already_waiting:`Du bist **Platz ${result.position}** auf der Warteliste.`,left_waitlist:"Du stehst nicht mehr auf der Warteliste."};
+        const texts={joined:`Du stehst jetzt auf der Teilnehmerliste.${result.bumped?" ⭐ **Prio Queue:** Das Event war voll – du hast den Platz der zuletzt angemeldeten Person bekommen (sie steht jetzt vorne auf der Warteliste).":""}`,already:"Deine Anmeldung ist bereits gespeichert.",left:"Du wurdest von der Teilnehmerliste entfernt.",not_joined:"Du warst für dieses Event nicht angemeldet.",waitlisted:`Das Event ist voll – du bist **Platz ${result.position}** auf der Warteliste${result.prio?" (⭐ Prio Queue – vor allen ohne Prio)":""}. Wird ein Platz frei, rückst du automatisch nach und bekommst eine DM.`,already_waiting:`Du bist **Platz ${result.position}** auf der Warteliste.`,left_waitlist:"Du stehst nicht mehr auf der Warteliste."};
         return answer(i,{...fieldsEmbed(titles[result.status],[
           {name:"Event",value:`**${result.event.name}**`,inline:true},
           {name:"Beginn",value:`<t:${unix(result.event.starts_at)}:F>`,inline:true},

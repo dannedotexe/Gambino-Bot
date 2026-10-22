@@ -32,7 +32,7 @@ const schema = z.object({
   TIMEZONE: z.string().default("Europe/Vienna"),
   CURRENCY_NAME: z.string().default("Gambinos-Familienguthaben"),
   PAYOUT_MINIMUM_CENTS: z.coerce.number().int().nonnegative().optional(),
-  ROLE_LEADERS: idList.optional(), ROLE_STAFF: idList.optional(), ROLE_EVENT_TEAM: idList.optional(),
+  ROLE_LEADERS: idList.optional(), ROLE_STAFF: idList.optional(), ROLE_EVENT_TEAM: idList.optional(), ROLE_PRIO_QUEUE: idList.optional(),
   ROLE_FINANCE: idList.optional(), ROLE_REVIEWERS: idList.optional(), ROLE_MEMBERS: idList.optional(), ROLE_FULL_ACCESS: idList.optional(),
   ROLE_FINANCE_VIEWERS: idList.optional(), ROLE_VERIFIED: idList.optional(), ROLE_MODERATORS: idList.optional(), ROLE_ABSENT: idList.optional(), EVENT_PING_ROLES: idList.optional(), ROLE_TASK_REVIEWERS: idList.optional(),
   BOT_OWNER_IDS: idList.optional(),

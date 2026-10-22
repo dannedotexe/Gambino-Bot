@@ -25,7 +25,7 @@ export function fillTemplate(template, event, { link = "", reference = new Date(
 }
 
 const participantsOf = (db, eventId) => db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(eventId);
-const waitlistOf = (db, eventId) => db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY created_at,user_id").all(eventId).map(r => r.user_id);
+const waitlistOf = (db, eventId) => db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY COALESCE(priority,0) DESC,created_at,user_id").all(eventId).map(r => r.user_id);
 /** Andere offene Events, die so nah beginnen, dass man nur bei einem dabei sein kann. */
 export const overlapsOf = (db, event, minutes) => !minutes ? [] : db.prepare("SELECT id,name,starts_at,channel_id,message_id,guild_id FROM events WHERE guild_id=? AND id<>? AND status='scheduled' AND signup_closed_at IS NULL AND ABS(strftime('%s',starts_at)-strftime('%s',?))<? ORDER BY starts_at")
   .all(event.guild_id, event.id, event.starts_at, minutes * 60);

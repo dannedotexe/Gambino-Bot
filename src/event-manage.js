@@ -45,7 +45,7 @@ async function afterChange({ db, client, config, event, removed = [], added = []
 
 function panel(db, event) {
   const people = db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status IN ('signed_up','present') ORDER BY updated_at").all(event.id).map(r => r.user_id);
-  const waiting = db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY created_at,user_id").all(event.id).map(r => r.user_id);
+  const waiting = db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY COALESCE(priority,0) DESC,created_at,user_id").all(event.id).map(r => r.user_id);
   const rows = [];
   const options = [...people.map(id => ({ id, wait: false })), ...waiting.map(id => ({ id, wait: true }))].slice(0, 25);
   if (options.length) rows.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`evm:remove:${event.id}`).setPlaceholder("Rausnehmen … (mehrere möglich)").setMinValues(1).setMaxValues(options.length)
@@ -62,6 +62,17 @@ function withNames(payload, i) {
     if (m) o.setLabel(`${o.data.label.startsWith("⏳") ? "⏳ " : ""}${m.displayName}`.slice(0, 100));
   }
   return payload;
+}
+
+/** Prio-Queue-Rolle? (Mitglieder sind beim Start in den Cache geladen.) */
+export const prioCheck = (config, guild) => userId => { const roles = config.ROLE_PRIO_QUEUE ?? []; return roles.length > 0 && roles.some(id => guild?.members?.cache?.get(userId)?.roles?.cache?.has?.(id)); };
+
+/** Verdrängte Person (Prio Queue): Logbuch-Hinweis weg, DM mit Wartelisten-Platz. */
+export async function notifyBumped({ db, client, event, userId, byId }) {
+  await removeSignupPing({ db, client, eventId: event.id, userId }).catch(() => {});
+  const position = createEventService(db).waitlistPosition(event.id, userId);
+  await client.users.fetch(userId).then(user => user.send({ embeds: [new EmbedBuilder().setColor(BRAND_COLOR).setAuthor({ name: "GAMBINOS  •  EVENTS" }).setTitle("⏳ Auf die Warteliste gerückt")
+    .setDescription(`**${event.name}** (<t:${unix(event.starts_at)}:F>) ist voll und <@${byId}> hat **Prio Queue** – du stehst jetzt auf **Platz ${position}** der Warteliste und rückst automatisch nach, sobald ein Platz frei wird.`).setTimestamp()] })).catch(() => {});
 }
 
 export const manageButton = eventId => new ButtonBuilder().setCustomId(`evm:open:${eventId}`).setLabel("👥 Verwalten").setStyle(ButtonStyle.Secondary);
@@ -86,7 +97,8 @@ export async function handleEventManageInteraction({ i, db, client, config }) {
     for (const userId of i.values ?? []) {
       const user = i.users?.get?.(userId) ?? i.guild?.members?.cache?.get(userId)?.user;
       if (user?.bot) continue;
-      const r = events.join({ guildId: i.guildId, eventId, userId, overlapMinutes: config.EVENT_OVERLAP_MINUTES ?? 0 });
+      const r = events.join({ guildId: i.guildId, eventId, userId, overlapMinutes: config.EVENT_OVERLAP_MINUTES ?? 0, isPrio: prioCheck(config, i.guild) });
+      if (r.bumped) await notifyBumped({ db, client: c, event, userId: r.bumped, byId: userId });
       if (r.status === "joined") { added.push(userId); audit(db, i.guildId, i.user.id, "event.participant_added", userId, { eventId, name: event.name }); }
       else if (r.status === "waitlisted") waiting.push(userId);
       for (const s of r.switched ?? []) await refreshEventPosts({ db, client: c, config, event: s.event, cardOnly: true }).catch(() => {});

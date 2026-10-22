@@ -222,3 +222,31 @@ test("Gleichzeitige Events: Anmeldung beim einen meldet beim anderen ab (inkl. W
   assert.equal(events.join({ guildId: G, eventId: "werft", userId: B, overlapMinutes: 0 }).switched.length, 0);
   assert.deepEqual(events.participants("bizwar").map(p => p.user_id), [B]);
 });
+
+test("Prio Queue: verdrängt die zuletzt angemeldete Nicht-Prio-Person, Prio steht vorne auf der Warteliste", async () => {
+  const { createEventService } = await import("../src/services/events.js");
+  const db = testDb(), events = createEventService(db), G = "10000000000000001";
+  db.prepare("INSERT INTO events(id,guild_id,name,description,starts_at,location,host_id,status,created_at,max_participants) VALUES('e',?,'Bizwar','',?,'HQ','h','scheduled','x',2)").run(G, new Date(Date.now() + 3600e3).toISOString());
+  const [A, B, P1, P2, P3, N] = ["30000000000000001", "30000000000000002", "30000000000000011", "30000000000000012", "30000000000000013", "30000000000000005"];
+  const prio = new Set([P1, P2, P3]), isPrio = id => prio.has(id);
+  events.join({ guildId: G, eventId: "e", userId: A, isPrio });
+  await new Promise(r => setTimeout(r, 5));
+  events.join({ guildId: G, eventId: "e", userId: B, isPrio });
+  const r1 = events.join({ guildId: G, eventId: "e", userId: P1, isPrio });
+  assert.equal(r1.status, "joined"); assert.equal(r1.bumped, B, "zuletzt angemeldete Normale");
+  assert.deepEqual(events.waitlist("e"), [B]);
+  const r2 = events.join({ guildId: G, eventId: "e", userId: P2, isPrio });
+  assert.equal(r2.bumped, A);
+  assert.deepEqual(events.participants("e").map(p => p.user_id).sort(), [P1, P2].sort());
+  // Voll nur mit Prio → nächste Prio kommt auf die Warteliste, aber vor alle Normalen.
+  assert.equal(events.join({ guildId: G, eventId: "e", userId: N, isPrio }).status, "waitlisted");
+  const r3 = events.join({ guildId: G, eventId: "e", userId: P3, isPrio });
+  assert.equal(r3.status, "waitlisted"); assert.equal(r3.position, 1);
+  assert.equal(events.waitlist("e")[0], P3);
+  assert.deepEqual(events.waitlist("e").slice(1, 3).sort(), [A, B].sort(), "Verdrängte vor später Wartenden");
+  assert.equal(events.waitlist("e")[3], N);
+  // Platz wird frei → Prio rückt zuerst nach.
+  assert.deepEqual(events.leave({ guildId: G, eventId: "e", userId: P1 }).promoted, [P3]);
+  // Ohne Prio-Funktion verhält sich alles wie bisher.
+  db.prepare("UPDATE events SET max_participants=10 WHERE id='e'").run();
+});

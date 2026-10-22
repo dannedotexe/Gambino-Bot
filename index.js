@@ -62,7 +62,7 @@ client.once(Events.ClientReady,ready=>{
 // Von der Leitung genannte IDs einmalig übernehmen, falls noch nichts eingestellt ist. Gesetzt wird nur, was
 // auf dem konfigurierten Server wirklich existiert und den richtigen Typ hat; jede Übernahme wird protokolliert.
 const ADOPT_NAMES={CHANNEL_WELCOME:/^\W*willkommen$/i,CHANNEL_ABSENCES:/^\W*abmeldungen$/i};
-const ADOPT_HINTS={CHANNEL_TICKET_CLOSED_CATEGORY:"1559680452980113479",ROLE_VERIFIED:"1559685681465397289",ROLE_MEMBERS:"1559954288652853248",CHANNEL_EVENT_CHECK:"1561413596150497300",CHANNEL_BOT_COMMANDS:"1561749617119461517",CHANNEL_TASK_FORUM:"1559991607791456398"};
+const ADOPT_HINTS={ROLE_PRIO_QUEUE:"1562836910127452260",CHANNEL_TICKET_CLOSED_CATEGORY:"1559680452980113479",ROLE_VERIFIED:"1559685681465397289",ROLE_MEMBERS:"1559954288652853248",CHANNEL_EVENT_CHECK:"1561413596150497300",CHANNEL_BOT_COMMANDS:"1561749617119461517",CHANNEL_TASK_FORUM:"1559991607791456398"};
 async function adoptLeadershipDefaults(){
   if(!settings)return;
   const guild=await client.guilds.fetch(config.DISCORD_GUILD_ID).catch(()=>null);
@@ -79,6 +79,7 @@ async function adoptLeadershipDefaults(){
   if(!config.CHANNEL_EVENT_FORUM&&!getSetting(db,guild.id,"ADOPTED_CHANNEL_EVENT_FORUM")){const forums=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.type===15&&/event-?logs?/i.test(ch.name));if(forums.length===1&&adopt("CHANNEL_EVENT_FORUM",forums[0].id,`Event-Logbücher-Forum (#${forums[0].name})`))setSetting(db,guild.id,"ADOPTED_CHANNEL_EVENT_FORUM",new Date().toISOString());}
   // Turf Leader dürfen Events (z. B. Staatliche Kontrolle) ankündigen: einmalig ins Event-Team übernehmen, bestehende Einträge bleiben.
   if(!getSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS")){const roles=[...(await guild.roles.fetch().catch(()=>new Map())).values()].filter(r=>/turf\s*leader/i.test(r.name)&&!r.managed);if(roles.length===1){const ids=[...new Set([...(config.ROLE_EVENT_TEAM??[]),roles[0].id])];if(ids.length===(config.ROLE_EVENT_TEAM??[]).length||adopt("ROLE_EVENT_TEAM",ids,`Event-Team ergänzt um ${roles[0].name}`))setSetting(db,guild.id,"ADOPTED_TURF_LEADER_EVENTS",new Date().toISOString());}}
+  if(!config.ROLE_PRIO_QUEUE?.length&&!getSetting(db,guild.id,"ADOPTED_ROLE_PRIO_QUEUE")){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_PRIO_QUEUE).catch(()=>null);if(role&&adopt("ROLE_PRIO_QUEUE",[role.id],`Prio-Queue-Rolle (${role.name})`))setSetting(db,guild.id,"ADOPTED_ROLE_PRIO_QUEUE",new Date().toISOString());}
   if(!config.ROLE_VERIFIED?.length){const role=await guild.roles.fetch(ADOPT_HINTS.ROLE_VERIFIED).catch(()=>null);if(role)adopt("ROLE_VERIFIED",[role.id],`Verifiziert-Rolle (${role.name})`);}
   // Willkommens- und Abmeldungs-Channel aus dem Gambinos-Layout übernehmen, wenn es genau einen passenden gibt.
   const allChannels=[...(await guild.channels.fetch().catch(()=>new Map())).values()].filter(ch=>ch?.isTextBased?.());

@@ -20,6 +20,7 @@ export const SETTINGS = [
   { key: "ROLE_FINANCE_VIEWERS", group: "Rollen", label: "Finanz-Einsicht", type: "roles", help: "Kontostände nur ansehen." },
   { key: "ROLE_REVIEWERS", group: "Rollen", label: "Reviewer", type: "roles", help: "Bewerbungen und Rang-Anträge prüfen." },
   { key: "ROLE_TASK_REVIEWERS", group: "Rollen", label: "Aufgaben-Prüfer", type: "roles", help: "Dürfen Aufgaben-Logs (Invite, Plantage …) bestätigen oder ablehnen – Bestätigen bucht die Belohnung aufs Familienkonto. Leitung und Finanzen dürfen das immer." },
+  { key: "ROLE_PRIO_QUEUE", group: "Rollen", label: "Prio Queue", type: "roles", help: "Mitglieder mit dieser Rolle kommen bei vollen Events vor den normalen rein: Die zuletzt angemeldete normale Person rückt auf Platz 1 der Warteliste (mit DM). Auf der Warteliste stehen Prio-Mitglieder vorne." },
   { key: "ROLE_EVENT_TEAM", group: "Rollen", label: "Event-Team", type: "roles", help: "Events und Aktivitäten verwalten." },
   { key: "ROLE_MEMBERS", group: "Rollen", label: "Familienmitglieder", type: "roles", help: "Die allgemeine Familienrolle (z. B. „| Gambino“). Wer sie oder eine Rang-Rolle hat, gehört zur Familie: Familienkonto, Abmeldung, Events, Rang-Anträge und „Mein Bereich“ auf der Website." },
   { key: "ROLE_VERIFIED", group: "Rollen", label: "Rolle nach Verifizierung", type: "roles", help: "Optional: wird nach erfolgreicher Verifizierung vergeben. Die Bot-Rolle muss darüber stehen." },

@@ -284,6 +284,7 @@ const COLUMNS = [
   ["polls", "reminded_at", "TEXT"],
   ["events", "start_ping_at", "TEXT"],
   ["event_proofs", "kills", "INTEGER"],
+  ["event_waitlist", "priority", "INTEGER"],
   ["task_types", "invite_min_days", "INTEGER"],
   ["task_types", "invite_min_events", "INTEGER"],
   ["task_logs", "invitee_id", "TEXT"],

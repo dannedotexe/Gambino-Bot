@@ -11,19 +11,32 @@ export function createEventService(db) {
   /**
    * Anmelden. overlapMinutes > 0: bei gleichzeitigen Events (Beginn so nah beieinander) wird man dort abgemeldet –
    * man kann nur bei einem dabei sein. switched = [{ event, promoted }] der verlassenen Events.
+   * Prio Queue (isPrio): Ist das Event voll, verdrängt eine Prio-Person die zuletzt angemeldete Nicht-Prio-Person
+   * (die landet ganz vorne auf der Warteliste = bumped); auf der Warteliste stehen Prio-Personen vor allen anderen.
    */
-  const join = db.transaction(({ guildId, eventId, userId, overlapMinutes = 0 }) => {
+  const join = db.transaction(({ guildId, eventId, userId, overlapMinutes = 0, isPrio = () => false }) => {
     const event = db.prepare("SELECT * FROM events WHERE id=? AND guild_id=? AND status='scheduled' AND signup_closed_at IS NULL").get(eventId, guildId);
     if (!event) return { status: "closed" };
     const current = db.prepare("SELECT status FROM event_participants WHERE event_id=? AND user_id=?").get(eventId, userId);
     if (current && ["signed_up", "present"].includes(current.status)) return { status: "already", event };
     const count = db.prepare(`SELECT COUNT(*) n FROM event_participants WHERE event_id=? AND status IN ${ACTIVE_PARTICIPATION}`).get(eventId).n;
     // Voll: auf die Warteliste; wer absagt, macht Platz für den Ersten auf der Liste.
+    const prio = Boolean(isPrio(userId));
+    let bumped = null;
     if (event.max_participants && count >= event.max_participants) {
-      const waiting = db.prepare("INSERT OR IGNORE INTO event_waitlist(event_id,user_id,created_at) VALUES(?,?,?)").run(eventId, userId, now()).changes;
-      if (waiting) audit(db, guildId, userId, "event.participation", userId, { eventId, status: "waitlist" });
-      return { status: waiting ? "waitlisted" : "already_waiting", event, position: waitlistPosition(eventId, userId) };
+      const victim = prio ? db.prepare("SELECT user_id FROM event_participants WHERE event_id=? AND status='signed_up' ORDER BY updated_at DESC,user_id DESC").all(eventId).map(r => r.user_id).find(id => !isPrio(id)) : null;
+      if (!victim) {
+        const waiting = db.prepare("INSERT OR IGNORE INTO event_waitlist(event_id,user_id,created_at,priority) VALUES(?,?,?,?)").run(eventId, userId, now(), prio ? 2 : 0).changes;
+        if (waiting) audit(db, guildId, userId, "event.participation", userId, { eventId, status: "waitlist", prio });
+        return { status: waiting ? "waitlisted" : "already_waiting", event, position: waitlistPosition(eventId, userId), prio };
+      }
+      // Platz frei machen: Verdrängte Person steht als Erste der Nicht-Prio-Wartenden auf der Liste.
+      db.prepare("UPDATE event_participants SET status='left',updated_at=? WHERE event_id=? AND user_id=?").run(now(), eventId, victim);
+      db.prepare("INSERT OR REPLACE INTO event_waitlist(event_id,user_id,created_at,priority) VALUES(?,?,?,1)").run(eventId, victim, now());
+      audit(db, guildId, userId, "event.participation", victim, { eventId, status: "bumped", by: userId });
+      bumped = victim;
     }
+    db.prepare("DELETE FROM event_waitlist WHERE event_id=? AND user_id=?").run(eventId, userId);
     db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,'signed_up',?) ON CONFLICT(event_id,user_id) DO UPDATE SET status='signed_up',updated_at=excluded.updated_at").run(eventId, userId, now());
     audit(db, guildId, userId, "event.participation", userId, { eventId, status: "signed_up" });
     const switched = [];
@@ -41,7 +54,7 @@ export function createEventService(db) {
         switched.push({ event: other, promoted: [], waitlist: true });
       }
     }
-    return { status: "joined", event, switched };
+    return { status: "joined", event, switched, bumped, prio };
   });
 
   const leave = db.transaction(({ guildId, eventId, userId }) => {
@@ -58,17 +71,17 @@ export function createEventService(db) {
   });
 
   const waitlistPosition = (eventId, userId) => {
-    const ids = db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY created_at,user_id").all(eventId).map(r => r.user_id);
+    const ids = db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY COALESCE(priority,0) DESC,created_at,user_id").all(eventId).map(r => r.user_id);
     return ids.indexOf(userId) + 1;
   };
-  const waitlist = eventId => db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY created_at,user_id").all(eventId).map(r => r.user_id);
+  const waitlist = eventId => db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY COALESCE(priority,0) DESC,created_at,user_id").all(eventId).map(r => r.user_id);
   /** Freie Plätze mit Wartenden auffüllen (z. B. nach Absage oder höherem Limit). Gibt die Nachgerückten zurück. */
   function promote(event) {
     const promoted = [];
     for (;;) {
       const count = db.prepare(`SELECT COUNT(*) n FROM event_participants WHERE event_id=? AND status IN ${ACTIVE_PARTICIPATION}`).get(event.id).n;
       if (event.max_participants && count >= event.max_participants) break;
-      const next = db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY created_at,user_id LIMIT 1").get(event.id);
+      const next = db.prepare("SELECT user_id FROM event_waitlist WHERE event_id=? ORDER BY COALESCE(priority,0) DESC,created_at,user_id LIMIT 1").get(event.id);
       if (!next) break;
       db.prepare("DELETE FROM event_waitlist WHERE event_id=? AND user_id=?").run(event.id, next.user_id);
       db.prepare("INSERT INTO event_participants(event_id,user_id,status,updated_at) VALUES(?,?,'signed_up',?) ON CONFLICT(event_id,user_id) DO UPDATE SET status='signed_up',updated_at=excluded.updated_at").run(event.id, next.user_id, now());
