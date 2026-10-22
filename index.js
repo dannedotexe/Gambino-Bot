@@ -6,6 +6,7 @@ import { buildCommands, createHandler, handleComponent } from "./src/commands.js
 import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook, renameLogbook, guardLogbookName, logbookTitle } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { refreshProofPrompt } from "./src/event-proofs.js";
+import { refreshEventPosts } from "./src/event-posts.js";
 import { giveawayResultPayload, giveawayWinnerPayload } from "./src/giveaway-cards.js";
 import { startScheduler } from "./src/scheduler.js";
 import { ensureFamilyRole, syncFamilyRoles } from "./src/family-role.js";
@@ -120,6 +121,11 @@ async function adoptLeadershipDefaults(){
       if(content!==message.content&&await message.edit({content,allowedMentions:{parse:[]}}).then(()=>true).catch(()=>false))fixed++;
     }
     if(fixed)console.log(`Logbuch-Pings: ${fixed} Nachrichten auf den neuen Text umgestellt.`);
+  }
+  // Offene Event-Karten bei jedem Start neu aufbauen, damit neue Knöpfe/Texte (z. B. „👥 Verwalten“) auch an älteren Karten erscheinen.
+  for(const row of db.prepare("SELECT * FROM events WHERE guild_id=? AND status='scheduled' AND message_id IS NOT NULL AND starts_at>=? ORDER BY starts_at LIMIT 30").all(guild.id,new Date(Date.now()-12*3_600_000).toISOString())){
+    await refreshEventPosts({db,client,config,event:row,cardOnly:true}).catch(()=>{});
+    await new Promise(r=>setTimeout(r,500));
   }
   // Geänderte Vorlage (Standardtext oder „Vorlage …“-Post) in die bestehenden Bot-Posts übernehmen.
   for(const kind of activeLogbookKinds(config)){const n=await syncLogbookTemplates({db,client,config,guildId:guild.id,kind}).catch(()=>0);if(n)console.log(`${LOGBOOK_FORUMS[kind].label}: Text in ${n} Posts aktualisiert.`);}
