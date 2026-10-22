@@ -14,7 +14,7 @@ export async function pingSignup({ db, client, config, event, userId }) {
   if (!threadId) return false;
   const thread = await client.channels.fetch(threadId).catch(() => null);
   if (!thread?.send) return false;
-  const message = await thread.send({ content: `<@${userId}> ✅ Angemeldet für **${event.name}** – <t:${unix(event.starts_at)}:F> (<t:${unix(event.starts_at)}:R>).\n📸 Nicht vergessen: **vor und nach dem Event ein Bild** hier posten (ganzer Bildschirm mit Datum & Uhrzeit).`, allowedMentions: { users: [userId] } }).catch(() => null);
+  const message = await thread.send({ content: `<@${userId}> ✅ Angemeldet für **${event.name}** – <t:${unix(event.starts_at)}:F> (<t:${unix(event.starts_at)}:R>).\n📸 Nicht vergessen: **während dem Event ein Bild** hier posten (ganzer Bildschirm mit Datum & Uhrzeit).`, allowedMentions: { users: [userId] } }).catch(() => null);
   if (!message) return false;
   db.prepare("INSERT OR REPLACE INTO event_signup_pings(event_id,user_id,channel_id,message_id,created_at) VALUES(?,?,?,?,?)").run(event.id, userId, thread.id, message.id, new Date().toISOString());
   return true;
