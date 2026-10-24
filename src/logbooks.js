@@ -68,18 +68,34 @@ async function threadGone(client, threadId) {
   catch (error) { return error?.code === 10003 || error?.status === 404; }
 }
 
-async function forumThreads(forum) {
-  const active = await forum.threads.fetchActive().catch(() => null);
-  const archived = await forum.threads.fetchArchived({ limit: 100 }).catch(() => null);
-  return [...(active?.threads?.values?.() ?? []), ...(archived?.threads?.values?.() ?? [])].filter(t => !t.parentId || t.parentId === forum.id);
+const isTemplateName = name => /^\W*vorlage/i.test(name ?? "");
+const templateKey = kind => `LOGBOOK_TEMPLATE_THREAD_${kind.toUpperCase()}`;
+
+/**
+ * Text des Posts „Vorlage …“. Die Post-ID wird gemerkt (auch archivierte Posts weit hinten werden so sicher gefunden).
+ * Ergebnis: { text, source: "vorlage" | "default", thread? } oder null, wenn eine bekannte Vorlage gerade nicht lesbar
+ * ist – dann darf nichts überschrieben werden (sonst würde der Standardtext deinen Text ersetzen).
+ */
+export async function findTemplate({ db, client, guildId, forum, kind = "tasks", threads = null }) {
+  const f = forumOf(kind), key = templateKey(kind), stored = getSetting(db, guildId, key);
+  let thread = stored ? await client.channels.fetch(stored).catch(() => null) : null;
+  if (thread && (thread.parentId !== forum.id || !isTemplateName(thread.name))) thread = null;
+  if (!thread) {
+    thread = (threads ?? await allForumThreads(forum)).find(t => isTemplateName(t.name)) ?? null;
+    if (thread) setSetting(db, guildId, key, thread.id);
+  }
+  if (!thread) return stored ? null : { text: f.template, source: "default" };
+  // force: immer frisch von Discord holen – eine gerade bearbeitete Vorlage soll sofort zählen.
+  const starter = await Promise.resolve(thread.fetchStarterMessage?.({ force: true })).catch(() => null);
+  const text = starter?.content?.trim();
+  return text ? { text, source: "vorlage", thread } : null;
 }
 
-/** Text aus dem Post „Vorlage …“ im Forum; ohne Vorlage der Standardtext. */
-async function templateFrom(threads, fallback = DEFAULT_LOGBOOK_TEMPLATE) {
-  const thread = threads.find(t => /^\W*vorlage/i.test(t.name));
-  // force: immer frisch von Discord holen – eine gerade bearbeitete Vorlage soll sofort zählen.
-  const starter = thread ? await Promise.resolve(thread.fetchStarterMessage?.({ force: true })).catch(() => null) : null;
-  return starter?.content?.trim() || fallback;
+/** Archivierte Posts kurz öffnen (sonst lässt Discord nichts bearbeiten), danach wieder archivieren. */
+async function withUnarchived(thread, fn) {
+  const was = Boolean(thread?.archived);
+  if (was && !(await thread.setArchived(false, "Logbuch aktualisieren").then(() => true).catch(() => false))) return false;
+  try { return await fn(); } finally { if (was) await thread.setArchived(true, "Logbuch wieder archiviert").catch(() => {}); }
 }
 
 /**
@@ -107,14 +123,14 @@ export async function ensureLogbook({ db, client, config, member, actorId = null
   try {
     const forum = await client.channels.fetch(config[f.key]).catch(() => null);
     if (!forum || forum.type !== ChannelType.GuildForum) { release(); return { status: "skipped", reason: `Das Forum für das ${f.label} ist kein Forum oder nicht erreichbar.` }; }
-    const title = logbookTitle(db, guildId, member), threads = await forumThreads(forum);
+    const title = logbookTitle(db, guildId, member), threads = await allForumThreads(forum);
     const id = idPart(title);
     const existing = threads.find(t => !/^\W*vorlage/i.test(t.name) && (norm(t.name) === norm(title) || (id && idPart(t.name) === id)));
     if (existing) {
       db.prepare(`UPDATE ${T} SET thread_id=?,title=?,source='existing' WHERE guild_id=? AND user_id=?`).run(existing.id, existing.name, guildId, member.id);
       return { status: "existing", thread: existing, threadId: existing.id };
     }
-    const content = buildLogbookContent(await templateFrom(threads, f.template), title, member.id);
+    const content = buildLogbookContent((await findTemplate({ db, client, guildId, forum, kind, threads }))?.text ?? f.template, title, member.id);
     // Foren mit Pflicht-Tag brauchen einen Tag; dann den ersten verfügbaren nehmen.
     const requireTag = forum.flags?.has?.("RequireTag") && forum.availableTags?.length;
     const thread = await forum.threads.create({ name: title, message: { content, allowedMentions: { users: [member.id] } }, ...(requireTag ? { appliedTags: [forum.availableTags[0].id] } : {}), reason: `${f.label} für Familienmitglied` });
@@ -136,16 +152,18 @@ export async function renameLogbook({ db, client, guildId, userId, title, kind =
   if (!thread?.setName) return false;
   // Erst speichern, dann umbenennen – sonst hielte der Umbenennungs-Schutz (guardLogbookName) den Bot selbst für einen Fremden.
   db.prepare(`UPDATE ${T} SET title=? WHERE guild_id=? AND user_id=?`).run(name, guildId, userId);
-  const ok = await thread.setName(name, "Name geändert").then(() => true).catch(() => false);
-  if (!ok) { db.prepare(`UPDATE ${T} SET title=? WHERE guild_id=? AND user_id=?`).run(row.title, guildId, userId); return false; }
-  // Titel steht auch im Text des Posts („Titel des eigenen Logbuchs: …“).
-  const starter = await Promise.resolve(thread.fetchStarterMessage?.({ force: true })).catch(() => null);
-  if (starter && starter.author?.id === client.user?.id) {
-    const forum = thread.parent ?? await client.channels.fetch(thread.parentId).catch(() => null);
-    const template = forum?.threads ? await templateFrom(await forumThreads(forum), f.template) : f.template;
-    await starter.edit({ content: buildLogbookContent(template, name, userId), allowedMentions: { parse: [] } }).catch(() => {});
-  }
-  return true;
+  return withUnarchived(thread, async () => {
+    const ok = await thread.setName(name, "Name geändert").then(() => true).catch(() => false);
+    if (!ok) { db.prepare(`UPDATE ${T} SET title=? WHERE guild_id=? AND user_id=?`).run(row.title, guildId, userId); return false; }
+    // Titel steht auch im Text des Posts („Titel des eigenen Logbuchs: …“).
+    const starter = await Promise.resolve(thread.fetchStarterMessage?.({ force: true })).catch(() => null);
+    if (starter && starter.author?.id === client.user?.id) {
+      const forum = thread.parent ?? await client.channels.fetch(thread.parentId).catch(() => null);
+      const template = forum?.threads ? (await findTemplate({ db, client, guildId, forum, kind }))?.text : null;
+      if (template) await starter.edit({ content: buildLogbookContent(template, name, userId), allowedMentions: { parse: [] } }).catch(() => {});
+    }
+    return true;
+  }).then(ok => { if (!ok) db.prepare(`UPDATE ${T} SET title=? WHERE guild_id=? AND user_id=?`).run(row.title, guildId, userId); return ok; });
 }
 
 /**
@@ -288,21 +306,32 @@ export async function remindInactiveLogbooks({ db, client, config, reference = n
  * Logbücher auf den neuen Text bringen – mit eigenem Titel und Markierung, ohne erneuten Ping. Läuft nur bei Änderung.
  */
 const syncing = new Set();
-export async function syncLogbookTemplates({ db, client, config, guildId, kind = "tasks", pauseMs = 1200 }) {
-  const f = forumOf(kind);
-  if (!config[f.key] || syncing.has(kind)) return 0;
-  syncing.add(kind);
-  try { return await syncTemplates({ db, client, config, guildId, kind, f, pauseMs }); } finally { syncing.delete(kind); }
+export async function syncLogbookTemplates(options) {
+  return (await applyLogbookTemplate(options)).updated;
 }
 
-async function syncTemplates({ db, client, config, guildId, kind, f, pauseMs }) {
+/**
+ * Vorlage in alle vom Bot angelegten Logbücher übernehmen. force: auch ohne erkannte Änderung alle prüfen (Knopf auf
+ * der Website). Ergebnis: { updated, failed, source, running? }.
+ */
+export async function applyLogbookTemplate({ db, client, config, guildId, kind = "tasks", pauseMs = 1200, force = false }) {
+  const f = forumOf(kind);
+  if (!config[f.key]) return { updated: 0, failed: 0, source: null };
+  if (syncing.has(kind)) return { updated: 0, failed: 0, source: null, running: true };
+  syncing.add(kind);
+  try { return await syncTemplates({ db, client, config, guildId, kind, f, pauseMs, force }); } finally { syncing.delete(kind); }
+}
+
+async function syncTemplates({ db, client, config, guildId, kind, f, pauseMs, force }) {
   const forum = await client.channels.fetch(config[f.key]).catch(() => null);
-  if (!forum || forum.type !== ChannelType.GuildForum) return 0;
-  const template = await templateFrom(await forumThreads(forum), f.template);
+  if (!forum || forum.type !== ChannelType.GuildForum) return { updated: 0, failed: 0, source: null };
+  const found = await findTemplate({ db, client, guildId, forum, kind });
+  if (!found) return { updated: 0, failed: 0, source: "unreadable" }; // Vorlage gerade nicht lesbar: nichts überschreiben
+  const template = found.text;
   const hash = createHash("sha256").update(template).digest("hex"), key = `LOGBOOK_TEMPLATE_${kind.toUpperCase()}`;
   const previous = getSetting(db, guildId, key);
-  if (!previous) { setSetting(db, guildId, key, hash); return 0; } // erster Lauf: nur merken, nichts umschreiben
-  if (previous === hash) return 0;
+  if (!previous && !force) { setSetting(db, guildId, key, hash); return { updated: 0, failed: 0, source: found.source }; } // erster Lauf: nur merken
+  if (previous === hash && !force) return { updated: 0, failed: 0, source: found.source };
   let updated = 0, failed = 0;
   for (const row of db.prepare(`SELECT user_id,thread_id,title FROM ${f.table} WHERE guild_id=? AND source='created' AND thread_id IS NOT NULL AND archived_at IS NULL`).all(guildId)) {
     const thread = await client.channels.fetch(row.thread_id).catch(() => null);
@@ -312,13 +341,14 @@ async function syncTemplates({ db, client, config, guildId, kind, f, pauseMs }) 
     if (starter.author?.id !== client.user?.id) continue;
     const content = buildLogbookContent(template, row.title, row.user_id);
     if (starter.content === content) continue;
-    if (await starter.edit({ content, allowedMentions: { parse: [] } }).then(() => true).catch(() => false)) { updated++; await new Promise(r => setTimeout(r, pauseMs)); }
+    // Archivierte Posts kurz öffnen – sonst lehnt Discord das Bearbeiten ab.
+    if (await withUnarchived(thread, () => starter.edit({ content, allowedMentions: { parse: [] } }).then(() => true).catch(() => false))) { updated++; await new Promise(r => setTimeout(r, pauseMs)); }
     else failed++;
   }
   // Erst merken, wenn alle Posts durch sind – sonst beim nächsten Lauf die übrigen nachziehen.
   if (!failed) setSetting(db, guildId, key, hash);
-  if (updated) audit(db, guildId, client.user?.id ?? "system", "logbook.template_synced", null, { kind, updated });
-  return updated;
+  if (updated || failed) audit(db, guildId, client.user?.id ?? "system", "logbook.template_synced", null, { kind, updated, failed, source: found.source });
+  return { updated, failed, source: found.source };
 }
 
 /** Alle Posts eines Forums (aktiv + archiviert, seitenweise). */

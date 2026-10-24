@@ -3,7 +3,7 @@ import { accessGroups, configWarnings, loadConfig } from "./src/config.js";
 import { audit, getSetting, openDatabase, setSetting } from "./src/database.js";
 import { createFinance } from "./src/services/finance.js";
 import { buildCommands, createHandler, handleComponent } from "./src/commands.js";
-import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook, renameLogbook, guardLogbookName, logbookTitle } from "./src/logbooks.js";
+import { LOGBOOK_FORUMS, activeLogbookKinds, archiveLogbook, createMissingLogbooks, ensureLogbook, logbookStatus, resetLogbookForum, syncLogbookTemplates, applyLogbookTemplate, templateKindOf, familyOf, fixLogbookMentions, reopenLogbook, renameLogbook, guardLogbookName, logbookTitle } from "./src/logbooks.js";
 import { handleLogbookMessage } from "./src/task-logs.js";
 import { refreshProofPrompt } from "./src/event-proofs.js";
 import { refreshEventPosts } from "./src/event-posts.js";
@@ -129,7 +129,10 @@ async function adoptLeadershipDefaults(){
     await new Promise(r=>setTimeout(r,500));
   }
   // Geänderte Vorlage (Standardtext oder „Vorlage …“-Post) in die bestehenden Bot-Posts übernehmen.
-  for(const kind of activeLogbookKinds(config)){const n=await syncLogbookTemplates({db,client,config,guildId:guild.id,kind}).catch(()=>0);if(n)console.log(`${LOGBOOK_FORUMS[kind].label}: Text in ${n} Posts aktualisiert.`);}
+  // Einmalig nach dem Update (archivierte Posts konnten vorher nicht bearbeitet werden): Vorlage erzwungen übernehmen.
+  const forceTemplates=!getSetting(db,guild.id,"LOGBOOK_TEMPLATE_FORCE_V2");
+  if(forceTemplates)setSetting(db,guild.id,"LOGBOOK_TEMPLATE_FORCE_V2",new Date().toISOString());
+  for(const kind of activeLogbookKinds(config)){const r=await applyLogbookTemplate({db,client,config,guildId:guild.id,kind,force:forceTemplates}).catch(()=>({updated:0}));if(r.updated||r.failed)console.log(`${LOGBOOK_FORUMS[kind].label}: Text in ${r.updated} Posts aktualisiert${r.failed?`, ${r.failed} fehlgeschlagen`:""} (Quelle: ${r.source}).`);}
   // Auf Wunsch der Leitung (20.10.2026) einmalig: Forum event-logs leeren und alle Event-Logbücher mit dem neuen Text frisch anlegen.
   // Nur wenn Forum und Bot-Rechte (inkl. „Threads verwalten“ zum Löschen) passen – sonst beim nächsten Start erneut.
   if(config.CHANNEL_EVENT_FORUM&&!getSetting(db,guild.id,"EVENT_LOGBOOKS_RESET_V1")){
@@ -244,9 +247,12 @@ const activity=createActivityService(db);
 // Screenshot im eigenen Logbuch: Bot fragt per Auswahlmenü, welche Aufgabe es ist (kein /log nötig).
 // „Vorlage …“-Post bearbeitet: Text gleich in alle Logbücher übernehmen (kurz warten, falls mehrfach hintereinander bearbeitet).
 const templateTimers=new Map();
-client.on(Events.MessageUpdate,(_,message)=>{
+client.on(Events.MessageUpdate,async(_,message)=>{
   if(!message.guildId||(config.DISCORD_GUILD_ID&&message.guildId!==config.DISCORD_GUILD_ID))return;
-  const kind=templateKindOf(config,message);if(!kind)return;
+  // Nur Startnachrichten (ID = Thread-ID); Thread ggf. nachladen, weil archivierte Posts nicht im Speicher sind.
+  if(message.id!==message.channelId)return;
+  const channel=message.channel??await client.channels.fetch(message.channelId).catch(()=>null);
+  const kind=templateKindOf(config,{id:message.id,channel});if(!kind)return;
   clearTimeout(templateTimers.get(kind));
   templateTimers.set(kind,setTimeout(()=>{templateTimers.delete(kind);void syncLogbookTemplates({db,client,config,guildId:message.guildId,kind}).then(n=>{if(n)console.log(`${LOGBOOK_FORUMS[kind].label}: Vorlage geändert – Text in ${n} Posts aktualisiert.`);}).catch(error=>console.warn("Vorlage konnte nicht übernommen werden:",error.message));},5000));
 });

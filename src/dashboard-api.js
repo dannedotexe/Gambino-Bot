@@ -44,7 +44,7 @@ import { EXPORTS, buildExportFile } from "./export.js";
 import { TaskError, createTaskService, weekStart } from "./services/tasks.js";
 import { killLeaderboard, killsOf, weekCalendar } from "./services/calendar.js";
 import { conditionText, decideTask, refreshTaskBoard } from "./task-logs.js";
-import { LOGBOOK_FORUMS, createMissingLogbooks, logbookStatus, resetLogbookForum } from "./logbooks.js";
+import { LOGBOOK_FORUMS, applyLogbookTemplate, createMissingLogbooks, logbookStatus, resetLogbookForum } from "./logbooks.js";
 import { noShowsOf, removeNoShow } from "./event-checks.js";
 import { RESET_CONFIRM_WORD, backupBeforeReset, resetData, resetPreview } from "./services/reset.js";
 import { PANEL_TEXTS, createTextsService } from "./services/texts.js";
@@ -550,6 +550,18 @@ export function createDashboardApi({ db, client, config, settings = null, series
       const log = await decideTask({ db, client, config, guildId, id, actorId: member.id, approve: action === "approve", quantity, reason: body.reason, owner: member.owner });
       if (log.status === "pending" && log.preapproved_at) return { message: `Bestätigt – die Belohnung wird automatisch gebucht, sobald die Bedingung erfüllt ist (${log.progress ?? conditionText(log)}).` };
       return { message: log.status === "approved" ? `Bestätigt${log.reward_cents ? ` – ${formatMoney(log.reward_cents)} gutgeschrieben` : ""}.` : "Abgelehnt. Das Mitglied wird informiert." };
+    }],
+    // Vorlage sofort in alle Logbücher übernehmen (läuft im Hintergrund; Ergebnis im Protokoll).
+    [/^\/api\/logbooks\/apply-template$/, async (member, body) => {
+      need(member, "staff", "Staff- oder Leitungsrolle");
+      const kind = Object.hasOwn(LOGBOOK_FORUMS, body.kind) ? body.kind : "tasks";
+      if (logbookRun) throw new HttpError(409, "Es läuft gerade schon eine Logbuch-Aktion – bitte kurz warten.");
+      logbookRun = { kind, startedAt: nowIso(), total: 0 };
+      void applyLogbookTemplate({ db, client, config, guildId, kind, force: true })
+        .then(r => { if (r.source === "unreadable") console.warn(`${LOGBOOK_FORUMS[kind].label}: Vorlage-Post nicht lesbar – nichts geändert.`); })
+        .catch(error => console.warn("Vorlage konnte nicht übernommen werden:", error.message))
+        .finally(() => { logbookRun = null; });
+      return { message: `${LOGBOOK_FORUMS[kind].label}: Vorlage wird übernommen – dauert ein paar Minuten. Ergebnis steht danach im Protokoll („Logbuch-Text aktualisiert“).` };
     }],
     [/^\/api\/logbooks\/create-missing$/, async (member, body) => {
       need(member, "staff", "Staff- oder Leitungsrolle");

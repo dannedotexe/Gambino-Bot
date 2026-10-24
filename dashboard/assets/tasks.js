@@ -194,7 +194,8 @@ async function loadLogbooks() {
     ].join("");
     const button = staff && d.forum ? `<button type="button" class="primary-btn" data-action="logbook-create" data-kind="${escapeHtml(d.kind)}" ${!d.missing.length || d.running ? "disabled" : ""}>${d.missing.length ? `Fehlende anlegen (${d.missing.length})` : "Alle haben eins"}</button>` : "";
     const reset = state.me.capabilities.leaders && d.forum ? `<button type="button" class="action reject" data-action="logbook-reset" data-kind="${escapeHtml(d.kind)}" ${d.running ? "disabled" : ""}>Neu aufsetzen …</button>` : "";
-    return `<div class="logbook-forum"><div class="panel-head"><div><h3>${escapeHtml(d.label)}</h3><p class="subtle">${info}</p></div><div class="section-tools">${reset}${button}</div></div><div class="rows">${rows}</div></div>`;
+    const apply = staff && d.forum ? `<button type="button" class="action" data-action="logbook-template" data-kind="${escapeHtml(d.kind)}" ${d.running ? "disabled" : ""} title="Text des „Vorlage“-Posts in alle Logbücher schreiben">Vorlage übernehmen</button>` : "";
+    return `<div class="logbook-forum"><div class="panel-head"><div><h3>${escapeHtml(d.label)}</h3><p class="subtle">${info}</p></div><div class="section-tools">${reset}${apply}${button}</div></div><div class="rows">${rows}</div></div>`;
   }).join("");
 }
 
@@ -222,6 +223,7 @@ Object.assign(actions, {
     openInfo(l ? taskTitle(l) : "Screenshot", `<img class="lightbox-img" src="${escapeHtml(url)}" alt="Screenshot"><p class="subtle"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">In neuem Tab öffnen</a></p>`, "BEWEIS", true);
   },
   "logbook-check": () => loadLogbooks(),
+  "logbook-template": ({ kind }) => confirmAction("Vorlage jetzt übernehmen?", "Der Text des Posts „Vorlage …“ in diesem Forum wird in alle Logbücher geschrieben (mit dem jeweiligen Titel und der Markierung, ohne neuen Ping). Archivierte Posts werden dafür kurz geöffnet. Dauert ein paar Minuten.", "Übernehmen", () => post("/api/logbooks/apply-template", { kind }), false),
   "logbook-reset": ({ kind }) => openForm({ eyebrow: "LOGBÜCHER", title: "Forum neu aufsetzen", danger: true,
     intro: "<p><b>Alle Posts in diesem Forum werden gelöscht</b> (außer einem Post „Vorlage …“) – auch die Bilder darin. Danach bekommt jedes Familienmitglied einen frischen Post mit dem aktuellen Text. Das lässt sich nicht rückgängig machen.</p>",
     fields: [{ name: "confirm", label: "Zum Bestätigen NEU eintippen", required: true, max: 10 }],

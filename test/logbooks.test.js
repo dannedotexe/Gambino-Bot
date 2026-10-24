@@ -180,11 +180,42 @@ test("Logbuch-Titel: fremde Umbenennung wird zurückgesetzt, Bot-Umbenennung ble
   assert.equal(await guardLogbookName({ db, oldThread: { name: "Tony Soprano | 1" }, thread }), true);
   assert.deepEqual(names, ["Tony Soprano | 1"], "zurückgesetzt");
   assert.equal(await guardLogbookName({ db, oldThread: { name: "Mein cooler Post" }, thread }), false, "jetzt korrekt – nichts zu tun");
-  const client = { user: { id: "bot" }, channels: { fetch: async id => (id === "t1" ? thread : null) } };
+  const forum = { id: "f1", threads: { fetchActive: async () => ({ threads: new Map() }), fetchArchived: async () => ({ threads: new Map(), hasMore: false }) } };
+  const client = { user: { id: "bot" }, channels: { fetch: async id => (id === "t1" ? thread : id === "f1" ? forum : null) } };
   assert.equal(await renameLogbook({ db, client, guildId: G, userId: U, title: "Tony Gambino | 1" }), true);
   assert.equal(db.prepare("SELECT title FROM logbooks").get().title, "Tony Gambino | 1");
   // Die Umbenennung durch den Bot löst ThreadUpdate aus – der Schutz lässt sie stehen.
   assert.equal(await guardLogbookName({ db, oldThread: { name: "Tony Soprano | 1" }, thread }), false);
   assert.equal(thread.name, "Tony Gambino | 1");
   assert.match(edits[0], /Tony Gambino \| 1/, "Titel im Post-Text aktualisiert");
+});
+
+test("Vorlage übernehmen: archivierte Posts werden kurz geöffnet, Vorlage auch weit hinten gefunden, nie Standardtext statt Vorlage", async () => {
+  const { applyLogbookTemplate } = await import("../src/logbooks.js");
+  const db = testDb(), G = "10000000000000001", FORUM = "60000000000000001";
+  const config = { CHANNEL_TASK_FORUM: FORUM, DISCORD_GUILD_ID: G };
+  let templateText = "📋 **Aufgaben Logs:**\n**Titel des eigenem Logbuchs:** `Daniel Dachsberg | 237407`\n• Neu: Plantage 10k";
+  const log = [];
+  const vorlage = { id: "v", name: "Vorlage + Info", parentId: FORUM, fetchStarterMessage: async () => (templateText ? { content: templateText } : null) };
+  const posts = [1, 2].map(n => {
+    const t = { id: `p${n}`, name: `Tony ${n} | ${n}`, parentId: FORUM, archived: n === 2,
+      setArchived: async a => { log.push(`${t.id}:${a ? "zu" : "auf"}`); t.archived = a; },
+      fetchStarterMessage: async () => ({ author: { id: "bot" }, content: "alt", edit: async p => { if (t.archived) throw new Error("archived"); log.push(`${t.id}:edit`); t.text = p.content; } }) };
+    db.prepare("INSERT INTO logbooks(guild_id,user_id,thread_id,title,created_at) VALUES(?,?,?,?,'x')").run(G, `3000000000000000${n}`, t.id, t.name);
+    return t;
+  });
+  // Vorlage liegt auf der 2. Archiv-Seite (früher nur die ersten 100 durchsucht).
+  const page1 = new Map(Array.from({ length: 100 }, (_, k) => [`x${k}`, { id: `x${k}`, name: `Alt ${k}`, parentId: FORUM }]));
+  const forum = { id: FORUM, type: 15, threads: { fetchActive: async () => ({ threads: new Map() }), fetchArchived: async ({ before } = {}) => (before ? { threads: new Map([["v", vorlage]]), hasMore: false } : { threads: page1, hasMore: true }) } };
+  const client = { user: { id: "bot" }, channels: { fetch: async id => (id === FORUM ? forum : id === "v" ? vorlage : posts.find(p => p.id === id) ?? null) } };
+  const r = await applyLogbookTemplate({ db, client, config, guildId: G, kind: "tasks", pauseMs: 0, force: true });
+  assert.deepEqual(r, { updated: 2, failed: 0, source: "vorlage" });
+  assert.match(posts[1].text, /Neu: Plantage 10k/); assert.match(posts[1].text, /Tony 2 \| 2/);
+  assert.deepEqual(log.filter(x => x.startsWith("p2")), ["p2:auf", "p2:edit", "p2:zu"], "archivierter Post kurz geöffnet und wieder archiviert");
+  assert.equal(db.prepare("SELECT value FROM guild_settings WHERE key='LOGBOOK_TEMPLATE_THREAD_TASKS'").get().value, "v", "Vorlage-ID gemerkt");
+  // Vorlage gerade nicht lesbar → nichts überschreiben (kein Standardtext).
+  templateText = null;
+  const before = posts[0].text;
+  assert.deepEqual(await applyLogbookTemplate({ db, client, config, guildId: G, kind: "tasks", pauseMs: 0, force: true }), { updated: 0, failed: 0, source: "unreadable" });
+  assert.equal(posts[0].text, before);
 });
